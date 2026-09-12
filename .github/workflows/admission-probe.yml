@@ -1,0 +1,23 @@
+name: Community admission probe
+on:
+  pull_request:
+    branches: [master]
+permissions: {}
+jobs:
+  same-name-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      matrix:
+        context: [community/validation, community/risk-review, community/human-review, community/admission]
+    name: ${{ matrix.context }}
+    steps:
+      - run: 'true'
+  protected-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    environment: community-gate
+    steps:
+      - run: |
+          echo 'A candidate PR must not enter the protected environment.' >&2
+          exit 1
