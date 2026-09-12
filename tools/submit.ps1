@@ -1,16 +1,17 @@
-﻿param([string]$ProjectDirectory = (Get-Location).Path)
+param([string]$ProjectDirectory = (Get-Location).Path)
 
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $LauncherPath = $MyInvocation.MyCommand.Path
 $SubmitExitCode = 0
 
-# 固定工具闭包；更新时同时固定来源提交和清单原始摘要。
+# Update the source commit and raw manifest digest together.
 $RuntimeCommit = 'e5489ee3180a3bc339f9aba47f01e1e86155b88d'
 $ManifestSha256 = 'bf9148ede485a140982e64b1dc45eec94cdc3fd8904fb7c22af5f96f16f48c6d'
 $Repository = 'Sywyar/PixivDownloader-community-plugins'
 $MarkerName = '.pixivdownloader-plugin-project'
-$MarkerMissing = '未检测到项目标识，您的SDK版本可能低于3600837c或非SDK目录'
+# Keep this entry ASCII for both -File and irm | iex on PowerShell 5.1.
+$MarkerMissing = ConvertFrom-Json '"\u672a\u68c0\u6d4b\u5230\u9879\u76ee\u6807\u8bc6\uff0c\u60a8\u7684SDK\u7248\u672c\u53ef\u80fd\u4f4e\u4e8e3600837c\u6216\u975eSDK\u76ee\u5f55"'
 
 function Assert-PlainPath([string]$Value) {
     $current = [IO.Path]::GetFullPath($Value)
@@ -81,7 +82,7 @@ function File-Digest([string]$File, [long]$Maximum) {
 }
 
 function Download-Pinned([string]$Url, [string]$File, [long]$Maximum) {
-    # 只访问固定 GitHub raw 路径，不转发凭据、Cookie 或代理，也不接受重定向。
+    # Only pinned GitHub raw paths; no credentials, cookies, proxy or redirects.
     if (-not $Url.StartsWith(('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/'), [StringComparison]::Ordinal)) { throw 'BOOTSTRAP_URL_INVALID' }
     Add-Type -AssemblyName System.Net.Http
     $handler = [Net.Http.HttpClientHandler]::new()
@@ -170,7 +171,7 @@ try {
             if (-not (File-Matches $temporaryFile $file.size $file.sha256)) { throw 'BOOTSTRAP_FILE_CHANGED' }
             if (-not (File-Matches $destination $file.size $file.sha256)) { [IO.File]::Move($temporaryFile, $destination) }
         } finally {
-            # 临时文件由本次生成，目标仍在已验证的缓存目录中；失败下载不占用正式缓存名。
+            # Remove only this invocation's temporary file inside the checked cache.
             Assert-PlainPath $temporaryFile
             [IO.File]::Delete($temporaryFile)
         }
@@ -183,6 +184,6 @@ try {
     [Console]::Error.WriteLine($_.Exception.Message)
     $SubmitExitCode = 1
 }
-# irm | iex 返回调用终端；直接运行脚本时继续向父进程传递退出码。
+# Return to the caller for irm | iex; preserve process exit codes for -File.
 $global:LASTEXITCODE = $SubmitExitCode
 if ($LauncherPath) { exit $SubmitExitCode }
