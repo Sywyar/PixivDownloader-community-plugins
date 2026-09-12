@@ -1,0 +1,12 @@
+name: Community review event
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+permissions: {}
+jobs:
+  event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      # 仅唤醒受保护的读取器；该运行的状态和输出不参与准入。
+      - run: echo "Review event received"

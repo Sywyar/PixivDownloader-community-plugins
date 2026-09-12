@@ -1,0 +1,83 @@
+name: Community gate
+on:
+  pull_request_target:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed, labeled, unlabeled]
+  workflow_run:
+    workflows: [Community review event, Community review decision]
+    types: [completed]
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      prNumber:
+        description: PR number to recalculate (empty recalculates all open PRs)
+        required: false
+        type: string
+permissions:
+  contents: read
+# ponytail: 全仓库串行适用于小型目录；吞吐受限时按 PR 拆分 sweep 与执行。
+concurrency:
+  group: community-review-state
+  queue: max
+jobs:
+  gate:
+    if: github.repository == 'Sywyar/PixivDownloader-community-plugins' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: community-gate
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      projections: ${{ steps.gate.outputs.projections }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: Iv23lixorUs94dx1xEvB
+          private-key: ${{ secrets.GATE_APP_PRIVATE_KEY }}
+          owner: Sywyar
+          repositories: PixivDownloader-community-plugins
+          permission-checks: write
+      - id: gate
+        run: node scripts/community-gate.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_TOKEN: ${{ steps.app.outputs.token }}
+  notify:
+    needs: gate
+    if: always() && needs.gate.outputs.projections != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - run: node scripts/community-gate.mjs notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_PROJECTIONS: ${{ needs.gate.outputs.projections }}
