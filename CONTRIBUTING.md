@@ -10,6 +10,10 @@
 
 维护工作通过独立 PR 进行。社区 Schema、签名和审核语义来自固定 SDK 工具与合同资源，不能在分发副本中修改。
 
+投稿者统一使用 [PowerShell 向导](README.md#投稿与版本管理)，准备最终包后选择版本投稿或管理操作。向导只在完整预览得到确认且当前事实复核成功后创建 fork PR；原生身份与静态检查仍由社区端独立取得和计算。
+
+修改向导运行文件后执行 `node scripts/submission-manifest.mjs --write`，再用 `node scripts/submission-manifest.mjs` 校验闭包。先提交运行文件和 `tools/submission-files.json`，再在单独提交中将 `tools/submit.ps1` 的 `RuntimeCommit` 固定到前一提交的完整 SHA，并将 `ManifestSha256` 设为该提交中清单原始字节的 SHA-256。入口本身不进入清单，避免循环引用；发布入口前须确保固定提交及其文件已能从公共仓库读取。不要将固定值改为分支名、移动标签或未经摘要验证的下载地址。
+
 `npm run repository:plan` 输出仓库保护的目标设置。`npm run repository:check` 回读 GitHub 当前设置。`node scripts/configure-repository.mjs --apply` 只在核对数字仓库身份、当前账号及公开状态后应用配置。它不创建仓库、不改变可见性、不上传 Secret、不批准 Environment，也不合并 PR。
 
 `npm run labels:plan` 预览受管标签差异；`npm run labels:apply` 应用名称、颜色和说明。未列入目录的标签保留。
