@@ -66,13 +66,21 @@ export function readSettings(call = api) {
     const snapshot = { repository: repository(call, { publicOnly: true }),
         token: call(`${prefix}/actions/permissions/workflow`),
         collaborators: list(`${prefix}/collaborators?affiliation=all`, null, call),
-        rulesets: list(`${prefix}/rulesets`, null, call).map(rule => call(`${prefix}/rulesets/${id(rule.id)}`)),
+        rulesets: list(`${prefix}/rulesets`, null, call).map(row => {
+            const ruleset = call(`${prefix}/rulesets/${id(row.id)}`);
+            for (const rule of ruleset.rules) {
+                // GitHub 回读会省略 update 的 false 默认值；显式 true 仍须保留并拒绝。
+                if (rule.type === 'update') rule.parameters = { update_allows_fetch_and_merge: false, ...rule.parameters };
+            }
+            return ruleset;
+        }),
         environments: {}, branches: {} };
     const names = list(`${prefix}/environments`, 'environments', call).map(env => env.name);
     for (const name of Object.keys(desiredSettings().environments)) {
         if (!names.includes(name)) continue;
         snapshot.environments[name] = call(`${prefix}/environments/${name}`);
-        snapshot.branches[name] = list(`${prefix}/environments/${name}/deployment-branch-policies`, 'branch_policies', call);
+        snapshot.branches[name] = snapshot.environments[name].deployment_branch_policy?.custom_branch_policies
+            ? list(`${prefix}/environments/${name}/deployment-branch-policies`, 'branch_policies', call) : [];
     }
     return snapshot;
 }
