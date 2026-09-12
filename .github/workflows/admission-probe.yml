@@ -12,7 +12,7 @@ jobs:
         context: [community/validation, community/risk-review, community/human-review, community/admission]
     name: ${{ matrix.context }}
     steps:
-      - run: 'true'
+      - run: ':'
   protected-environment:
     runs-on: ubuntu-latest
     timeout-minutes: 2
