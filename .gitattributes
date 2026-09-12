@@ -1,0 +1,8 @@
+* text=auto eol=lf
+schemas/community/v1/** -text
+tools/community-contract.json -text
+*.jar binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.webp binary

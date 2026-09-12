@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "repository": "Sywyar/PixivDownloader-community-plugins",
+  "repositoryId": "1347624983",
+  "repositoryOwnerId": "83223374",
+  "defaultBranch": "master",
+  "gateApp": {
+    "id": 4837005,
+    "clientId": "Iv23lixorUs94dx1xEvB",
+    "slug": "sywyar-pixivdownloader-gate"
+  },
+  "reviewerAccountIds": [
+    "83223374"
+  ],
+  "requiredContexts": [
+    "community/validation",
+    "community/risk-review",
+    "community/human-review",
+    "community/admission"
+  ],
+  "publicationMode": "result-pull-request"
+}

@@ -1,0 +1,117 @@
+[
+  {
+    "name": "type:new-plugin",
+    "color": "0052cc",
+    "description": "验证为首次版本投稿"
+  },
+  {
+    "name": "type:update",
+    "color": "0052cc",
+    "description": "当前 binding 下的版本更新"
+  },
+  {
+    "name": "type:key-rotation",
+    "color": "5319e7",
+    "description": "有效路径及 payload 为发布者换钥"
+  },
+  {
+    "name": "type:yank",
+    "color": "5319e7",
+    "description": "有效状态请求 action=YANK"
+  },
+  {
+    "name": "type:unyank",
+    "color": "5319e7",
+    "description": "有效状态请求 action=UNYANK"
+  },
+  {
+    "name": "type:revoke",
+    "color": "5319e7",
+    "description": "有效状态请求 action=REVOKE"
+  },
+  {
+    "name": "type:ownership-transfer",
+    "color": "5319e7",
+    "description": "转移 proposal 或关联角色 approval"
+  },
+  {
+    "name": "type:maintenance",
+    "color": "6a737d",
+    "description": "受保护工具、规则、文档或设置维护"
+  },
+  {
+    "name": "ci:running",
+    "color": "fbca04",
+    "description": "当前输入仍在检查"
+  },
+  {
+    "name": "ci:passed",
+    "color": "0e8a16",
+    "description": "当前技术与有效风险门禁均已通过；不代表人工批准"
+  },
+  {
+    "name": "ci:blocked",
+    "color": "b60205",
+    "description": "输入/构建失败、确认违规或扫描未完成"
+  },
+  {
+    "name": "review:pending",
+    "color": "fbca04",
+    "description": "缺少当前源码审核，或旧批准失效"
+  },
+  {
+    "name": "review:approved",
+    "color": "0e8a16",
+    "description": "当前有效原生审核通过，无人工拒绝"
+  },
+  {
+    "name": "review:self-approved",
+    "color": "0e8a16",
+    "description": "当前有效显式自审，无人工拒绝"
+  },
+  {
+    "name": "review:changes-requested",
+    "color": "b60205",
+    "description": "存在未解决的授权人工拒绝"
+  },
+  {
+    "name": "scan:incomplete",
+    "color": "d93f0b",
+    "description": "原始扫描未完成；人工接受后仍保留以如实展示"
+  },
+  {
+    "name": "scan:false-positive",
+    "color": "c2e0c6",
+    "description": "当前扫描存在有效的指定误报裁决"
+  },
+  {
+    "name": "scan:manual-accepted",
+    "color": "c2e0c6",
+    "description": "当前扫描缺口经人工补充复核放行"
+  },
+  {
+    "name": "flow:recovery",
+    "color": "d4c5f9",
+    "description": "当前动作进入已定义的密钥/所有权恢复路径"
+  },
+  {
+    "name": "state:ready",
+    "color": "0e8a16",
+    "description": "当前 community/admission 成功，可由所有者合并"
+  },
+  {
+    "name": "state:awaiting-apply",
+    "color": "fbca04",
+    "description": "已合并且等待受保护发布/状态应用"
+  },
+  {
+    "name": "state:completed",
+    "color": "0e8a16",
+    "description": "受保护结果与 generation 已回读验证成功"
+  },
+  {
+    "name": "state:apply-failed",
+    "color": "b60205",
+    "description": "合并后的受保护执行失败，尚未完成发布/应用"
+  }
+]

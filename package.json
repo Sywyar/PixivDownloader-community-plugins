@@ -1,0 +1,15 @@
+{
+  "name": "pixivdownloader-community-plugins",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test scripts/test/*.test.mjs",
+    "repository:plan": "node scripts/configure-repository.mjs --plan",
+    "repository:check": "node scripts/configure-repository.mjs --check",
+    "labels:plan": "node scripts/sync-labels.mjs",
+    "labels:apply": "node scripts/sync-labels.mjs --apply"
+  }
+}
