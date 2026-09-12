@@ -23,6 +23,9 @@ function github() {
             if (path === prefix) Object.assign(state.repository, body);
             else if (path.endsWith('/actions/permissions/workflow')) state.token = body;
             else if (path.includes('/rulesets')) {
+                for (const rule of body.rules) {
+                    if (rule.type === 'update' && rule.parameters?.update_allows_fetch_and_merge === false) delete rule.parameters;
+                }
                 const existing = state.rulesets.find(rule => path.endsWith(`/${rule.id}`));
                 if (existing) Object.assign(existing, body);
                 else state.rulesets.push({ id: state.rulesets.length + 1, ...body });
@@ -47,7 +50,9 @@ function github() {
         else if (path.includes('/rulesets/')) result = state.rulesets.find(rule => path.endsWith(`/${rule.id}`));
         else if (path.endsWith('/environments')) result = { total_count: Object.keys(state.environments).length, environments: Object.values(state.environments) };
         else if (path.endsWith('/deployment-branch-policies')) {
-            const branches = state.branches[path.split('/').at(-2)] ?? [];
+            const name = path.split('/').at(-2);
+            if (!state.environments[name].deployment_branch_policy?.custom_branch_policies) throw new Error('HTTP 404');
+            const branches = state.branches[name] ?? [];
             result = { total_count: branches.length, branch_policies: branches };
         } else if (path.includes('/environments/')) result = state.environments[path.split('/').at(-1)];
         else if (path.endsWith('/labels')) result = state.labels;
@@ -59,6 +64,7 @@ function github() {
 
 test('配置可重复应用，所有者不能借 PR bypass 跳过四个 App 检查', () => {
     const server = github();
+    server.state.environments['community-gate'] = { name: 'community-gate', deployment_branch_policy: null, protection_rules: [] };
     configure(server.call);
     assert.deepEqual(checkSettings(readSettings(server.call)), []);
     const rules = server.state.rulesets;
@@ -74,6 +80,7 @@ test('配置可重复应用，所有者不能借 PR bypass 跳过四个 App 检�
     assert.equal(server.writes.length, writes);
     for (const mutate of [
         snapshot => { snapshot.rulesets.find(rule => rule.name === gate.name).bypass_actors.push(update.bypass_actors[0]); },
+        snapshot => { snapshot.rulesets.find(rule => rule.name === update.name).rules[0].parameters.update_allows_fetch_and_merge = true; },
         snapshot => { snapshot.rulesets.find(rule => rule.name === gate.name).rules.find(rule => rule.type === 'required_status_checks').parameters.required_status_checks[0].integration_id = 15368; },
         snapshot => { snapshot.environments.release.can_admins_bypass = true; },
         snapshot => { snapshot.environments.release.protection_rules[0].prevent_self_review = true; },
