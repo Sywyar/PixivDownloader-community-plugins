@@ -34,7 +34,7 @@ export function prepareSdk(directory = root) {
     const run = (command, args, cwd = workspace) => execFileSync(command, args, {
         cwd, encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
         // 子进程只处理固定合同和平台数据，不继承 GitHub token 或 App key。
-        env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PRIVATE_KEY/iu.test(key))),
+        env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PRIVATE_KEY|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|CLASSPATH/iu.test(key))),
         stdio: ['ignore', 'pipe', 'pipe'],
     });
     run('jar', ['--extract', '--file', path.join(workspace, 'tools/sdk-tools.jar'), 'BOOT-INF/classes', 'BOOT-INF/lib'], classes);
@@ -42,7 +42,7 @@ export function prepareSdk(directory = root) {
     run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', classpath, '-d', classes, path.join(directory, 'tools/CommunityReview.java')]);
     const invoke = command => JSON.parse(run('java', ['-cp', classpath, 'CommunityReview', workspace, lock.sourceCommit, command]).trim());
     invoke('verify');
-    return { workspace, invoke };
+    return { workspace, invoke, run, classpath };
 }
 
 export function evidence(workspace, value) {
