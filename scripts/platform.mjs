@@ -24,19 +24,24 @@ export function protectedSource(commit, current, readGit = git) {
 }
 
 // 来源只能是当前仓库默认分支的原生运行；候选文件和 display_title 不能认证执行器。
-export function trustedRun(runId, attempt, workflowPath, current, call = api, readGit = git) {
+export function trustedRun(runId, attempt, workflowPath, current, call = api, readGit = git, executionSha) {
     const run = call(prefix + '/actions/runs/' + id(runId) + '/attempts/' + id(attempt));
     const workflow = call(prefix + '/actions/workflows/' + id(run.workflow_id));
     if (id(run.id) !== id(runId) || run.run_attempt !== Number(attempt)
         || id(run.repository.id) !== policy.repositoryId || id(run.head_repository.id) !== policy.repositoryId
         || workflow.path !== workflowPath || id(workflow.id) !== id(run.workflow_id)
-        || run.path !== workflowPath || run.head_branch !== policy.defaultBranch
+        || run.path !== workflowPath
         || (workflowPath === decisionPath && run.event !== 'workflow_dispatch')
         || (workflowPath === gatePath && !['pull_request_target', 'workflow_run', 'workflow_dispatch', 'push'].includes(run.event))) {
         throw new Error('WORKFLOW_SOURCE_INVALID');
     }
-    protectedSource(sha(run.head_sha), current, readGit);
-    return run;
+    let sourceSha = run.head_sha;
+    if (workflowPath === gatePath && run.event === 'pull_request_target') {
+        // run head 属于投稿，关闭后原生 PR 关联还会为空；仅使用已交叉验证的当前执行上下文。
+        sourceSha = sha(executionSha);
+    } else if (run.head_branch !== policy.defaultBranch) throw new Error('WORKFLOW_SOURCE_INVALID');
+    protectedSource(sha(sourceSha), current, readGit);
+    return { ...run, sourceSha };
 }
 
 export function execution(workflowPath, env = process.env, call = api, readGit = git) {
@@ -48,8 +53,9 @@ export function execution(workflowPath, env = process.env, call = api, readGit =
         || readGit(['rev-parse', 'HEAD']) !== current || env.GITHUB_WORKFLOW_SHA !== current) {
         throw new Error('WORKFLOW_EXECUTION_INVALID');
     }
-    const run = trustedRun(env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, workflowPath, current, call, readGit);
-    if (run.head_sha !== current || run.actor.login !== env.GITHUB_ACTOR
+    const run = trustedRun(env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, workflowPath, current, call, readGit,
+        env.GITHUB_WORKFLOW_SHA);
+    if (run.sourceSha !== current || run.actor.login !== env.GITHUB_ACTOR
         || run.triggering_actor.login !== env.GITHUB_TRIGGERING_ACTOR) throw new Error('WORKFLOW_ACTOR_INVALID');
     return { current, run };
 }

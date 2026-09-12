@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { policy, prefix } from '../github.mjs';
 import { prepareSdk, evaluate, hash, readDecisionArtifact } from '../sdk.mjs';
-import { trustedRun, execution, classify, facts, decisionPath } from '../platform.mjs';
+import { trustedRun, execution, classify, facts, decisionPath, gatePath } from '../platform.mjs';
 import { createDecision, attachDecisions, loadDecisions } from '../decisions.mjs';
 import { publish, notify } from '../community-gate.mjs';
 
@@ -90,6 +90,35 @@ test('来源和路径边界拒绝候选执行器、错误身份、混合动作�
     state.pr.changed_files = 2;
     assert.throws(() => classify(state.pr, [...state.files, { filename: 'submissions/test.json' }]), /MIXED/);
     assert.throws(() => classify(state.pr, state.files), /INCOMPLETE/);
+    assert.equal(state.writes.length, 0);
+});
+
+test('目标事件要求受保护执行上下文，投稿 head 和关闭后的空关联均不替代工作流来源', () => {
+    const { state, call, readGit } = fixture();
+    const association = { base: structuredClone(state.pr.base),
+        head: { ...structuredClone(state.pr.head), ref: 'test/candidate' } };
+    Object.assign(state.run, { path: gatePath, event: 'pull_request_target', head_sha: head,
+        head_branch: association.head.ref, pull_requests: [association] });
+    const env = { GITHUB_REPOSITORY: policy.repository, GITHUB_REPOSITORY_ID: policy.repositoryId,
+        GITHUB_REF: 'refs/heads/' + policy.defaultBranch, GITHUB_REF_PROTECTED: 'true',
+        GITHUB_WORKFLOW_REF: policy.repository + '/' + gatePath + '@refs/heads/' + policy.defaultBranch,
+        GITHUB_WORKFLOW_SHA: current, GITHUB_RUN_ID: '71', GITHUB_RUN_ATTEMPT: '1',
+        GITHUB_ACTOR: state.owner.login, GITHUB_TRIGGERING_ACTOR: state.owner.login };
+    const protectedGit = args => {
+        assert(!args.some(arg => arg.includes(head)), '投稿 head 不属于受保护执行来源');
+        return readGit(args);
+    };
+    assert.equal(execution(gatePath, env, call, protectedGit).run.sourceSha, current);
+    assert.throws(() => execution(gatePath, { ...env, GITHUB_WORKFLOW_SHA: head }, call, readGit), /EXECUTION_INVALID/);
+    assert.throws(() => trustedRun(71, 1, gatePath, current, call, readGit));
+    state.run.pull_requests = [];
+    assert.equal(execution(gatePath, env, call, protectedGit).run.sourceSha, current);
+    for (const change of [{ GITHUB_REF: 'refs/heads/test/candidate' }, { GITHUB_REF_PROTECTED: 'false' },
+        { GITHUB_WORKFLOW_REF: policy.repository + '/' + gatePath + '@refs/heads/test/candidate' }]) {
+        assert.throws(() => execution(gatePath, { ...env, ...change }, call, readGit), /EXECUTION_INVALID/);
+    }
+    state.run.event = 'workflow_dispatch';
+    assert.throws(() => execution(gatePath, env, call, readGit), /SOURCE_INVALID/);
     assert.equal(state.writes.length, 0);
 });
 
