@@ -31,7 +31,7 @@
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30697cc721024224295ae79edb11b6ae1660c5cf/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/262368d60705619da22255bff65521d7f2e107ce/tools/submit.ps1' | iex
 ```
 
 无需先克隆社区仓库。`irm` 取得上述固定提交的入口脚本；入口再按完整来源提交和清单 SHA-256 校验工具，逐文件验证后使用本地缓存，缺少文件时只从对应提交下载。下载遵循平台默认代理设置，不发送 Cookie 或默认凭据，也不接受重定向。缓存位于 `%LOCALAPPDATA%\PixivDownloader\community-tools`，不会执行可变分支上的工具。
