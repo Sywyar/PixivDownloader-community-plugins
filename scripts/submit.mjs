@@ -31,13 +31,16 @@ function appliedRequest(sdk, state, changes) {
 export async function runWizard(directory = process.cwd(), { ui: suppliedUi, call = github } = {}) {
     // 在创建缓存、查询账号或执行工程前检查 SDK 标识。
     const project = preflight(directory);
-    const ui = suppliedUi ?? await terminal();
+    let ui = suppliedUi;
     let sdk;
     try {
+        ui ??= await terminal();
         const operation = await ui.select('operation', ['publish', 'YANK', 'UNYANK', 'REVOKE', 'transfer'], key => ui.text(key));
-        sdk = prepareSubmission();
-        const snapshot = protectedSnapshot(call);
-        const state = stateReader(sdk, snapshot.base, call);
+        sdk = await ui.task('preparing', () => prepareSubmission());
+        const { snapshot, state } = await ui.task('loading', () => {
+            const snapshot = protectedSnapshot(call);
+            return { snapshot, state: stateReader(sdk, snapshot.base, call) };
+        });
         const context = { sdk, snapshot, state, ui, sign: signingTool(sdk), projectRoot: project.gitRoot, call };
         let prepared;
         if (operation === 'publish') {
@@ -63,22 +66,26 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
         }
         const validate = () => validateChanges({ sdk, state, changes: prepared.changes, user: snapshot.actor, call,
             authorize: (owner, user) => eligible(owner, user, call) });
-        const result = { ...await validate(), ...(prepared.model ? { model: prepared.model } : {}) };
+        const result = { ...await ui.task('validating', validate), ...(prepared.model ? { model: prepared.model } : {}) };
         const outcome = await submitPreview({ sdk, snapshot, changes: prepared.changes, title: prepared.title, result, call,
             confirm: preview => ui.confirm('preview', preview),
             recheck: async () => {
-                unchanged(snapshot, call);
-                await prepared.recheck?.();
-                await validate();
+                await ui.task('rechecking', async () => {
+                    unchanged(snapshot, call);
+                    await prepared.recheck?.();
+                    await validate();
+                });
+                ui.say('writing');
             } });
         ui.say(outcome.cancelled ? 'cancelled' : 'submitted', outcome);
         return outcome;
     } catch (error) {
-        if (error.message === 'CANCELLED') { ui.say('cancelled'); return { cancelled: true }; }
+        if (error.message === 'CANCELLED') { ui?.say('cancelled'); return { cancelled: true }; }
         // 原生命令错误可能包含工程输出，只向终端投影固定错误码。
         const code = /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message
             : /ContractException: ([A-Z][A-Z0-9_]+)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
-        ui.say('failed', { code });
+        if (ui) ui.say('failed', { code });
+        else console.error(code);
         process.exitCode = 1;
         return { failed: code };
     } finally {
@@ -87,7 +94,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
                 && /^community-[A-Za-z0-9]+$/u.test(path.basename(sdk.workspace))
                 && fs.realpathSync(sdk.workspace) === sdk.workspace) fs.rmSync(sdk.workspace, { recursive: true });
         } catch { ui.say('cleanupFailed', { workspace: sdk.workspace }); }
-        finally { ui.close(); }
+        finally { ui?.close(); }
     }
 }
 

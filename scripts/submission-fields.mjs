@@ -32,8 +32,12 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.') {
         const template = sdk.invoke({ command: 'license', id });
         let text = readFile(template.file).toString('utf8');
         if (['MIT', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', '0BSD'].includes(id) && /<year>|\bYEAR\b/u.test(text)) {
-            const year = await ui.ask('year', String(new Date().getFullYear()));
-            const holder = await ui.ask('copyright');
+            const year = await ui.ask('year', String(new Date().getFullYear()), value => {
+                if (!/^[0-9]{4}(?:-[0-9]{4})?$/u.test(value)) throw new Error('COPYRIGHT_INPUT_INVALID');
+            });
+            const holder = await ui.ask('copyright', '', value => {
+                if (!value || /[\r\n<>]/u.test(value)) throw new Error('COPYRIGHT_INPUT_INVALID');
+            });
             if (!/^[0-9]{4}(?:-[0-9]{4})?$/u.test(year) || !holder || /[\r\n<>]/u.test(holder)) throw new Error('COPYRIGHT_INPUT_INVALID');
             text = text.replaceAll('<year>', year).replaceAll('<copyright holders>', holder).replaceAll('<owner>', holder);
             if (id === '0BSD') text = text.replace('YEAR', year).replace('AUTHOR EMAIL', holder);
@@ -44,13 +48,15 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.') {
         ui.say('rebuild');
         return null;
     }
-    const files = (await ui.ask('licenseFiles', suggestions.join(','))).split(',').map(value => value.trim());
     const reference = file => {
         if (!tracked.includes(file)) throw new Error('LICENSE_COMMIT_REQUIRED');
         const absolute = sdk.invoke({ command: 'path', root: projectRoot, path: file, mustExist: true }).path;
         const bytes = readFile(absolute);
         return { path: file, size: bytes.length, sha256: hash(bytes) };
     };
+    const files = (await ui.ask('licenseFiles', suggestions.join(','), value => {
+        value.split(',').map(file => reference(file.trim()));
+    })).split(',').map(value => value.trim());
     const references = files.map(reference);
     // 仅完整固定正文匹配才提出已知许可证；不根据单个关键词猜测法律授权。
     const known = new Set();
@@ -85,12 +91,7 @@ export async function marketFields(sdk, ui, owner, facts, changes, previous) {
     if (description) market.description = { [locale]: description };
     const catalog = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/catalogs.json'), 'utf8'));
     market.category = await ui.select('category', catalog.categories);
-    ui.say('tags', catalog.tags.map((tag, i) => `${i + 1}. ${tag}`));
-    const tags = await ui.ask('tags');
-    market.tags = tags ? tags.split(',').map(value => {
-        if (!/^[1-9][0-9]*$/u.test(value.trim()) || !catalog.tags[Number(value.trim()) - 1]) throw new Error('TAG_SELECTION_INVALID');
-        return catalog.tags[Number(value.trim()) - 1];
-    }) : [];
+    market.tags = await ui.multiselect('tags', catalog.tags, previous?.tags ?? []);
     const image = async (file, icon) => {
         const bytes = readFile(path.resolve(file), icon ? 256 * 1024 : 2 * 1024 * 1024);
         const frozen = sdk.save(bytes, '.image');
