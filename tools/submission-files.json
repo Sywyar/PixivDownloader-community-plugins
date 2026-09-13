@@ -4,7 +4,7 @@
     {
       "path": "schemas/community/v1/bundle-manifest.json",
       "size": 7163,
-      "sha256": "a0d215f7ad595501ee8ab069c40129994ef18d22923b20e3bb3765e894afa67e"
+      "sha256": "73e958c9d33c11267f5d4859f4199643fae4ef07b99d1801a38c648e3456a2a2"
     },
     {
       "path": "schemas/community/v1/catalogs.json",
@@ -13,8 +13,8 @@
     },
     {
       "path": "schemas/community/v1/community.schema.json",
-      "size": 66394,
-      "sha256": "1823cc52f75950cefb7f3263addd217ccd42973d06e92932676bae7d2696a4b6"
+      "size": 66417,
+      "sha256": "5a41ae7f82a675615c8bab0a88c68ff63ddf8cad51b073f85cf2141702ea0313"
     },
     {
       "path": "schemas/community/v1/licenses/0BSD.txt",
@@ -309,7 +309,7 @@
     {
       "path": "tools/community-contract.json",
       "size": 383,
-      "sha256": "adc4c389f31dac5e4d8a8018763f0ddb89483f9eb5bc933f204aa09f676418b5"
+      "sha256": "4ac535a9bdf82d6a7bacd3f08c112ae3e6ed19d25abc484d5141a57e88e2c8ec"
     },
     {
       "path": "tools/community-model.gradle",
@@ -319,12 +319,12 @@
     {
       "path": "tools/sdk-lock.json",
       "size": 354,
-      "sha256": "79fcd28d1c80cfd9651e4937fb85bdd031390a130673a846260c9248d3499978"
+      "sha256": "e44177eb931ed032b8b5ecbe7461ce660f4e2ac8023cc0ebc9bc938080dd2549"
     },
     {
       "path": "tools/sdk-tools.jar",
-      "size": 15377310,
-      "sha256": "1d77d76c3aed147c46c92b5a97fb1804a4565fb21c9da26bc164bc779998543a"
+      "size": 15406606,
+      "sha256": "af2f4adc41d5bca1c45e96e4f848eb70f81f3b1ff16e9550cea767a9422eab06"
     },
     {
       "path": "tools/signing-tool.jar",
