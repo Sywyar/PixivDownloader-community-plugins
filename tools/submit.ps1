@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $LauncherPath = $MyInvocation.MyCommand.Path
 $SubmitExitCode = 0
+$SubmitFailure = $null
 
 # Update the source commit and raw manifest digest together.
 $RuntimeCommit = '35816efd648ad8ae7072c3cc30c4955de3c95253'
@@ -82,13 +83,12 @@ function File-Digest([string]$File, [long]$Maximum) {
 }
 
 function Download-Pinned([string]$Url, [string]$File, [long]$Maximum) {
-    # Only pinned GitHub raw paths; no credentials, cookies, proxy or redirects.
+    # Use the platform proxy for pinned GitHub raw paths; no credentials, cookies or redirects.
     if (-not $Url.StartsWith(('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/'), [StringComparison]::Ordinal)) { throw 'BOOTSTRAP_URL_INVALID' }
     Add-Type -AssemblyName System.Net.Http
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
     $handler.UseCookies = $false
-    $handler.UseProxy = $false
     $handler.UseDefaultCredentials = $false
     $client = [Net.Http.HttpClient]::new($handler)
     $deadline = [Threading.CancellationTokenSource]::new(60000)
@@ -181,9 +181,14 @@ try {
     & node @nodeArgs
     $SubmitExitCode = $LASTEXITCODE
 } catch {
-    [Console]::Error.WriteLine($_.Exception.Message)
+    $SubmitFailure = $_.Exception.GetBaseException().Message
+    if ($LauncherPath) { [Console]::Error.WriteLine($SubmitFailure) }
     $SubmitExitCode = 1
 }
-# Return to the caller for irm | iex; preserve process exit codes for -File.
+# Preserve native exit codes; report pipeline failures without exiting the user's terminal.
 $global:LASTEXITCODE = $SubmitExitCode
 if ($LauncherPath) { exit $SubmitExitCode }
+if ($SubmitExitCode -ne 0) {
+    if (-not $SubmitFailure) { $SubmitFailure = 'SUBMISSION_FAILED: ' + $SubmitExitCode }
+    throw $SubmitFailure
+}
