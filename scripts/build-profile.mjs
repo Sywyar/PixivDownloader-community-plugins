@@ -16,7 +16,8 @@ export function buildProfile(profile, projectDir, proxy) {
     const env = { ...process.env, PATH: '/tools/node/bin:/tools/maven/bin:/tools/gradle/bin:/opt/java/openjdk/bin:/usr/bin:/bin',
         GRADLE_USER_HOME: '/work/home/.gradle', COURSIER_CACHE: '/work/home/.cache/coursier',
         COURSIER_REPOSITORIES: 'https://repo.maven.apache.org/maven2',
-        JAVA_TOOL_OPTIONS: `-Djava.io.tmpdir=/work/tmp -Duser.home=/work/home -Dfile.encoding=UTF-8 ${proxyOptions}` };
+        JAVA_TOOL_OPTIONS: '-Djava.io.tmpdir=/work/tmp -Duser.home=/work/home -Dfile.encoding=UTF-8 '
+            + `-Djavax.net.ssl.trustStore=/trust/cacerts -Djavax.net.ssl.trustStorePassword=changeit ${proxyOptions}` };
     const run = (executable, args, capture = false) => {
         try {
             return execFileSync(executable, args, { cwd: project, env, encoding: 'utf8', maxBuffer: API_BYTES,

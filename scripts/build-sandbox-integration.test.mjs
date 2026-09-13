@@ -16,6 +16,8 @@ test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进�
         fs.mkdirSync(path.join(sandbox.writable, 'source'));
         const stats = await sandbox.run({ phase: 'probe', tools: root,
             command: ['/bin/sh', '-c', 'test ! -e /var/run/docker.sock && test ! -w /etc/passwd && '
+                + 'test ! -e /configuration/ca.key && test -r /trust/ca.pem && test ! -w /trust/ca.pem && '
+                + 'test -r /trust/cacerts && test ! -w /trust/cacerts && '
                 + 'test "$(id -u)" != 0 && test "$(cat /sys/fs/cgroup/memory.max)" = 134217728 && '
                 + 'test "$(cat /sys/fs/cgroup/pids.max)" = 32 && echo output > /work/source/output.txt && '
                 + 'mkdir /work/restricted && dd if=/dev/zero of=/work/restricted/data bs=1048576 count=1 && '
@@ -52,4 +54,5 @@ test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进�
             command: ['/bin/sh', '-c', 'sleep 120 & wait'] }), /BUILD_TIMEOUT/u);
     }, { policy, directory });
     assert.equal(fs.existsSync(path.join(workspace, 'disk.img')), false);
+    assert.equal(fs.existsSync(path.join(workspace, 'proxy/ca.key')), false);
 });

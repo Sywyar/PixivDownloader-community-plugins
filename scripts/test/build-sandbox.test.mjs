@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildPolicy, containerOptions, proxyConfiguration } from '../build-sandbox.mjs';
+import { buildPolicy, containerOptions } from '../build-sandbox.mjs';
+import { proxyConfiguration } from '../build-proxy.mjs';
 
 test('构建参数限制网络、权限和资源，离线容器不继承预取网络', () => {
     const policy = { ...buildPolicy, cpus: 3, memoryBytes: 4096, diskBytes: 8192, pids: 23, timeoutMs: 5000 };
@@ -22,7 +23,6 @@ test('制品代理只接受完整主机名，拒绝配置注入与通配域名',
     }
     const config = proxyConfiguration(['repo.example.com']);
     assert.ok(config.includes('acl approved dstdomain repo.example.com\n'));
-    assert.ok(config.includes('http_access deny !CONNECT\n'));
     assert.ok(config.includes('http_access deny !TLS\n'));
-    assert.ok(config.indexOf('http_access deny private') < config.indexOf('http_access allow approved'));
+    assert.ok(config.indexOf('http_access deny private') < config.indexOf('http_access allow CONNECT'));
 });

@@ -56,6 +56,8 @@ irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/
 
 版本投稿随后在一次性的 GitHub 托管 Ubuntu runner 上构建。固定摘要的容器最多使用 2 CPU、6 GiB 内存、12 GiB 可写磁盘和 512 个进程，每次构建限时 30 分钟。Maven、Gradle、sbt profile 执行各自的构建与测试任务；预取只经代理访问批准的公共制品源，正式重建恢复原始源码并关闭网络。容器不接收 Secret、GitHub token、Docker socket 或共享可写缓存。重建包必须与发布者的原包逐字节一致。
 
+预取代理使用按 SHA-256 固定的 Ubuntu OpenSSL 工具，核对 CONNECT、TLS 和 HTTP 请求中的目标，只转发批准主机的 HTTPS GET/HEAD，并验证源站证书。构建容器只读本次临时 CA 的公钥证书与信任库；私钥仅挂给代理并在结束时移除，不修改开发者或 runner 的系统信任库。
+
 扫描器读取最终包的 JVM 调用指令，不加载插件类。报告保留精确方法符号、位置、包摘要和原始调用证据，并分别标记插件编译输出、私有依赖和无法确定归属的类。只有规则覆盖的直接调用可产生缺报发现；未命中不代表不存在相应行为。坏 class 或扫描失败显示 `INCOMPLETE`，已发现的问题继续保留。SBOM 清点实际包与构建缓存，依赖许可证声明仍须人工复核。
 
 构建 job 只有读取权限，不使用 Secret。成功后将包、源码和证据交接为保留七天的 Actions artifact。受保护的 `Community candidate archive` 独立验证原生执行来源及全部字节，将它们存入“待审核” Draft Release，并用 GitHub artifact attestation 证明归档来源。待审核资产名包含稳定发布者 ID，例如 `pixivdownload-plugin-alice-example-plugin-1.2.0.jar`。Draft 不进入公开目录，也不授予 `SOURCE_REVIEWED`。

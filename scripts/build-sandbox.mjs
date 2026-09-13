@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { API_BYTES, API_TIMEOUT } from './github.mjs';
 import { root } from './sdk.mjs';
+import { prepareProxy } from './build-proxy.mjs';
 
 export const buildPolicy = Object.freeze(JSON.parse(fs.readFileSync(new URL('./build-policy.json', import.meta.url), 'utf8')));
 const execute = (command, args) => execFileSync(command, args, { encoding: 'utf8', timeout: API_TIMEOUT,
@@ -23,30 +24,6 @@ export function containerOptions(policy, network, uid = 1000, gid = 1000) {
         `--user=${uid}:${gid}`, `--cpus=${policy.cpus}`, `--memory=${policy.memoryBytes}`,
         `--memory-swap=${policy.memoryBytes}`, `--pids-limit=${policy.pids}`, `--network=${network}`,
         '--dns=127.0.0.1', '--log-driver=none', '--init'];
-}
-
-export function proxyConfiguration(hosts) {
-    if (!Array.isArray(hosts) || !hosts.length || new Set(hosts).size !== hosts.length
-        || hosts.some(host => !/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/u.test(host))) throw new Error('ARTIFACT_HOSTS_INVALID');
-    return `http_port 3128
-pid_filename none
-cache deny all
-cache_log /dev/null
-access_log none
-cache_store_log none
-acl CONNECT method CONNECT
-acl TLS port 443
-acl approved dstdomain ${hosts.join(' ')}
-acl private dst 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.88.99.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/3 ::/0
-http_access deny !CONNECT
-http_access deny !TLS
-http_access deny !approved
-http_access deny private
-http_access allow approved
-http_access deny all
-forwarded_for delete
-via off
-`;
 }
 
 // 挂载目录来自受保护执行器，投稿字符串不能增加 Docker 选项或宿主挂载。
@@ -116,9 +93,9 @@ export async function withBuildSandbox(action, { directory = root, policy = buil
     const containers = [];
     containerOptions(policy, network);
     fs.mkdirSync(writable);
-    fs.mkdirSync(configuration);
-    fs.writeFileSync(path.join(configuration, 'squid.conf'), proxyConfiguration(policy.artifactHosts), 'utf8');
+    let trust;
     try {
+        trust = await prepareProxy(configuration, policy);
         // 12 GiB 是实际文件系统容量预算；源码、缓存、临时文件与输出共用这一上限。
         execute('fallocate', ['-l', String(policy.diskBytes), disk]);
         execute('mkfs.ext4', ['-q', '-m', '0', disk]);
@@ -133,11 +110,11 @@ export async function withBuildSandbox(action, { directory = root, policy = buil
         if (!actual.Internal || actual.EnableIPv6 || actual.Options['com.docker.network.bridge.gateway_mode_ipv4'] !== 'isolated') {
             throw new Error('BUILD_NETWORK_NOT_ISOLATED');
         }
-        // 代理是唯一双网络容器；它没有源码、工具、构建缓存或任何凭据挂载。
+        // 代理是唯一双网络容器；它没有源码、构建缓存或 GitHub / 社区发布凭据挂载。
         docker('create', '--name', proxy, '--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges',
-            '--user=1000:1000', '--memory=268435456', '--memory-swap=268435456', '--pids-limit=64', '--log-driver=none',
+            `--user=${uid}:${gid}`, '--memory=268435456', '--memory-swap=268435456', '--pids-limit=64', '--log-driver=none',
             '--network=bridge', '--tmpfs=/tmp:rw,nosuid,nodev,size=16777216', ...mount(configuration, '/configuration'),
-            '--entrypoint=/usr/sbin/squid', policy.proxyImage, '-N', '-f', '/configuration/squid.conf');
+            '--entrypoint=/configuration/usr/sbin/squid', policy.proxyImage, '-N', '-f', '/configuration/squid.conf');
         proxyCreated = true;
         docker('network', 'connect', network, proxy);
         docker('start', proxy);
@@ -152,8 +129,10 @@ export async function withBuildSandbox(action, { directory = root, policy = buil
             if (process.getuid() === 0) privileged('chown', '-hR', `${uid}:${gid}`, writable);
             const args = ['create', '--name', name, ...containerOptions(policy, online ? network : 'none', uid, gid),
                 ...mount(writable, '/work', false), ...mount(tools, '/tools'),
+                ...mount(trust, '/trust'),
                 ...mount(path.join(writable, 'tmp'), '/tmp', false),
                 '--env=HOME=/work/home', '--env=TMPDIR=/work/tmp', '--env=LANG=C.UTF-8', '--env=TZ=UTC',
+                '--env=SSL_CERT_FILE=/trust/ca.pem',
                 '--env=JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=/work/tmp -Duser.home=/work/home',
                 '--entrypoint=/bin/sleep', policy.image, 'infinity'];
             docker(...args);
@@ -192,6 +171,8 @@ export async function withBuildSandbox(action, { directory = root, policy = buil
         }
         if (networkCreated) try { docker('network', 'rm', network); } catch (error) { failures.push(error); }
         if (mounted) try { privileged('umount', writable); } catch (error) { failures.push(error); }
+        const key = path.join(configuration, 'ca.key');
+        if (fs.existsSync(key)) try { fs.unlinkSync(key); } catch (error) { failures.push(error); }
         if (failures.length) throw new AggregateError(failures, 'BUILD_SANDBOX_CLEANUP_FAILED');
         if (completed) fs.unlinkSync(disk);
     }
