@@ -168,10 +168,11 @@ export async function withBuildSandbox(action, { directory = root, policy = buil
             catch (error) { failure = error; }
             let measurement;
             try {
+                const diskUsage = fs.statfsSync(writable);
                 measurement = { elapsedMs: Math.ceil(performance.now() - started), logBytes, jdkVersion,
                     memoryPeakBytes: Number(docker('exec', name, '/bin/cat', '/sys/fs/cgroup/memory.peak')),
                     pidsPeak: Number(docker('exec', name, '/bin/cat', '/sys/fs/cgroup/pids.peak')),
-                    diskBytes: Number(execute('du', ['-s', '-B1', writable]).split(/\s/u)[0]) };
+                    diskBytes: (diskUsage.blocks - diskUsage.bfree) * diskUsage.bsize };
             } catch (error) { failure ??= error; }
             docker('rm', '-f', name);
             containers.splice(containers.indexOf(name), 1);
