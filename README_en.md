@@ -16,7 +16,7 @@ Install Git, GitHub CLI, Node.js 24 or newer, and JDK 17 with `java`, `javac` an
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/68b42c8bb03585a6ab9227f18360b3ac3303b7d2/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30697cc721024224295ae79edb11b6ae1660c5cf/tools/submit.ps1' | iex
 ```
 
 You do not need to clone the community repository. `irm` retrieves the launcher from the fixed commit above. The launcher then verifies tools against a full source commit and manifest SHA-256. It checks each file before using the cache at `%LOCALAPPDATA%\PixivDownloader\community-tools`, downloading missing files only from that commit. It does not execute tools from a mutable branch. When the wizard finishes, it returns to your terminal and leaves the result code in `$LASTEXITCODE`.
