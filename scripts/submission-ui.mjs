@@ -1,11 +1,39 @@
-import { createInterface } from 'node:readline/promises';
+import { setImmediate } from 'node:timers/promises';
+import * as prompts from './vendor/clack-prompts.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
 const messages = {
     language: ['选择语言', 'Choose a language', '選擇語言', '言語を選択', '언어 선택'],
-    choose: ['请选择编号', 'Choose a number', '請選擇編號', '番号を選択', '번호 선택'],
-    confirm: ['确认后输入 YES，取消请直接回车', 'Type YES to confirm; Enter cancels', '確認後輸入 YES，取消請直接按 Enter', '確認する場合は YES、キャンセルは Enter', '확인하려면 YES 입력, 취소하려면 Enter'],
+    navigation: ['↑/↓ 移动 · Enter 确认 · Esc 取消', '↑/↓ Move · Enter Select · Esc Cancel', '↑/↓ 移動 · Enter 確認 · Esc 取消', '↑/↓ 移動 · Enter 決定 · Esc キャンセル', '↑/↓ 이동 · Enter 선택 · Esc 취소'],
+    multiNavigation: ['↑/↓ 移动 · 空格勾选 · Enter 确认 · Esc 取消', '↑/↓ Move · Space Toggle · Enter Confirm · Esc Cancel', '↑/↓ 移動 · 空白鍵勾選 · Enter 確認 · Esc 取消', '↑/↓ 移動 · Space 選択切替 · Enter 決定 · Esc キャンセル', '↑/↓ 이동 · Space 선택 전환 · Enter 확인 · Esc 취소'],
+    title: ['PixivDownloader 社区投稿', 'PixivDownloader community submission', 'PixivDownloader 社群投稿', 'PixivDownloader コミュニティ投稿', 'PixivDownloader 커뮤니티 제출'],
+    required: ['请填写此项', 'Enter a value', '請填寫此項', '値を入力してください', '값을 입력하세요'],
+    invalid: ['请检查输入', 'Check this value', '請檢查輸入', '入力を確認してください', '입력값을 확인하세요'],
+    terminalRequired: ['请在交互式终端中运行向导', 'Run the wizard in an interactive terminal', '請在互動式終端機中執行精靈', '対話型ターミナルで実行してください', '대화형 터미널에서 실행하세요'],
+    preparing: ['准备固定投稿工具', 'Prepare pinned submission tools', '準備固定投稿工具', '固定された投稿ツールを準備', '고정된 제출 도구 준비'],
+    loading: ['读取 GitHub 身份与社区状态', 'Read GitHub identity and community state', '讀取 GitHub 身分與社群狀態', 'GitHub の本人情報とコミュニティの状態を取得', 'GitHub 계정 및 커뮤니티 상태 조회'],
+    model: ['查询工程模型', 'Query the project model', '查詢工程模型', 'プロジェクトモデルを照会', '프로젝트 모델 조회'],
+    inspecting: ['检查安装包', 'Inspect the installation package', '檢查安裝套件', 'インストールパッケージを検査', '설치 패키지 검사'],
+    downloading: ['下载并核对文件摘要', 'Download and verify file digests', '下載並核對檔案摘要', 'ファイルをダウンロードしてダイジェストを検証', '파일 다운로드 및 다이제스트 검증'],
+    validating: ['验证投稿内容', 'Validate the submission', '驗證投稿內容', '投稿内容を検証', '제출 내용 검증'],
+    rechecking: ['复核身份、源码和安装包', 'Recheck identity, source and package', '複核身分、原始碼及安裝套件', '本人情報・ソース・パッケージを再確認', '계정, 소스 및 패키지 재확인'],
+    writing: ['创建提交并准备 PR', 'Create the commit and prepare the PR', '建立提交並準備 PR', 'コミットを作成して PR を準備', '커밋 생성 및 PR 준비'],
+    done: ['完成', 'Done', '完成', '完了', '완료'],
+    submissionSummary: ['提交摘要', 'Submission summary', '提交摘要', '投稿の概要', '제출 요약'],
+    files: ['文件', 'Files', '檔案', 'ファイル', '파일'],
+    none: ['未选择', 'None selected', '未選擇', '未選択', '선택 없음'],
+    details: ['完整提交预览', 'Complete submission preview', '完整提交預覽', '投稿の完全なプレビュー', '전체 제출 미리 보기'],
+    CREATE_FORK: ['创建社区仓库 fork', 'Create a community repository fork', '建立社群儲存庫 fork', 'コミュニティリポジトリを fork', '커뮤니티 저장소 fork 생성'],
+    CREATE_COMMIT: ['创建 Git 提交', 'Create a Git commit', '建立 Git 提交', 'Git コミットを作成', 'Git 커밋 생성'],
+    PUSH_BRANCH: ['推送投稿分支', 'Push the submission branch', '推送投稿分支', '投稿ブランチを push', '제출 브랜치 push'],
+    CREATE_READY_PR: ['创建待审核 PR', 'Create a PR ready for review', '建立待審核 PR', 'レビュー待ちの PR を作成', '검토할 PR 생성'],
+    demo: ['交互体验：示例数据，不访问 GitHub、不签名、不写入文件', 'Interaction preview: sample data, no GitHub access, signing or file writes', '互動體驗：範例資料，不存取 GitHub、不簽名、不寫入檔案', '操作プレビュー：サンプルデータを使用し、GitHub へのアクセス・署名・ファイル書き込みは行いません', '대화형 미리 보기: 예시 데이터 사용, GitHub 접근·서명·파일 쓰기 없음'],
+    demoFinished: ['体验结束，未执行提交', 'Preview finished; no submission was made', '體驗結束，未執行提交', 'プレビューが終了しました。投稿は行われていません', '미리 보기 완료. 제출하지 않았습니다'],
+    confirm: ['是否确认上述操作？', 'Confirm the operation above?', '是否確認上述操作？', '上記の操作を実行しますか？', '위 작업을 확인하고 진행할까요?'],
+    confirmAction: ['确认并继续', 'Confirm and continue', '確認並繼續', '確認して続行', '확인하고 계속'],
+    cancelAction: ['取消', 'Cancel', '取消', 'キャンセル', '취소'],
+    skipProof: ['跳过签名证明', 'Skip signature proof', '略過簽名證明', '署名による証明をスキップ', '서명 증명 건너뛰기'],
     operation: ['社区操作', 'Community operation', '社群操作', 'コミュニティ操作', '커뮤니티 작업'],
     publish: ['发布或更新插件', 'Publish or update a plugin', '發布或更新外掛', 'プラグインの公開・更新', '플러그인 게시 또는 업데이트'],
     YANK: ['隐藏版本（YANK）', 'Hide a version (YANK)', '隱藏版本（YANK）', 'バージョンを非表示（YANK）', '버전 숨기기 (YANK)'],
@@ -50,7 +78,7 @@ const messages = {
     summary: ['插件简介', 'Plugin summary', '外掛簡介', 'プラグインの概要', '플러그인 요약'],
     description: ['详细说明（可留空）', 'Description (optional)', '詳細說明（可留空）', '詳細説明（任意）', '상세 설명 (선택 사항)'],
     category: ['选择分类', 'Select a category', '選擇分類', 'カテゴリを選択', '분류 선택'],
-    tags: ['选择标签编号，逗号分隔，可留空', 'Select tag numbers, separated by commas; optional', '選擇標籤編號，以逗號分隔，可留空', 'タグの番号をカンマ区切りで選択（任意）', '태그 번호 선택, 쉼표 구분 (선택 사항)'],
+    tags: ['选择标签（可不选）', 'Select tags (optional)', '選擇標籤（可不選）', 'タグを選択（任意）', '태그 선택 (선택 사항)'],
     icon: ['图标文件路径（可留空）', 'Icon file path (optional)', '圖示檔案路徑（可留空）', 'アイコンファイルのパス（任意）', '아이콘 파일 경로 (선택 사항)'],
     screenshots: ['截图文件路径，逗号分隔（可留空）', 'Screenshot paths, separated by commas (optional)', '截圖檔案路徑，以逗號分隔（可留空）', 'スクリーンショットのパス（カンマ区切り、任意）', '스크린샷 경로, 쉼표 구분 (선택 사항)'],
     alt: ['图片替代文本', 'Image alternative text', '圖片替代文字', '画像の代替テキスト', '이미지 대체 텍스트'],
@@ -68,25 +96,118 @@ const messages = {
 };
 
 export async function terminal(input = process.stdin, output = process.stdout) {
-    const rl = createInterface({ input, output });
+    const common = { input, output };
     let index = 1;
     const visible = value => String(value).replace(/[\x00-\x1f\x7f-\x9f]/gu, character => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'));
-    const say = (key, value) => output.write(messages[key][index] + (value === undefined ? '' : '\n' + JSON.stringify(value, null, 2)) + '\n');
-    const ask = async (key, fallback = '') => {
-        const value = await rl.question(messages[key][index] + (fallback ? ` [${visible(fallback)}]` : '') + ': ');
-        return value.trim() || fallback;
+    const text = key => messages[key][index];
+    if (!input.isTTY || !output.isTTY || process.env.TERM === 'dumb') {
+        prompts.log.error(text('terminalRequired'), common);
+        throw new Error('INTERACTIVE_TERMINAL_REQUIRED');
+    }
+    const controller = new AbortController();
+    common.signal = controller.signal;
+    const end = () => controller.abort();
+    input.once('end', end);
+    const say = (key, value) => {
+        if (value !== undefined) {
+            prompts.log.info(text(key), common);
+            prompts.note(JSON.stringify(value, null, 2), '', common);
+        }
+        if (['submitted', 'original', 'cancelled', 'failed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
+            (['cancelled', 'failed'].includes(key) ? prompts.cancel : prompts.outro)(text(key), common);
+        } else if (value === undefined) prompts.log.info(text(key), common);
+    };
+    const checked = value => {
+        if (prompts.isCancel(value)) throw new Error('CANCELLED');
+        return value;
+    };
+    // 每道问题独立订阅取消，已完成的问题不再响应会话关闭。
+    const prompt = async (render, options) => {
+        if (controller.signal.aborted) throw new Error('CANCELLED');
+        const active = new AbortController();
+        const abort = () => active.abort();
+        controller.signal.addEventListener('abort', abort, { once: true });
+        try { return checked(await render({ ...common, ...options, signal: active.signal })); }
+        finally { controller.signal.removeEventListener('abort', abort); }
+    };
+    const ask = async (key, fallback = '', validate) => {
+        const actual = value => value?.trim() === visible(fallback) ? fallback : value?.trim() || fallback;
+        const value = await prompt(prompts.text, {
+            message: text(key), initialValue: visible(fallback),
+            validate: value => {
+                const candidate = actual(value);
+                if (!candidate && !['description', 'icon', 'screenshots'].includes(key)) return text('required');
+                try { return validate?.(candidate); }
+                catch (error) {
+                    const code = /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message : '';
+                    return text('invalid') + (code ? ` (${code})` : '');
+                }
+            },
+        });
+        return actual(value);
     };
     const select = async (key, options, label = value => String(value)) => {
         if (!options.length) throw new Error('NO_SELECTABLE_VALUES');
-        if (options.length === 1) return options[0];
-        say(key);
-        options.forEach((value, i) => output.write(`${i + 1}. ${visible(label(value))}\n`));
-        const value = await ask('choose');
-        const selected = Number(value);
-        if (!/^[1-9][0-9]*$/u.test(value) || selected > options.length) throw new Error('SELECTION_INVALID');
-        return options[selected - 1];
+        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation'));
+        const selected = await prompt(prompts.select, {
+            message: text(key),
+            options: options.map((value, i) => ({ value: i, label: visible(label(value)) })),
+        });
+        return options[selected];
     };
-    index = locales.indexOf(await select('language', locales));
-    const confirm = async (key, value) => { say(key, value); return await ask('confirm') === 'YES'; };
-    return { ask, say, select, confirm, text: key => messages[key][index], close: () => rl.close() };
+    const multiselect = async (key, options, initialValues = []) => {
+        prompts.MULTISELECT_INSTRUCTIONS.splice(0, prompts.MULTISELECT_INSTRUCTIONS.length, text('multiNavigation'));
+        const selected = await prompt(prompts.multiselect, {
+            message: text(key),
+            required: false, emptyLabel: text('none'), initialValues: options.flatMap((value, i) => initialValues.includes(value) ? [i] : []),
+            options: options.map((value, i) => ({ value: i, label: visible(value) })),
+        });
+        return selected.map(i => options[i]);
+    };
+    const confirm = async (key, value) => {
+        if (key === 'preview' && value?.files) {
+            prompts.note([
+                visible(value.title), visible(value.repository),
+                visible(value.actor.login) + ' → ' + visible(value.fork.name),
+                visible(value.branch), `${text('files')}: ${value.files.length}`,
+                ...value.actions.map(action => messages[action] ? text(action) : visible(action)),
+            ].join('\n'), text('submissionSummary'), common);
+            say('details', value);
+            say(key);
+        } else say(key, value);
+        // 默认拒绝；必须主动切换选项并回车，普通输入与连续回车不会授权操作。
+        return select('confirm', [false, true], accepted => text(accepted ? 'confirmAction' : key === 'optionalKey' ? 'skipProof' : 'cancelAction'));
+    };
+    const task = async (key, work) => {
+        prompts.log.step(text(key), common);
+        const loading = prompts.spinner({ ...common, cancelMessage: text('cancelled'), errorMessage: text('failed'), onCancel: end });
+        loading.start(text(key));
+        try {
+            await setImmediate();
+            if (controller.signal.aborted) throw new Error('CANCELLED');
+            const result = await work();
+            if (controller.signal.aborted) throw new Error('CANCELLED');
+            loading.stop(text(key) + ' · ' + text('done'));
+            return result;
+        } catch (error) {
+            (error.message === 'CANCELLED' ? loading.cancel : loading.error)(text(key));
+            throw error;
+        }
+    };
+    const close = () => {
+        input.off('end', end);
+        controller.abort();
+        input.pause();
+        input.setRawMode(false);
+    };
+    try {
+        prompts.intro(text('title'), common);
+        const names = ['简体中文', 'English', '繁體中文', '日本語', '한국어'];
+        index = locales.indexOf(await select('language', locales, value => names[locales.indexOf(value)]));
+    } catch (error) {
+        say('cancelled');
+        close();
+        throw error;
+    }
+    return { ask, say, select, multiselect, confirm, task, text, close };
 }

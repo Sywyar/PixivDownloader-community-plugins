@@ -31,7 +31,7 @@
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/68b42c8bb03585a6ab9227f18360b3ac3303b7d2/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30697cc721024224295ae79edb11b6ae1660c5cf/tools/submit.ps1' | iex
 ```
 
 无需先克隆社区仓库。`irm` 取得上述固定提交的入口脚本；入口再按完整来源提交和清单 SHA-256 校验工具，逐文件验证后使用本地缓存，缺少文件时只从对应提交下载。缓存位于 `%LOCALAPPDATA%\PixivDownloader\community-tools`，不会执行可变分支上的工具。向导结束后返回当前终端，结果码保存在 `$LASTEXITCODE`。
@@ -48,7 +48,13 @@ irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/
 
 已有发布者选择不同密钥时，向导生成独立换钥请求。主菜单也支持 YANK、UNYANK、REVOKE 和所有权转移；UNYANK 自动引用当前有效的 YANK 决定，转移双方分别以自己的账号提交申请或确认。新建密钥和已有私钥都须保存在 Git 仓库及临时目录之外，请自行备份。
 
-最后预览会列出身份、目标 fork、分支、全部文件的路径和摘要、JSON 正文及 PR 信息。输入 `YES` 后，向导重新核对账号、base、绑定和内容，再创建所需 fork、提交、普通推送并创建 Ready PR。取消预览不会写入 GitHub。中断后可重新运行，已有内容必须完全匹配才会复用；向导不自动批准或合并 PR。换钥、状态和转移申请仍须等待各自的受保护执行器。
+最后预览会列出身份、目标 fork、分支、全部文件的路径和摘要、JSON 正文及 PR 信息。主动选择“确认并继续”并按 Enter 后，向导重新核对账号、base、绑定和内容，再创建所需 fork、提交、普通推送并创建 Ready PR。取消预览不会写入 GitHub。中断后可重新运行，已有内容必须完全匹配才会复用；向导不自动批准或合并 PR。换钥、状态和转移申请仍须等待各自的受保护执行器。
+
+向导使用 Clack 交互组件：方向键移动，Enter 选择，标签用空格勾选，Esc 或 Ctrl+C 取消。文本默认值可以编辑；必填项、HTTPS 地址和密钥路径等输入出错时，可在当前问题中修正。加载步骤显示状态，最终确认前展示提交摘要和完整预览。工程执行、密钥生成、组织代表权和提交等确认默认选择“取消”，必须用方向键切换到“确认并继续”后按 Enter；直接回车不会执行操作。可选签名证明默认跳过。
+
+在可信源码仓库根目录运行 `npm run submit:demo` 可体验同一套交互组件。演示只使用示例数据，不访问 GitHub、不执行构建、不签名，也不写入文件。要从源码运行实际向导，使用 `node scripts/submit.mjs 'D:\Plugins\example'`；该命令会执行正常的项目检查与投稿流程。
+
+Clack 及其运行依赖已打包到工具清单内，投稿时无需运行 npm 安装。维护者更新依赖时运行 `npm ci --ignore-scripts`、`npm run bundle:ui` 和 `node scripts/submission-manifest.mjs --write`；`node scripts/bundle-submission-ui.mjs --check` 检查打包结果是否与锁文件一致。生成文件内保留第三方许可证。发布入口须同时固定工具来源提交和清单摘要，再将教程中的 `irm` 地址固定到包含该入口的实际提交。
 
 ## 构建与审核
 

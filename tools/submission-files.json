@@ -243,8 +243,8 @@
     },
     {
       "path": "scripts/submission-fields.mjs",
-      "size": 6772,
-      "sha256": "ee6f1045c6ff5209bbd7dafbc48576fd4eefb42d133b5e073f6674a6373d1d27"
+      "size": 6829,
+      "sha256": "dbf2836188c68cea762af2d6532157efbaa9d5f69fc340b421e0ca68304d6fa9"
     },
     {
       "path": "scripts/submission-github.mjs",
@@ -258,8 +258,8 @@
     },
     {
       "path": "scripts/submission-release.mjs",
-      "size": 9422,
-      "sha256": "42dbe3973f0841529fc8ca6ef5a719812f3b8523f67f4185f3895e525ae8c6d2"
+      "size": 9814,
+      "sha256": "f451b66116bfeb8f4a3b7878bdc0fca207e0c5756d781f37e1ca4e75a297f379"
     },
     {
       "path": "scripts/submission-sdk.mjs",
@@ -273,8 +273,8 @@
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 16931,
-      "sha256": "ef513eae4ff4f8809829e24279d5a224b484b5e3a4d7d38483c51ae3b25aa01f"
+      "size": 26292,
+      "sha256": "9464f3d2a91beed297a1e6968e269618fc25ec9ed67837a160cb122d9aefff7b"
     },
     {
       "path": "scripts/submission-write.mjs",
@@ -283,8 +283,13 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 5519,
-      "sha256": "afc152480bb076b9b3f06ea473c9e581edd47633a4ff898413ae5972c865abae"
+      "size": 5857,
+      "sha256": "fcb5d4dac1c37f1c491f373bdfa48cf38def0e48676b47a75535b5574f4c9144"
+    },
+    {
+      "path": "scripts/vendor/clack-prompts.mjs",
+      "size": 57298,
+      "sha256": "41d25491e26688a3a24c91376736024fb0a63d9b384dc67feae2c34809a889a5"
     },
     {
       "path": "tools/CommunityModel.java",

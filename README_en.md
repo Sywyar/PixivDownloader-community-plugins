@@ -16,7 +16,7 @@ Install Git, GitHub CLI, Node.js 24 or newer, and JDK 17 with `java`, `javac` an
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/68b42c8bb03585a6ab9227f18360b3ac3303b7d2/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30697cc721024224295ae79edb11b6ae1660c5cf/tools/submit.ps1' | iex
 ```
 
 You do not need to clone the community repository. `irm` retrieves the launcher from the fixed commit above. The launcher then verifies tools against a full source commit and manifest SHA-256. It checks each file before using the cache at `%LOCALAPPDATA%\PixivDownloader\community-tools`, downloading missing files only from that commit. It does not execute tools from a mutable branch. When the wizard finishes, it returns to your terminal and leaves the result code in `$LASTEXITCODE`.
@@ -33,7 +33,13 @@ The wizard reads versions, digests and identities from the model, final package 
 
 Selecting a different key for an existing publisher generates a separate key-rotation request. The main menu also supports YANK, UNYANK, REVOKE and ownership transfer. UNYANK refers to the currently effective YANK decision; transfer parties use their own accounts to submit a proposal or approval. Store generated keys and existing private keys outside Git repositories and temporary directories, and keep your own backup.
 
-The final preview includes the identity, target fork, branch, every file's path and digest, JSON contents and PR details. After you enter `YES`, the wizard rechecks the account, base, binding and contents, then creates the fork if needed, commits, pushes normally and opens a Ready PR. Cancelling the preview makes no GitHub writes. You may rerun after an interruption; existing content is reused only when it matches exactly. The wizard never approves or merges a PR. Key, status and transfer requests still require their protected executors.
+The final preview includes the identity, target fork, branch, every file's path and digest, JSON contents and PR details. After you select “Confirm and continue” and press Enter, the wizard rechecks the account, base, binding and contents, then creates the fork if needed, commits, pushes normally and opens a Ready PR. Cancelling the preview makes no GitHub writes. You may rerun after an interruption; existing content is reused only when it matches exactly. The wizard never approves or merges a PR. Key, status and transfer requests still require their protected executors.
+
+The wizard uses Clack prompts. Use arrow keys to move, Enter to select, Space to toggle tags, and Esc or Ctrl+C to cancel. Text defaults are editable. Required fields, HTTPS URLs and key paths can be corrected at the current prompt. Loading steps show their status, and the final confirmation includes a summary and complete preview. Confirmations for project execution, key generation, organization authority and submission default to “Cancel”. Use arrow keys to select “Confirm and continue”, then press Enter; pressing Enter alone does not authorize the operation. Optional signature proof is skipped by default.
+
+Run `npm run submit:demo` from a trusted source checkout to try the same interaction components with sample data. The demo makes no GitHub requests, runs no builds, performs no signing and writes no files. To run the actual wizard from source, use `node scripts/submit.mjs 'D:\Plugins\example'`. This command performs the normal project checks and submission flow.
+
+Clack and its runtime dependencies are bundled into the pinned tool manifest, so submitting requires no npm installation. Maintainers updating dependencies run `npm ci --ignore-scripts`, `npm run bundle:ui` and `node scripts/submission-manifest.mjs --write`. Run `node scripts/bundle-submission-ui.mjs --check` to check the bundle against the lockfile. The generated file includes third-party licenses. Publishing a launcher requires pinning both the tool source commit and manifest digest, then pinning the tutorial's `irm` URL to the actual commit containing that launcher.
 
 ## Builds and review
 

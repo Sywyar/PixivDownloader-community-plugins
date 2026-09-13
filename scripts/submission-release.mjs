@@ -7,7 +7,7 @@ import { github, paged, eligible } from './submission-github.mjs';
 import { activeKey, publisherPath, bindingPath, versionAvailable, sourceLocation } from './submission-check.mjs';
 import { exportKey, keyLocation } from './submission-signing.mjs';
 import { licenseFields, marketFields, readFile } from './submission-fields.mjs';
-import { download } from './download.mjs';
+import { download, httpsUrl } from './download.mjs';
 
 export async function signingKey(context, existing, requirePrivate = true) {
     const { sdk, sign, ui, projectRoot } = context;
@@ -16,18 +16,18 @@ export async function signingKey(context, existing, requirePrivate = true) {
     let privateFile;
     let keyId;
     if (choice === 'generateKey') {
-        const directory = keyLocation(await ui.ask('keyDirectory'), projectRoot, true);
+        const directory = keyLocation(await ui.ask('keyDirectory', '', value => { keyLocation(value, projectRoot, true); }), projectRoot, true);
         if (!await ui.confirm('generateKey', { directory })) throw new Error('CANCELLED');
         sign('keygen', '--directory', directory);
         publicFile = path.join(directory, 'public-key.pem');
         privateFile = path.join(directory, 'private-key.pem');
         keyId = await ui.ask('keyId', crypto.randomUUID());
     } else {
-        publicFile = keyLocation(await ui.ask('publicKey'), projectRoot);
+        publicFile = keyLocation(await ui.ask('publicKey', '', value => { keyLocation(value, projectRoot); }), projectRoot);
         keyId = await ui.ask('keyId', existing?.keyId ?? '');
     }
     const { fingerprint, ...key } = exportKey(sdk, sign, publicFile, keyId);
-    if (requirePrivate) privateFile = keyLocation(privateFile ?? await ui.ask('privateKey'), projectRoot);
+    if (requirePrivate) privateFile = keyLocation(privateFile ?? await ui.ask('privateKey', '', value => { keyLocation(value, projectRoot); }), projectRoot);
     if (!await ui.confirm('keyAction', { key, fingerprint, publicFile, ...(requirePrivate ? { privateFile } : {}) })) throw new Error('CANCELLED');
     return { key, fingerprint, privateFile };
 }
@@ -61,13 +61,13 @@ export async function prepareRelease(context, selection, profileId) {
     const license = await licenseFields(sdk, ui, projectRoot, selection.projectDir);
     if (!license) return null;
     if (!await ui.confirm('trust', { project: selection.project, profileId })) throw new Error('CANCELLED');
-    const model = queryModel(sdk, selection, profileId);
+    const model = await ui.task('model', () => queryModel(sdk, selection, profileId));
     if (!isDeepStrictEqual(sourceFacts(projectRoot), source)) throw new Error('SOURCE_CHANGED_DURING_MODEL_QUERY');
     const artifactPath = await ui.select('artifact', model.artifacts);
     const buildProfile = sdk.invoke({ command: 'select', gitRoot: projectRoot, projectDir: selection.projectDir,
         profileId, artifactPath, outputs: model.artifacts });
     const artifact = path.join(selection.project, artifactPath);
-    const facts = sdk.invoke({ command: 'inspect', file: artifact });
+    const facts = await ui.task('inspecting', () => sdk.invoke({ command: 'inspect', file: artifact }));
     if (facts.version !== model.version) throw new Error('MODEL_PACKAGE_VERSION_MISMATCH');
     if (!await ui.confirm('risk', facts.descriptor)) { ui.say('rebuildPackage'); return null; }
     const original = versionAvailable(state, facts.pluginId, facts.version, facts.sha256);
@@ -89,7 +89,8 @@ export async function prepareRelease(context, selection, profileId) {
         sdk.document('PUBLISHER', publisher, publisherFile);
         changes.set(publisherFile, Buffer.from(JSON.stringify(publisher, null, 2) + '\n'));
     }
-    const release = await ui.select('release', [...paged(`repos/${source.name}/releases`, call).filter(release => !release.draft), null],
+    const releases = await ui.task('loading', () => paged(`repos/${source.name}/releases`, call).filter(release => !release.draft));
+    const release = await ui.select('release', [...releases, null],
         release => release ? `${release.tag_name} (${release.id})` : ui.text('packageUrl'));
     let packageUrl;
     let selectedAsset;
@@ -97,16 +98,16 @@ export async function prepareRelease(context, selection, profileId) {
         selectedAsset = await ui.select('asset', paged(`repos/${source.name}/releases/${id(release.id)}/assets`, call)
             .filter(asset => /\.(jar|zip)$/iu.test(asset.name)), asset => `${asset.name} (${asset.size})`);
         packageUrl = selectedAsset.browser_download_url;
-    } else packageUrl = await ui.ask('packageUrl');
+    } else packageUrl = await ui.ask('packageUrl', '', value => { httpsUrl(value); });
     const remotePackage = path.join(sdk.workspace, crypto.randomUUID() + path.extname(artifact));
-    await download(packageUrl, remotePackage, sdk.invoke({ command: 'limits' }).maxArchiveBytes, { size: facts.size, sha256: facts.sha256 });
+    await ui.task('downloading', () => download(packageUrl, remotePackage, sdk.invoke({ command: 'limits' }).maxArchiveBytes, { size: facts.size, sha256: facts.sha256 }));
     const signatureFile = path.join(sdk.workspace, crypto.randomUUID() + '.signature.json');
     sign('artifact', '--artifact', remotePackage, '--plugin-id', facts.pluginId, '--version', facts.version,
         '--key-id', selectedKey.key.keyId, '--private-key', selectedKey.privateFile, '--out', signatureFile);
     const fixedSource = { repository: source.repository, commit: source.commit,
         previousReviewedCommit: state.published(facts.pluginId)[0]?.value.sourceCommit ?? null };
     const archiveFile = path.join(sdk.workspace, crypto.randomUUID() + '.zip');
-    const archive = await download(sourceLocation(fixedSource).url, archiveFile, sdk.invoke({ command: 'limits' }).maxArchiveBytes);
+    const archive = await ui.task('downloading', () => download(sourceLocation(fixedSource).url, archiveFile, sdk.invoke({ command: 'limits' }).maxArchiveBytes));
     fixedSource.archive = { url: archive.url, size: archive.size, sha256: archive.sha256 };
     const prior = state.published(facts.pluginId)[0];
     const previousMarket = prior ? sdk.document('SUBMISSION', state.reference(prior.value.submissionRef),
