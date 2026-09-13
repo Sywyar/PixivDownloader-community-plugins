@@ -6,8 +6,8 @@ $LauncherPath = $MyInvocation.MyCommand.Path
 $SubmitExitCode = 0
 
 # Update the source commit and raw manifest digest together.
-$RuntimeCommit = 'ff1fab9e94b84cee3719c2a96e210bd0d7e2be78'
-$ManifestSha256 = '480f281d63c7d6b2a691b31bfd469011d6215e5931a0aa3a6fee685d91a49846'
+$RuntimeCommit = '35816efd648ad8ae7072c3cc30c4955de3c95253'
+$ManifestSha256 = '0840c7112121535bc0eb0fec1a721017a0178f0615893ec1f8c2ece7eda3d469'
 $Repository = 'Sywyar/PixivDownloader-community-plugins'
 $MarkerName = '.pixivdownloader-plugin-project'
 # Keep this entry ASCII for both -File and irm | iex on PowerShell 5.1.
