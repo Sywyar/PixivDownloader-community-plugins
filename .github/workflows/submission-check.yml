@@ -3,17 +3,25 @@ on:
   pull_request_target:
     branches: [master]
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      prNumber:
+        description: PR number to revalidate with the current protected tools
+        required: true
+        type: string
 permissions:
   contents: read
   pull-requests: read
 jobs:
   submission:
+    name: Build and scan version
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -22,12 +30,21 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - run: node scripts/submission-pr.mjs
+          verify-signature: true
+      - name: Bind protected build execution
+        run: node scripts/candidate-run.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - id: build
+        run: node scripts/submission-build.mjs
         env:
           GH_TOKEN: ${{ github.token }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: steps.build.outputs.artifact != ''
         with:
-          name: submission-static-inputs-${{ github.event.number }}-${{ github.run_attempt }}
-          path: target/submission-check/
+          name: ${{ steps.build.outputs.artifact }}
+          path: target/submission-build/
           if-no-files-found: error
           retention-days: 7
+          overwrite: false
+          compression-level: 0
