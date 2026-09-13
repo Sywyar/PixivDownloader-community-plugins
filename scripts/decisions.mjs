@@ -1,7 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { api, id, sha, list, policy, prefix, main } from './github.mjs';
-import { prepareSdk, evidence, evaluate, hash, readDecisionArtifact, root } from './sdk.mjs';
+import { evidence, evaluate, hash, readDecisionArtifact, root } from './sdk.mjs';
+import { prepareSubmission } from './submission-sdk.mjs';
+import { versionContext } from './version-review.mjs';
 import { decisionPath, trustedRun, execution, facts, fingerprint, event, pull } from './platform.mjs';
 
 const decisionTime = value => new Date(value).toISOString().replace(/\.000Z$/u, 'Z');
@@ -11,7 +14,7 @@ function decisionName(number, runId, attempt, digest) {
 }
 
 // 文件只提供数据；运行来源、身份和当前权限由 API 与受保护 Git 历史独立核对。
-export function loadDecisions(number, prepared, current, call = api, readGit, allowRunningRunId) {
+export function loadDecisions(number, prepared, current, call = api, readGit, allowRunningRunId, version = null) {
     const currentHead = pull(number, call).head.sha;
     const runs = list(prefix + '/actions/workflows/community-review-decision.yml/runs?event=workflow_dispatch&branch='
         + policy.defaultBranch, 'workflow_runs', call);
@@ -55,7 +58,7 @@ export function loadDecisions(number, prepared, current, call = api, readGit, al
                 // 原始 base 是可信表单当时取得的事实；当前 binding/策略由每次 facts() 重算。
                 pr: { githubRepositoryId: policy.repositoryId, number, authorAccountId: document.prAuthorAccountId,
                     headRepositoryId: document.headRepositoryId, headSha: match[2], baseSha: sha(document.baseSha), mergeSha: null },
-                repositoryId: document.repositoryId, version: null, workflowPath: decisionPath, workflowSha: run.head_sha,
+                repositoryId: document.repositoryId, version, workflowPath: decisionPath, workflowSha: run.head_sha,
                 runId: id(run.id), runAttempt: run.run_attempt,
                 originalActor: { id: id(run.actor.id), type: run.actor.type },
                 triggeringActor: { id: id(run.triggering_actor.id), type: run.triggering_actor.type },
@@ -89,30 +92,48 @@ export function createDecision(inputs, context, input, previous = []) {
     if (typeof inputs.reason !== 'string' || !inputs.reason.trim() || [...inputs.reason].length > 2048) {
         throw new Error('DECISION_REASON_INVALID');
     }
-    if (inputs.scanRunId || inputs.scanRunAttempt || inputs.findingIds) throw new Error('SCAN_EXECUTOR_UNAVAILABLE');
     const self = inputs.action === 'SELF_REVIEW_APPROVED';
     const revoke = inputs.action === 'REVOKE_DECISION';
-    if (!self && !revoke) throw new Error('SCAN_EXECUTOR_UNAVAILABLE');
+    const scan = ['FALSE_POSITIVE', 'MANUAL_SCAN_ACCEPTED'].includes(inputs.action);
+    if (!self && !revoke && !scan) throw new Error('DECISION_ACTION_INPUT_INVALID');
     const confirmed = inputs.confirmSelfReview === true || inputs.confirmSelfReview === 'true';
     if (self && (!confirmed || id(run.actor.id) !== input.after.pr.authorAccountId || inputs.targetDecisionSha256)
-        || revoke && (confirmed || !/^[0-9a-f]{64}$/u.test(inputs.targetDecisionSha256 ?? ''))) {
+        || revoke && (confirmed || !/^[0-9a-f]{64}$/u.test(inputs.targetDecisionSha256 ?? ''))
+        || scan && (confirmed || inputs.targetDecisionSha256)
+        || !scan && (inputs.scanRunId || inputs.scanRunAttempt || inputs.findingIds)) {
         throw new Error('DECISION_ACTION_INPUT_INVALID');
+    }
+    let scanFields = {};
+    if (scan) {
+        const actual = input.after.scan;
+        if (!input.after.version || !actual || !input.report || id(inputs.scanRunId) !== actual.runId
+            || Number(id(inputs.scanRunAttempt)) !== actual.runAttempt) throw new Error('DECISION_SCAN_MISMATCH');
+        const findingIds = (inputs.findingIds ?? '').split(/[\s,]+/u).filter(Boolean);
+        if (inputs.action === 'FALSE_POSITIVE' ? !findingIds.length || new Set(findingIds).size !== findingIds.length : findingIds.length) {
+            throw new Error('DECISION_FINDINGS_INVALID');
+        }
+        scanFields = { scanRunId: actual.runId, scanRunAttempt: actual.runAttempt, scannerVersion: actual.scannerVersion,
+            rulesSha256: actual.rulesSha256, reportRef: input.report,
+            ...(inputs.action === 'FALSE_POSITIVE' ? { findingIds } : {}) };
     }
     if (revoke && !previous.some(value => value.evidence.sha256 === inputs.targetDecisionSha256
         && value.document.headSha === input.after.pr.headSha)) throw new Error('DECISION_REVOKE_TARGET_MISSING');
     const old = previous.filter(value => value.document.runId === id(run.id)).sort((a, b) => a.document.runAttempt - b.document.runAttempt)[0];
     if (run.run_attempt > 1 && !old) throw new Error('DECISION_ORIGINAL_ARTIFACT_REQUIRED');
     const pr = input.after.pr;
+    const actionFields = self ? { reviewMode: 'SELF', selfReview: true }
+        : revoke ? { targetDecisionSha256: inputs.targetDecisionSha256 } : scanFields;
     const document = old ? { ...old.document } : {
         schemaVersion: 1, action: inputs.action, reason: inputs.reason, githubRepositoryId: policy.repositoryId,
         repositoryId: input.after.repositoryId, prNumber: number, headRepositoryId: pr.headRepositoryId,
         headSha: pr.headSha, baseSha: pr.baseSha, actorAccountId: id(run.actor.id), actorLoginSnapshot: run.actor.login,
         prAuthorAccountId: pr.authorAccountId, workflowPath: decisionPath, workflowSha: context.current,
         runId: id(run.id), decisionAt: decisionTime(run.created_at),
-        ...(self ? { reviewMode: 'SELF', selfReview: true } : { targetDecisionSha256: inputs.targetDecisionSha256 }),
+        ...input.after.version, ...actionFields,
     };
     if (document.action !== inputs.action || document.reason !== inputs.reason || document.headSha !== pr.headSha
-        || document.actorAccountId !== id(run.actor.id) || document.workflowSha !== context.current) {
+        || document.actorAccountId !== id(run.actor.id) || document.workflowSha !== context.current
+        || Object.entries({ ...input.after.version, ...actionFields }).some(([key, value]) => !isDeepStrictEqual(document[key], value))) {
         throw new Error('DECISION_RERUN_CHANGED');
     }
     document.runAttempt = run.run_attempt;
@@ -123,21 +144,22 @@ export function createDecision(inputs, context, input, previous = []) {
     return { document, bytes };
 }
 
-export function dispatch() {
+export async function dispatch() {
     const context = execution(decisionPath);
-    const prepared = prepareSdk();
+    const prepared = prepareSubmission();
     const inputs = event().inputs;
     const number = Number(id(inputs.prNumber));
-    const before = facts(number, prepared, context.current);
-    const previous = loadDecisions(number, prepared, context.current, api, undefined, id(context.run.id));
+    const version = await versionContext(number, prepared, context.current);
+    const before = facts(number, prepared, context.current, api, version);
+    const previous = loadDecisions(number, prepared, context.current, api, undefined, id(context.run.id), before.after.version);
     const value = createDecision(inputs, context, before, previous);
     value.evidence = evidence(prepared.workspace, value.bytes);
     value.execution = { pr: { ...before.after.pr, baseSha: value.document.baseSha }, repositoryId: before.after.repositoryId,
-        version: null, workflowPath: decisionPath, workflowSha: context.current, runId: id(context.run.id),
+        version: before.after.version, workflowPath: decisionPath, workflowSha: context.current, runId: id(context.run.id),
         runAttempt: context.run.run_attempt, originalActor: { id: id(context.run.actor.id), type: context.run.actor.type },
         triggeringActor: { id: id(context.run.triggering_actor.id), type: context.run.triggering_actor.type },
         decisionAt: value.document.decisionAt };
-    const after = facts(number, prepared, context.current);
+    const after = facts(number, prepared, context.current, api, version);
     if (fingerprint(before) !== fingerprint(after)) throw new Error('DECISION_FACTS_CHANGED');
     evaluate(prepared, attachDecisions(after, [...previous, value]));
     const directory = path.join(root, 'target/decision');

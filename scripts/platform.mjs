@@ -97,14 +97,20 @@ export function classify(pr, files) {
         }
         return 'maintenance';
     }
-    // 投稿校验与扫描执行器尚未接入；只有身份及路径均已确认的维护动作可进入人工门禁。
+    const versionPaths = /^(?:submissions\/[1-9][0-9]*\/[a-z0-9][a-z0-9._-]*\/[^/]+\.json|publishers\/[1-9][0-9]*\/[a-z0-9][a-z0-9._-]*\.json|assets\/.+)$/u;
+    if (paths.every(name => versionPaths.test(name)) && files.every(file => file.status === 'added')
+        && paths.filter(name => name.startsWith('submissions/')).length === 1) return 'version';
     throw new Error(paths.some(isMaintenance) ? 'MIXED_OPERATION' : 'SUBMISSION_EXECUTOR_UNAVAILABLE');
 }
 
-export function facts(number, prepared, current, call = api) {
+export function facts(number, prepared, current, call = api, versionContext = null) {
     const pr = pull(number, call);
     const files = list(prefix + '/pulls/' + pr.number + '/files', null, call);
     const operation = classify(pr, files);
+    if (operation === 'version' && (!versionContext || versionContext.checked.pr.head !== pr.head.sha
+        || versionContext.checked.pr.base !== pr.base.sha || versionContext.checked.pr.user.id !== id(pr.user.id))) {
+        throw new Error('VERSION_FACTS_CHANGED');
+    }
     const authorized = reviewers(call);
     const rawReviews = list(prefix + '/pulls/' + pr.number + '/reviews', null, call);
     const dismissals = rawReviews.some(review => review.state === 'DISMISSED')
@@ -130,15 +136,25 @@ export function facts(number, prepared, current, call = api) {
     });
     const reviewPolicy = { reviewerAccountIds: authorized, dismissalAccountIds: authorized,
         decisionWorkflowPath: decisionPath, decisionWorkflowShas: [current] };
-    const snapshot = { repositoryId: catalogId, pr: prValue(pr), version: null,
-        inputSha256: hash(Buffer.from(JSON.stringify({ operation, files }))),
-        bindingSha256: hash(Buffer.from('maintenance')), policySha256: hash(Buffer.from(JSON.stringify({ policy, authorized }))),
-        state: pr.merged ? 'MERGED' : pr.state === 'open' ? 'OPEN' : 'CLOSED', draft: pr.draft, scan: null, apply: null };
+    const version = versionContext?.checked;
+    const report = versionContext?.report;
+    if (versionContext) for (const ref of versionContext.candidate.evidence) {
+        if (!references.some(row => row.path === ref.path)) references.push(ref);
+    }
+    const snapshot = { repositoryId: catalogId, pr: prValue(pr), version: version ? {
+        submissionSha256: version.submissionSha256, sourceCommit: version.submission.source.commit, packageSha256: version.package.sha256 } : null,
+        inputSha256: hash(Buffer.from(JSON.stringify({ operation, files, candidate: versionContext?.candidate.inputSha256 ?? null }))),
+        bindingSha256: hash(Buffer.from(version ? JSON.stringify([version.bindingSha256, version.publisherSha256, version.owner]) : 'maintenance')),
+        policySha256: hash(Buffer.from(JSON.stringify({ policy, authorized }))),
+        state: pr.merged ? 'MERGED' : pr.state === 'open' ? 'OPEN' : 'CLOSED', draft: pr.draft, scan: report ? {
+            runId: report.runId, runAttempt: report.runAttempt, scannerVersion: report.scannerVersion, rulesSha256: report.rulesSha256,
+            conclusion: report.status === 'COMPLETE' ? 'SUCCESS' : 'FAILURE' } : null, apply: null };
     return { before: snapshot, after: structuredClone(snapshot),
         validation: { conclusion: 'SUCCESS', publisherId: id(policy.gateApp.id), headSha: snapshot.pr.headSha,
             baseSha: snapshot.pr.baseSha, inputSha256: snapshot.inputSha256, bindingSha256: snapshot.bindingSha256,
             policySha256: snapshot.policySha256 }, publisherId: id(policy.gateApp.id), policy: reviewPolicy,
-        reviews, decisions: [], report: null, declaration: { present: false, signals: [] }, evidence: references };
+        reviews, decisions: [], report: versionContext?.candidate.scan.riskReportRef ?? null,
+        declaration: version?.descriptor.riskDeclaration ?? { present: false, signals: [] }, evidence: references };
 }
 
 export function fingerprint(input) {
