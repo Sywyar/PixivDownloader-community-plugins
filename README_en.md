@@ -16,10 +16,12 @@ Install Git, GitHub CLI, Node.js 24 or newer, and JDK 17 with `java`, `javac` an
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30697cc721024224295ae79edb11b6ae1660c5cf/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/262368d60705619da22255bff65521d7f2e107ce/tools/submit.ps1' | iex
 ```
 
-You do not need to clone the community repository. `irm` retrieves the launcher from the fixed commit above. The launcher then verifies tools against a full source commit and manifest SHA-256. It checks each file before using the cache at `%LOCALAPPDATA%\PixivDownloader\community-tools`, downloading missing files only from that commit. It does not execute tools from a mutable branch. When the wizard finishes, it returns to your terminal and leaves the result code in `$LASTEXITCODE`.
+You do not need to clone the community repository. `irm` retrieves the launcher from the fixed commit above. The launcher then verifies tools against a full source commit and manifest SHA-256. It checks each file before using the cache at `%LOCALAPPDATA%\PixivDownloader\community-tools`, downloading missing files only from that commit. Downloads follow the platform's default proxy settings, without cookies, default credentials or redirects. It does not execute tools from a mutable branch.
+
+When the wizard finishes, its result code is stored in `$LASTEXITCODE`. With `irm | iex`, failures throw an error without closing the interactive terminal. Calling scripts can handle the error with `try/catch` and read the result code. Running a saved launcher with PowerShell `-File` returns that code as the process exit code.
 
 To keep a local copy, download the same URL and run `.\submit.ps1 -ProjectDirectory 'D:\Plugins\example'`. In a trusted full checkout, you can also run `.\tools\submit.ps1 -ProjectDirectory 'D:\Plugins\example'`.
 
