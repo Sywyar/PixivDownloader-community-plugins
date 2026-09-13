@@ -63,42 +63,52 @@ export function runBuild(executable, args, cwd) {
 
 const scalaString = text => `new String(Array[Byte](${[...Buffer.from(text, 'utf8')].join(',')}),java.nio.charset.StandardCharsets.UTF_8)`;
 
-export function queryModel(sdk, selection, profileId, run = runBuild) {
-    const project = selection.project;
-    let executable;
-    let args;
-    let model;
+// 本地向导和容器构建共用模型命令及解析，执行位置和构建工具由各自入口决定。
+export function modelArguments(profileId, file, gradleScript) {
     if (profileId === 'maven-java17-v1') {
-        executable = path.join(project, process.platform === 'win32' ? 'mvnw.cmd' : 'mvnw');
-        if (!fs.existsSync(executable)) executable = process.platform === 'win32' ? 'mvn.cmd' : 'mvn';
-        const file = path.join(sdk.workspace, 'effective-pom.xml');
-        args = ['-B', '-ntp', '-N', 'org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-pom', `-Doutput=${file}`];
-        run(executable, args, project);
-        model = sdk.invoke({ command: 'maven-model', file });
+        return ['-N', 'org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-pom', `-Doutput=${file}`];
     } else if (profileId === 'gradle-java17-v1') {
-        executable = path.join(project, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
-        args = ['--no-daemon', '--console=plain', '--no-configuration-cache', '--init-script',
-            path.join(root, 'tools/community-model.gradle'), 'pixivCommunityModel'];
-        const lines = run(executable, args, project).split(/\r?\n/u).filter(line => line.startsWith('PIXIV_COMMUNITY_MODEL='));
-        if (lines.length !== 1) throw new Error('BUILD_MODEL_AMBIGUOUS');
-        model = JSON.parse(lines[0].slice('PIXIV_COMMUNITY_MODEL='.length));
+        return ['--init-script', gradleScript, 'pixivCommunityModel'];
     } else if (profileId === 'sbt-java17-v1') {
-        executable = path.join(project, process.platform === 'win32' ? 'sbtw.cmd' : 'sbtw');
-        if (!fs.existsSync(executable)) executable = process.platform === 'win32' ? 'sbt.bat' : 'sbt';
         const separator = scalaString('\n');
         const command = 'set commands += Command.command(' + scalaString('pixivCommunityModel') + ') { s => '
-            + 'val e=Project.extract(s); val lines=Seq(e.get(version),e.get(Compile / packageBin / artifactPath).getAbsolutePath) ++ '
+            + 'val e=Project.extract(s); val lines=Seq(e.get(version),e.get(Compile / packageBin / artifactPath).getAbsolutePath,e.get(Compile / classDirectory).getAbsolutePath) ++ '
             + 'e.get(libraryDependencies).map(d => Seq(d.organization,d.name,d.revision,d.configurations.getOrElse(' + scalaString('compile')
             + ')).mkString(' + scalaString('\t') + ')); println(' + scalaString('PIXIV_COMMUNITY_MODEL=')
             + '+java.util.Base64.getEncoder.encodeToString(lines.mkString(' + separator + ').getBytes(java.nio.charset.StandardCharsets.UTF_8))); s }';
-        args = [command, 'pixivCommunityModel'];
-        const output = run(executable, args, project).split(/\r?\n/u).filter(line => line.startsWith('PIXIV_COMMUNITY_MODEL='));
-        if (output.length !== 1) throw new Error('BUILD_MODEL_AMBIGUOUS');
-        const [version, artifact, ...dependencies] = Buffer.from(output[0].slice('PIXIV_COMMUNITY_MODEL='.length), 'base64').toString('utf8').split('\n');
-        model = { version, artifacts: [artifact], dependencies: dependencies.map(line => {
-            const [group, name, version, scope] = line.split('\t'); return { group, name, version, scope };
-        }) };
+        return [command, 'pixivCommunityModel'];
     } else throw new Error('BUILD_PROFILE_UNSUPPORTED');
+}
+
+export function readModel(sdk, profileId, output, file) {
+    if (profileId === 'maven-java17-v1') return sdk.invoke({ command: 'maven-model', file });
+    const lines = output.split(/\r?\n/u).filter(line => line.startsWith('PIXIV_COMMUNITY_MODEL='));
+    if (lines.length !== 1) throw new Error('BUILD_MODEL_AMBIGUOUS');
+    const value = lines[0].slice('PIXIV_COMMUNITY_MODEL='.length);
+    if (profileId === 'gradle-java17-v1') return JSON.parse(value);
+    if (profileId !== 'sbt-java17-v1') throw new Error('BUILD_PROFILE_UNSUPPORTED');
+    const [version, artifact, classes, ...dependencies] = Buffer.from(value, 'base64').toString('utf8').split('\n');
+    return { version, artifacts: [artifact], classDirectories: [classes], dependencies: dependencies.map(line => {
+        const [group, name, version, scope] = line.split('\t'); return { group, name, version, scope };
+    }) };
+}
+
+export function queryModel(sdk, selection, profileId, run = runBuild) {
+    const project = selection.project;
+    const commands = {
+        'maven-java17-v1': ['mvnw', 'mvnw.cmd', 'mvn', 'mvn.cmd'],
+        'gradle-java17-v1': ['gradlew', 'gradlew.bat'],
+        'sbt-java17-v1': ['sbtw', 'sbtw.cmd', 'sbt', 'sbt.bat'],
+    }[profileId];
+    if (!commands) throw new Error('BUILD_PROFILE_UNSUPPORTED');
+    const platform = process.platform === 'win32' ? 1 : 0;
+    let executable = path.join(project, commands[platform]);
+    if (!fs.existsSync(executable) && commands[platform + 2]) executable = commands[platform + 2];
+    const file = path.join(sdk.workspace, 'effective-pom.xml');
+    const options = profileId === 'maven-java17-v1' ? ['-B', '-ntp']
+        : profileId === 'gradle-java17-v1' ? ['--no-daemon', '--console=plain', '--no-configuration-cache'] : [];
+    const args = [...options, ...modelArguments(profileId, file, path.join(root, 'tools/community-model.gradle'))];
+    const model = readModel(sdk, profileId, run(executable, args, project), file);
     if (typeof model.version !== 'string' || !model.version || !Array.isArray(model.artifacts) || !model.artifacts.length) {
         throw new Error('BUILD_MODEL_INVALID');
     }

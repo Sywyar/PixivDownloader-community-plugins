@@ -61,6 +61,7 @@ public final class CommunitySubmission {
             case "status" -> status(input);
             case "source" -> CommunitySource.unpack(workspace, input);
             case "maven-model" -> CommunityModel.maven(input);
+            case "dependency-metadata" -> CommunityModel.dependencies(input);
             case "path" -> Map.of("path", CommunityPaths.resolve(Path.of(text(input, "root")), text(input, "path"),
                     input.path("allowRoot").asBoolean(), input.path("mustExist").asBoolean()).toString());
             case "limits" -> PluginPackageLimits.defaults();

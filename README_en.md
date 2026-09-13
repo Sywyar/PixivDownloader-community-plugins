@@ -2,9 +2,9 @@
 
 [简体中文](README.md)
 
-This repository stores plugin submissions, publisher identities, review evidence, and publication records. Plugin source and packages remain in the publisher's source repository and fixed release assets.
+This repository stores plugin submissions, publisher identities, review evidence, and publication records. Publishers supply public source at a fixed commit and a signed package. The community build compares its output byte for byte with that package and archives it with the evidence in a Draft Release here.
 
-**Admission currently accepts only repository-owner PRs for tools, rules and documentation.** Data PRs have an independent static check. Source review, isolated rebuilding and signing are not connected, so passing static checks does not unblock admission.
+Version submissions require static validation, an isolated rebuild, risk review and human review of the current head. Only the repository owner may submit maintenance PRs for tools, rules and documentation. Community signing, public catalog publication and management operation executors are not connected. Approval or merging a PR does not publish a plugin.
 
 A community signature records the review and byte verification of a particular version. It does not guarantee that a plugin is free of vulnerabilities or malicious behavior. Developer capability declarations come from `pixiv.risk-signals` inside the package. An execution mode is not an operating system sandbox.
 
@@ -16,7 +16,7 @@ Install Git, GitHub CLI, Node.js 24 or newer, and JDK 17 with `java`, `javac` an
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30d06c46bd975af7ece68be71c52c8419bf79652/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/68b42c8bb03585a6ab9227f18360b3ac3303b7d2/tools/submit.ps1' | iex
 ```
 
 You do not need to clone the community repository. `irm` retrieves the launcher from the fixed commit above. The launcher then verifies tools against a full source commit and manifest SHA-256. It checks each file before using the cache at `%LOCALAPPDATA%\PixivDownloader\community-tools`, downloading missing files only from that commit. It does not execute tools from a mutable branch. When the wizard finishes, it returns to your terminal and leaves the result code in `$LASTEXITCODE`.
@@ -33,13 +33,23 @@ The wizard reads versions, digests and identities from the model, final package 
 
 Selecting a different key for an existing publisher generates a separate key-rotation request. The main menu also supports YANK, UNYANK, REVOKE and ownership transfer. UNYANK refers to the currently effective YANK decision; transfer parties use their own accounts to submit a proposal or approval. Store generated keys and existing private keys outside Git repositories and temporary directories, and keep your own backup.
 
-The final preview includes the identity, target fork, branch, every file's path and digest, JSON contents and PR details. After you enter `YES`, the wizard rechecks the account, base, binding and contents, then creates the fork if needed, commits, pushes normally and opens a Ready PR. Cancelling the preview makes no GitHub writes. You may rerun after an interruption; existing content is reused only when it matches exactly. The wizard never approves or merges a PR. Data admission remains subject to the restriction at the top of this page.
+The final preview includes the identity, target fork, branch, every file's path and digest, JSON contents and PR details. After you enter `YES`, the wizard rechecks the account, base, binding and contents, then creates the fork if needed, commits, pushes normally and opens a Ready PR. Cancelling the preview makes no GitHub writes. You may rerun after an interruption; existing content is reused only when it matches exactly. The wizard never approves or merges a PR. Key, status and transfer requests still require their protected executors.
 
-## Static checks
+## Builds and review
 
-`Submission static check` runs the exact protected workflow source commit. It reads the PR's native identity, base/head and added Git blobs, then independently checks paths, the pinned SDK schemas, source archives, public package sizes and digests, publisher signatures and static images. Candidate code never enters the classpath, and the check does not run Maven, Gradle or sbt.
+`Submission static check` runs the exact protected workflow source commit. It first reads the PR's native identity, base/head and added Git blobs, then checks paths, the pinned SDK schemas, source archives, public package sizes and digests, publisher signatures and static images. This validation only parses data; candidate code never enters the checker's classpath.
 
-The job has read permissions and no secrets. Successful checks retain static inputs for seven days. `STATIC_VALIDATED` does not grant source-review assurance or publication rights. Key rotation, version status and ownership transfer are separate operations and cannot share a PR with a version submission.
+Version submissions then build on a disposable GitHub-hosted Ubuntu runner. The container image is pinned by digest, with limits of 2 CPUs, 6 GiB of memory, 12 GiB of writable disk, 512 processes and 30 minutes per build. Maven, Gradle and sbt profiles run their build and test tasks. Prefetching uses a proxy restricted to approved public artifact sources; the final rebuild restores the original source and disables networking. The container receives no secrets, GitHub tokens, Docker socket or shared writable cache. Its output must match the publisher's original package byte for byte.
+
+The prefetch proxy uses Ubuntu OpenSSL tools pinned by SHA-256. It checks destinations in CONNECT, TLS and HTTP requests, forwards only HTTPS GET/HEAD requests to approved hosts, and verifies origin certificates. Build containers receive read-only access to the temporary CA certificate and trust store. Only the proxy receives its private key, which is removed at the end of the run. Developer and runner system trust stores are unchanged.
+
+The scanner reads JVM call instructions in the final package without loading plugin classes. Reports retain exact method symbols, locations, package digests and original call evidence, distinguishing plugin compiler outputs, private dependencies and classes whose origin is unknown. Only direct calls covered by the rules can produce missing-declaration findings; no match does not prove that a behavior is absent. Invalid classes or scan failures yield `INCOMPLETE` while retaining known findings. The SBOM inventories actual packages and build-cache files. Declared dependency licenses still require human review.
+
+The build job has read permissions and no secrets. It hands the package, source and evidence to an Actions artifact retained for seven days. The protected `Community candidate archive` verifies native execution provenance and every file, then stores them in a pending-review Draft Release with a GitHub artifact attestation of the archive source. Package asset names include the stable publisher ID, for example `pixivdownload-plugin-alice-example-plugin-1.2.0.jar`. Drafts remain outside the public catalog and do not grant `SOURCE_REVIEWED`.
+
+Waiting for review or retrying reuses verified archive bytes. A new head requires new review. Source, package or build-input changes require a rebuild; scanner-rule changes may reuse the package and rescan it. Missing archives, conflicting digests or unverifiable provenance block progress. Native Request changes remains blocking. Self-review, false-positive decisions and manual scan acceptance use separate protected form actions described in the [contribution guide](CONTRIBUTING.md).
+
+Key rotation, version status and ownership transfer are separate operations and cannot share a PR with a version submission.
 
 Protected operation processes append audits at `audits/<requestId>.json`. Status queries verify the referenced request and decision bytes; UNYANK refers only to the currently effective YANK decision. Ownership recovery evidence uses `ownership-transfer-evidence/<pluginId>/<sha256>.bin`, with the digest taken from the original bytes.
 

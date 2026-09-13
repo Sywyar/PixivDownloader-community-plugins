@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "image": "eclipse-temurin@sha256:fb9701fe3592f88a6158bdea97ee25821fcf1dd8837b08ced2c027ddebad4a34",
+  "proxyImage": "ubuntu/squid@sha256:8fafd41d6ddceb295d26eea9938321d825ac5351c7e46cf6a8aa5d093b8ed1ce",
+  "proxyTool": {
+    "url": "https://archive.ubuntu.com/ubuntu/pool/universe/s/squid/squid-openssl_6.14-0ubuntu0.24.04.4_amd64.deb",
+    "size": 2938638,
+    "sha256": "01bc27b9bb56f62418ed10f922fc8a2da6511436c925dee49b4f7af0bc12baf8"
+  },
+  "cpus": 2,
+  "memoryBytes": 6442450944,
+  "diskBytes": 12884901888,
+  "pids": 512,
+  "timeoutMs": 1800000,
+  "node": {
+    "version": "24.21.0",
+    "sha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+  },
+  "artifactHosts": [
+    "repo.maven.apache.org",
+    "repo1.maven.org",
+    "plugins.gradle.org",
+    "plugins-artifacts.gradle.org"
+  ]
+}

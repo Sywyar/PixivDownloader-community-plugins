@@ -4,7 +4,7 @@ on:
     branches: [master]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed, labeled, unlabeled]
   workflow_run:
-    workflows: [Community review event, Community review decision]
+    workflows: [Community review event, Community review decision, Submission static check, Community candidate archive]
     types: [completed]
   push:
     branches: [master]

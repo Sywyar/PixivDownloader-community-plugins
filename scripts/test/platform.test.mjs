@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { policy, prefix } from '../github.mjs';
-import { prepareSdk, evaluate, hash, readDecisionArtifact } from '../sdk.mjs';
+import { prepareSdk, evaluate, hash, evidence, readDecisionArtifact } from '../sdk.mjs';
 import { trustedRun, execution, classify, facts, decisionPath, gatePath } from '../platform.mjs';
 import { createDecision, attachDecisions, loadDecisions } from '../decisions.mjs';
 import { publish, notify } from '../community-gate.mjs';
@@ -22,7 +22,7 @@ function fixture() {
         run_started_at: '2025-01-01T00:00:00Z', status: 'completed', conclusion: 'success',
         display_title: 'Community decision PR #7 head ' + head };
     const state = { repo, pr, run, owner, files: [{ filename: 'README.md', status: 'modified', sha: 'c'.repeat(40) }],
-        reviews: [], events: [], runs: [], artifacts: [], checks: new Map(), writes: [], labels: ['custom', 'state:ready'] };
+        reviews: [], events: [], runs: [], artifacts: [], checks: new Map(), writes: [], labels: ['custom', 'state:ready'], comments: [] };
     const call = (endpoint, options = {}) => {
         const route = endpoint.replace(/([?&])per_page=100/u, '');
         if (options.method && options.method !== 'GET') {
@@ -38,6 +38,14 @@ function fixture() {
                 if (options.method === 'DELETE') state.labels = state.labels.filter(label => label !== decodeURIComponent(route.split('/').at(-1)));
                 else state.labels.push(...options.body.labels);
                 return null;
+            }
+            if (route === prefix + '/issues/7/comments') {
+                const comment = { id: 900 + state.comments.length, user: { id: 41898282, type: 'Bot' }, ...options.body };
+                state.comments.push(comment); return comment;
+            }
+            if (route.startsWith(prefix + '/issues/comments/')) {
+                const comment = state.comments.find(row => String(row.id) === route.split('/').at(-1));
+                Object.assign(comment, options.body); return comment;
             }
             throw new Error('Unexpected write ' + route);
         }
@@ -57,6 +65,7 @@ function fixture() {
         if (route === prefix + '/actions/artifacts/81/zip') return state.archive;
         if (route.startsWith(prefix + '/check-runs/')) return structuredClone(state.checks.get(route.split('/').at(-1)));
         if (route === prefix + '/issues/7/labels') return [state.labels.map((name, i) => ({ id: 1000 + i, name }))];
+        if (route === prefix + '/issues/7/comments') return [structuredClone(state.comments)];
         throw new Error('Unexpected read ' + route);
     };
     return { state, call, readGit: args => args[0] === 'rev-parse' && args[1] === 'HEAD' ? current : 'same-protected-tree',
@@ -122,7 +131,7 @@ test('目标事件要求受保护执行上下文，投稿 head 和关闭后的�
     assert.equal(state.writes.length, 0);
 });
 
-test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事实与伪来源', () => {
+test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事实与伪来源', async () => {
     const prepared = prepareSdk();
     const { state, call, readGit, context } = fixture();
     const inputs = { prNumber: '7', expectedHeadSha: head, action: 'SELF_REVIEW_APPROVED',
@@ -161,11 +170,11 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     state.artifacts[0].digest = 'sha256:' + '0'.repeat(64);
     assert.throws(() => loadDecisions(7, prepared, current, call, readGit), /DIGEST/);
     state.artifacts[0].digest = digest;
-    const pending = publish(7, context, prepared, call, call, readGit);
+    const pending = await publish(7, context, prepared, call, call, readGit);
     assert.equal(pending.error, undefined);
     assert.equal([...state.checks.values()].filter(check => check.conclusion === 'success').length, 4);
     state.pr.draft = true;
-    const draft = publish(7, context, prepared, call, call, readGit);
+    const draft = await publish(7, context, prepared, call, call, readGit);
     assert(!draft.labels.includes('state:ready'));
     assert.equal([...state.checks.values()].at(-1).conclusion, 'failure');
     state.pr.draft = false;
@@ -176,7 +185,7 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
         }
         return call(route, opts);
     };
-    const changed = publish(7, context, prepared, changing, call, readGit);
+    const changed = await publish(7, context, prepared, changing, call, readGit);
     assert(changed.error);
     assert([...state.checks.values()].slice(-4).every(check => check.conclusion === 'failure'));
     state.pr.draft = false;
@@ -185,11 +194,18 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
         if (opts?.method === 'POST' && route.endsWith('/check-runs')) result.app.id = 999;
         return result;
     };
-    assert.equal(publish(7, context, prepared, call, impostor, readGit).error, 'CHECK_PUBLISHER_MISMATCH');
+    assert.equal((await publish(7, context, prepared, call, impostor, readGit)).error, 'CHECK_PUBLISHER_MISMATCH');
     state.files = [{ filename: 'reviews/evidence/forged.json' }];
-    assert.equal(publish(7, context, prepared, call, call, readGit).error, 'SUBMISSION_EXECUTOR_UNAVAILABLE');
-    notify([{ number: 7, head, labels: ['ci:blocked', 'review:pending'] }], call);
+    assert.equal((await publish(7, context, prepared, call, call, readGit)).error, 'SUBMISSION_EXECUTOR_UNAVAILABLE');
+    const projection = { number: 7, head, labels: ['ci:blocked', 'review:pending'], summary: 'Pending review' };
+    state.comments.push({ id: 89, user: { id: 123, type: 'User' }, body: '<!-- community-review-summary --> forged' });
+    notify([projection], call);
     assert.deepEqual(state.labels.sort(), ['ci:blocked', 'custom', 'review:pending']);
+    assert.equal(state.comments.length, 2);
+    notify([{ ...projection, summary: 'Blocked after a new decision' }], call);
+    assert.equal(state.comments.length, 2);
+    assert.equal(state.comments[0].body, '<!-- community-review-summary --> forged');
+    assert(state.comments[1].body.endsWith('Blocked after a new decision'));
     const writes = state.writes.length;
     notify([{ number: 7, head: 'f'.repeat(40), labels: ['state:ready'] }], call);
     assert.equal(state.writes.length, writes);
@@ -209,4 +225,83 @@ test('原生撤销必须有真实账号与理由，评论和普通标签不改�
     state.events[0].dismissed_review.dismissal_message = 'Resolved';
     state.events[0].actor = { ...state.owner, id: 123 };
     assert.throws(() => evaluate(prepared, facts(7, prepared, current, call)));
+});
+
+test('版本审核绑定真实报告；误报、补扫、自审和撤销分别生效且旧扫描不放行', async () => {
+    const prepared = prepareSdk();
+    const { state, call, readGit, context } = fixture();
+    state.files = [{ filename: `submissions/${policy.repositoryOwnerId}/sample/2.3.4.json`, status: 'added', sha: 'c'.repeat(40) }];
+    const checked = { operation: 'FIRST_RELEASE', pr: { head, base: current, user: { id: policy.repositoryOwnerId } },
+        submissionSha256: 'd'.repeat(64), submission: { source: { commit: 'e'.repeat(40) } },
+        package: { sha256: 'f'.repeat(64) }, descriptor: { riskDeclaration: { present: false, signals: [] } },
+        bindingSha256: '1'.repeat(64), publisherSha256: '2'.repeat(64), owner: { accountId: policy.repositoryOwnerId } };
+    const raw = evidence(prepared.workspace, { owner: 'java.nio.file.Files', method: 'delete' });
+    const report = { schemaVersion: 1, status: 'INCOMPLETE', scannerVersion: 'test-scanner', rulesSha256: '3'.repeat(64),
+        runId: '301', runAttempt: 1, headSha: head, sourceCommit: checked.submission.source.commit,
+        packageSha256: checked.package.sha256, failureReason: 'CLASS_SCAN_FAILED', observations: [{ observationId: 'call-delete',
+            signal: 'FILE_DELETE', origin: 'PLUGIN', location: { archivePath: 'sample.class', className: 'example.Sample',
+                methodName: 'run', methodDescriptor: '()V', bytecodeOffset: 12 }, evidence: [raw] }],
+        findings: [{ findingId: 'missing-delete', ruleId: 'risk-declaration', signal: 'FILE_DELETE', kind: 'DECLARATION_MISSING',
+            observationIds: ['call-delete'], evidence: [raw] }] };
+    const version = { checked, report, url: 'https://github.com/example/draft', candidate: { inputSha256: '4'.repeat(64), scan: {}, evidence: [] } };
+    const refresh = () => {
+        const ref = evidence(prepared.workspace, report);
+        version.candidate.scan.riskReportRef = ref;
+        version.candidate.evidence = [raw, ref];
+        return facts(7, prepared, current, call, version);
+    };
+    const input = refresh();
+    const values = [];
+    const decide = (action, fields = {}) => {
+        const run = { ...context.run, id: 400 + values.length };
+        const value = createDecision({ prNumber: '7', expectedHeadSha: head, reason: 'Checked exact evidence', action, ...fields },
+            { ...context, run }, input, values);
+        value.evidence = evidence(prepared.workspace, value.bytes);
+        value.execution = { pr: input.after.pr, repositoryId: input.after.repositoryId, version: input.after.version,
+            workflowPath: decisionPath, workflowSha: current, runId: String(run.id), runAttempt: 1,
+            originalActor: { id: policy.repositoryOwnerId, type: 'User' }, triggeringActor: { id: policy.repositoryOwnerId, type: 'User' },
+            decisionAt: value.document.decisionAt };
+        values.push(value); return value;
+    };
+    const result = (entries = values) => evaluate(prepared, attachDecisions(structuredClone(input), entries));
+    decide('SELF_REVIEW_APPROVED', { confirmSelfReview: true });
+    assert.equal(result().human.status, 'SELF_APPROVED');
+    assert.equal(result().riskPassed, false);
+    const manual = decide('MANUAL_SCAN_ACCEPTED', { scanRunId: '301', scanRunAttempt: '1' });
+    assert.deepEqual(result().blockingFindingIds, ['missing-delete']);
+    const falsePositive = decide('FALSE_POSITIVE', { scanRunId: '301', scanRunAttempt: '1', findingIds: 'missing-delete' });
+    assert.equal(result().flow, 'READY');
+    const reportBytes = fs.readFileSync(path.join(prepared.workspace, input.report.path));
+    assert.equal(hash(reportBytes), input.report.sha256);
+    assert.equal(JSON.parse(reportBytes).findings.length, 1);
+    decide('REVOKE_DECISION', { targetDecisionSha256: falsePositive.evidence.sha256 });
+    assert.deepEqual(result().blockingFindingIds, ['missing-delete']);
+    assert.throws(() => createDecision({ prNumber: '7', expectedHeadSha: head, reason: 'Wrong scan', action: 'FALSE_POSITIVE',
+        scanRunId: '301', scanRunAttempt: '2', findingIds: 'missing-delete' }, context, input), /SCAN_MISMATCH/);
+    const invalid = decide('FALSE_POSITIVE', { scanRunId: '301', scanRunAttempt: '1', findingIds: 'absent' });
+    assert.throws(() => result([values[0], manual, invalid]));
+    const passed = await publish(7, context, prepared, call, call, readGit, async () => version);
+    assert.equal(passed.error, undefined);
+    assert(passed.labels.includes('scan:incomplete'));
+    assert(passed.labels.includes('type:new-plugin'));
+    report.runAttempt = 2;
+    const rescanned = evaluate(prepared, attachDecisions(refresh(), [values[0], manual, falsePositive]));
+    assert.equal(rescanned.riskPassed, false);
+    assert.deepEqual(rescanned.blockingFindingIds, ['missing-delete']);
+    state.pr.head.sha = '9'.repeat(40);
+    assert.throws(() => facts(7, prepared, current, call, version), /VERSION_FACTS_CHANGED/);
+    state.pr.state = 'closed';
+    const noScan = async () => { throw new Error('Closed PR must not fetch or rebuild a candidate'); };
+    const checkCount = state.checks.size;
+    const closed = await publish(7, context, prepared, call, call, readGit, noScan);
+    assert.deepEqual(closed.labels, ['state:closed']);
+    assert.equal(state.checks.size, checkCount);
+    state.pr.state = 'open';
+    const writes = state.writes.length;
+    notify([closed], call);
+    assert.equal(state.writes.length, writes);
+    state.pr.state = 'closed';
+    state.pr.merged = true;
+    assert.deepEqual((await publish(7, context, prepared, call, call, readGit, noScan)).labels, ['state:awaiting-apply']);
+    assert.equal(state.checks.size, checkCount);
 });

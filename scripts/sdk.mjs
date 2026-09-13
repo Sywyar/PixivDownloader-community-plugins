@@ -59,13 +59,13 @@ export function evaluate(prepared, input) {
     const bytes = Buffer.from(JSON.stringify(input), 'utf8');
     if (bytes.length > API_BYTES) throw new Error('EVIDENCE_SIZE_EXCEEDED');
     fs.writeFileSync(path.join(prepared.workspace, 'input.json'), bytes);
-    return prepared.invoke('review');
+    return (prepared.reviewInvoke ?? prepared.invoke)('review');
 }
 
 export function readDecisionArtifact(prepared, bytes) {
     if (!Buffer.isBuffer(bytes) || bytes.length > API_BYTES) throw new Error('ARTIFACT_SIZE_EXCEEDED');
     fs.writeFileSync(path.join(prepared.workspace, 'artifact.zip'), bytes);
-    return Buffer.from(prepared.invoke('artifact'), 'base64');
+    return Buffer.from((prepared.reviewInvoke ?? prepared.invoke)('artifact'), 'base64');
 }
 
 main(import.meta.url, () => {

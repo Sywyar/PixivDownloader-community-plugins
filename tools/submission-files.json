@@ -4,7 +4,7 @@
     {
       "path": "schemas/community/v1/bundle-manifest.json",
       "size": 7163,
-      "sha256": "a0d215f7ad595501ee8ab069c40129994ef18d22923b20e3bb3765e894afa67e"
+      "sha256": "73e958c9d33c11267f5d4859f4199643fae4ef07b99d1801a38c648e3456a2a2"
     },
     {
       "path": "schemas/community/v1/catalogs.json",
@@ -13,8 +13,8 @@
     },
     {
       "path": "schemas/community/v1/community.schema.json",
-      "size": 66394,
-      "sha256": "1823cc52f75950cefb7f3263addd217ccd42973d06e92932676bae7d2696a4b6"
+      "size": 66417,
+      "sha256": "5a41ae7f82a675615c8bab0a88c68ff63ddf8cad51b073f85cf2141702ea0313"
     },
     {
       "path": "schemas/community/v1/licenses/0BSD.txt",
@@ -223,8 +223,8 @@
     },
     {
       "path": "scripts/project.mjs",
-      "size": 7791,
-      "sha256": "85d270100f18303fdbc13441d7526c2eca13222d23f2c49d698d7944fc5e55f1"
+      "size": 8184,
+      "sha256": "8f9289984dcfa2afb5609c97178539fde44988e8a18ca42178de22e8cc945c43"
     },
     {
       "path": "scripts/repository-policy.json",
@@ -233,13 +233,13 @@
     },
     {
       "path": "scripts/sdk.mjs",
-      "size": 4433,
-      "sha256": "fe8851bd48c3c8ef323911a948cf8999a7c16cc763a0bd18e9ae16b4442d5520"
+      "size": 4487,
+      "sha256": "b2169049281a3f00402db450dbcce333c33bf5ea83be2aa81ec95ccb57da8032"
     },
     {
       "path": "scripts/submission-check.mjs",
-      "size": 12578,
-      "sha256": "8339c884d60cc2d80ffeb7f864ea90fb73fba8984bc27ccfc22c357d0dc02277"
+      "size": 12949,
+      "sha256": "68907caff559f47d0ea3abe35d22fdf750c189dce85eb4de6ec1df4f03f1011a"
     },
     {
       "path": "scripts/submission-fields.mjs",
@@ -263,8 +263,8 @@
     },
     {
       "path": "scripts/submission-sdk.mjs",
-      "size": 1658,
-      "sha256": "be45de38d6adebd58aec76a7354bbbdf605b36b52bfcb0d3bf2dcb64f0b2dafc"
+      "size": 1684,
+      "sha256": "041e33688dd4448983ff0cdca81949a9c0acd145cbc0f0ff98987d147ad7050a"
     },
     {
       "path": "scripts/submission-signing.mjs",
@@ -288,8 +288,8 @@
     },
     {
       "path": "tools/CommunityModel.java",
-      "size": 3339,
-      "sha256": "0b7b16f1accc197c89687cde661933c3b49f3c3648ea0bc07683da66952dc470"
+      "size": 5412,
+      "sha256": "cdba6818f7ec7aae0116131a42ac4d5e16be53db89bd9a8da218b0b6d50c35c5"
     },
     {
       "path": "tools/CommunityReview.java",
@@ -303,28 +303,28 @@
     },
     {
       "path": "tools/CommunitySubmission.java",
-      "size": 14530,
-      "sha256": "45361b3dbae71f1b9d7fe73b9c1195d3675faa9dc07aa6e3bf1418c1e43360b7"
+      "size": 14608,
+      "sha256": "04924652eb98ee8139f8135b4087f5d1ae7c8f92c58bd6e40807a8e36e8528b0"
     },
     {
       "path": "tools/community-contract.json",
       "size": 383,
-      "sha256": "adc4c389f31dac5e4d8a8018763f0ddb89483f9eb5bc933f204aa09f676418b5"
+      "sha256": "4ac535a9bdf82d6a7bacd3f08c112ae3e6ed19d25abc484d5141a57e88e2c8ec"
     },
     {
       "path": "tools/community-model.gradle",
-      "size": 992,
-      "sha256": "07b25413183c6ddd395f76ea55626daecfbbae3e9277c9d00d449927f1418708"
+      "size": 1154,
+      "sha256": "f04a332194c4332b2bee649e3c00897b4f08c417f371813212be62e98a34dc7a"
     },
     {
       "path": "tools/sdk-lock.json",
       "size": 354,
-      "sha256": "79fcd28d1c80cfd9651e4937fb85bdd031390a130673a846260c9248d3499978"
+      "sha256": "e44177eb931ed032b8b5ecbe7461ce660f4e2ac8023cc0ebc9bc938080dd2549"
     },
     {
       "path": "tools/sdk-tools.jar",
-      "size": 15377310,
-      "sha256": "1d77d76c3aed147c46c92b5a97fb1804a4565fb21c9da26bc164bc779998543a"
+      "size": 15406606,
+      "sha256": "af2f4adc41d5bca1c45e96e4f848eb70f81f3b1ff16e9550cea767a9422eab06"
     },
     {
       "path": "tools/signing-tool.jar",
