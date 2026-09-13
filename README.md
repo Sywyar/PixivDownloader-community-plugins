@@ -2,9 +2,9 @@
 
 [English](README_en.md)
 
-本仓库保存社区插件投稿、发布者身份、审核证据和发布记录。插件代码与安装包保留在发布者的源码仓库和固定发行资产中。
+本仓库保存社区插件投稿、发布者身份、审核证据和发布记录。发布者提供公开的固定源码与已签名安装包；社区独立重建并逐字节核对，将待审核包及证据保存到本仓库的 Draft Release。
 
-**当前准入只接受仓库所有者的工具、规则和文档维护 PR。** 数据 PR 已有独立静态检查；源码审阅、隔离重建和签名发布尚未接通，静态通过不会解除准入阻断。
+版本投稿须通过静态检查、隔离重建、风险复核和当前 head 的人工审核。维护 PR 仅接受仓库所有者提交的工具、规则和文档修改。正式社区签名、公开目录发布及管理操作执行器尚未接通；通过审核或合并 PR 都不表示插件已发布。
 
 社区签名表示对应版本完成了约定的审核与字节核对，不保证插件没有漏洞或恶意行为。开发者能力声明来自包内 `pixiv.risk-signals`，执行模式也不等于操作系统沙箱。
 
@@ -31,7 +31,7 @@
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/30d06c46bd975af7ece68be71c52c8419bf79652/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/68b42c8bb03585a6ab9227f18360b3ac3303b7d2/tools/submit.ps1' | iex
 ```
 
 无需先克隆社区仓库。`irm` 取得上述固定提交的入口脚本；入口再按完整来源提交和清单 SHA-256 校验工具，逐文件验证后使用本地缓存，缺少文件时只从对应提交下载。缓存位于 `%LOCALAPPDATA%\PixivDownloader\community-tools`，不会执行可变分支上的工具。向导结束后返回当前终端，结果码保存在 `$LASTEXITCODE`。
@@ -48,13 +48,23 @@ irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/
 
 已有发布者选择不同密钥时，向导生成独立换钥请求。主菜单也支持 YANK、UNYANK、REVOKE 和所有权转移；UNYANK 自动引用当前有效的 YANK 决定，转移双方分别以自己的账号提交申请或确认。新建密钥和已有私钥都须保存在 Git 仓库及临时目录之外，请自行备份。
 
-最后预览会列出身份、目标 fork、分支、全部文件的路径和摘要、JSON 正文及 PR 信息。输入 `YES` 后，向导重新核对账号、base、绑定和内容，再创建所需 fork、提交、普通推送并创建 Ready PR。取消预览不会写入 GitHub。中断后可重新运行，已有内容必须完全匹配才会复用；向导不自动批准或合并 PR。当前数据准入仍受本文开头说明的限制。
+最后预览会列出身份、目标 fork、分支、全部文件的路径和摘要、JSON 正文及 PR 信息。输入 `YES` 后，向导重新核对账号、base、绑定和内容，再创建所需 fork、提交、普通推送并创建 Ready PR。取消预览不会写入 GitHub。中断后可重新运行，已有内容必须完全匹配才会复用；向导不自动批准或合并 PR。换钥、状态和转移申请仍须等待各自的受保护执行器。
+
+## 构建与审核
+
+`Submission static check` 从受保护 workflow 的精确源码 SHA 运行，先读取 PR 原生身份、base/head 和新增 Git blob，检查路径、固定 SDK Schema、源码归档、公开安装包的实际大小与摘要、发布者签名和静态图片。这部分只解析数据，候选代码不进入检查器 classpath。
+
+版本投稿随后在一次性的 GitHub 托管 Ubuntu runner 上构建。固定摘要的容器最多使用 2 CPU、6 GiB 内存、12 GiB 可写磁盘和 512 个进程，每次构建限时 30 分钟。Maven、Gradle、sbt profile 执行各自的构建与测试任务；预取只经代理访问批准的公共制品源，正式重建恢复原始源码并关闭网络。容器不接收 Secret、GitHub token、Docker socket 或共享可写缓存。重建包必须与发布者的原包逐字节一致。
+
+扫描器读取最终包的 JVM 调用指令，不加载插件类。报告保留精确方法符号、位置、包摘要和原始调用证据，并分别标记插件编译输出、私有依赖和无法确定归属的类。只有规则覆盖的直接调用可产生缺报发现；未命中不代表不存在相应行为。坏 class 或扫描失败显示 `INCOMPLETE`，已发现的问题继续保留。SBOM 清点实际包与构建缓存，依赖许可证声明仍须人工复核。
+
+构建 job 只有读取权限，不使用 Secret。成功后将包、源码和证据交接为保留七天的 Actions artifact。受保护的 `Community candidate archive` 独立验证原生执行来源及全部字节，将它们存入“待审核” Draft Release，并用 GitHub artifact attestation 证明归档来源。待审核资产名包含稳定发布者 ID，例如 `pixivdownload-plugin-alice-example-plugin-1.2.0.jar`。Draft 不进入公开目录，也不授予 `SOURCE_REVIEWED`。
+
+等待人工审核或重试时复用已验证的归档字节。新 head 必须重新审核；源码、包或构建输入变化时重新构建，只有规则变化时可复用原包重新扫描。归档缺失、摘要冲突或来源无法验证会阻断，不能回退到未经核验的缓存。原生 Request changes 仍优先阻断；自审、误报和人工补扫各自使用受保护表单，操作方式见 [贡献说明](CONTRIBUTING.md#检查与表单)。
+
+换钥、版本状态与所有权转移分别校验，不能与版本投稿混在一个 PR 中。状态查询验证 `audits/<requestId>.json` 的请求及决定原始摘要，UNYANK 只引用当前有效的 YANK 决定。
 
 ## 本地检查
-
-`Submission static check` 从受保护 workflow 的精确源码 SHA 运行，只读取 PR 原生身份、base/head 和新增 Git blob。它重新检查路径、固定 SDK Schema、源码归档、公开安装包的实际大小与摘要、发布者签名和静态图片。候选代码不进入 classpath，也不执行 Maven、Gradle 或 sbt。
-
-检查只有读取权限，不使用 Secret。通过后保存静态输入 artifact 七天；结果表示 `STATIC_VALIDATED`，不表示已审核源码或获准发布。换钥、版本状态与所有权转移分别校验，不能与版本投稿混在一个 PR 中。状态查询验证 `audits/<requestId>.json` 的请求及决定原始摘要，UNYANK 只引用当前有效的 YANK 决定。
 
 安装 Node.js 24、JDK 17、Git 和 GitHub CLI 后运行：
 
