@@ -22,9 +22,15 @@ export async function publish(number, context, prepared, call = api, write = api
         body: { status: 'completed', conclusion, output: { title: 'Community admission', summary } },
     });
     try {
-        if (pr.state === 'closed' && classify(pr, list(prefix + '/pulls/' + number + '/files', null, call)) === 'version') {
-            return { ...identity, labels: [pr.merged ? 'state:awaiting-apply' : 'state:closed'],
-                summary: pr.merged ? 'PR merged. Publication has not been applied.' : 'PR closed without merging. No publication was applied.' };
+        // 关闭后的通知只表达终态，不按更新后的默认分支重新签发合并准入检查。
+        if (pr.state === 'closed') {
+            const operation = classify(pr, list(prefix + '/pulls/' + number + '/files', null, call));
+            if (!pr.merged) return { ...identity, labels: ['state:closed'],
+                summary: 'PR closed without merging. No publication was applied.' };
+            if (operation === 'maintenance') return { ...identity, labels: ['type:maintenance', 'state:merged'],
+                summary: 'Maintenance PR merged. No publication action is required. Admission checks retain their original results.' };
+            return { ...identity, labels: ['state:awaiting-apply'],
+                summary: 'PR merged. Publication has not been applied.' };
         }
         // 先清除同 head 的旧成功，再读取完整原生事实；任一异常均保留失败。
         for (const name of policy.requiredContexts) {
