@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { main } from './github.mjs';
-import { root, hash } from './sdk.mjs';
+import { root } from './sdk.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { checkPull } from './submission-pr.mjs';
 import { stateReader } from './submission-github.mjs';
@@ -11,7 +12,7 @@ import { event } from './platform.mjs';
 import { buildExecution } from './candidate-run.mjs';
 import { prepareBuildTools } from './build-tools.mjs';
 import { rebuild } from './build.mjs';
-import { scanBuild } from './build-evidence.mjs';
+import { scanBuild, scanInputs } from './build-evidence.mjs';
 import { fileSnapshot } from './build-files.mjs';
 import { buildPolicy } from './build-sandbox.mjs';
 import { writeCandidate } from './candidate.mjs';
@@ -50,10 +51,10 @@ main(import.meta.url, async () => {
     }
     const fixedInputs = buildInputs(sdk, checked);
     const reused = await reuseBuild(sdk, checked, execution.workflowSha, fixedInputs);
-    const sdkToolSha256 = hash(fs.readFileSync(path.join(root, 'tools/sdk-tools.jar')));
+    const scanner = scanInputs();
     if (reused && reused.archived.candidate.pr.head === checked.pr.head
         && reused.archived.candidate.submissionSha256 === checked.submissionSha256
-        && reused.archived.candidate.inputs.sdkToolSha256 === sdkToolSha256) {
+        && isDeepStrictEqual(reused.archived.candidate.inputs.scanner, scanner)) {
         const report = JSON.parse(fs.readFileSync(path.join(sdk.workspace, reused.archived.candidate.scan.riskReportRef.path), 'utf8'));
         if (report.status === 'COMPLETE') {
             console.log(JSON.stringify({ state: 'PENDING_REVIEW', reusedReleaseId: reused.archived.releaseId }));
@@ -68,7 +69,7 @@ main(import.meta.url, async () => {
     }
     const previous = await previousBuild(sdk, checked);
     const scan = scanBuild(sdk, build, checked.submission, { ...execution, headSha: checked.pr.head }, previous);
-    const inputs = { build: fixedInputs, submissionSha256: checked.submissionSha256, sdkToolSha256,
+    const inputs = { build: fixedInputs, submissionSha256: checked.submissionSha256, scanner,
         scanReportSha256: scan.riskReportRef.sha256, reusedFrom: build.reusedFrom ?? null };
     const output = path.join(root, 'target/submission-build');
     const candidate = await writeCandidate(sdk, checked, build, scan, inputs, execution, output);

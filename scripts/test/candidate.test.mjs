@@ -12,6 +12,7 @@ import { archiveCandidate } from '../archive.mjs';
 import { archiveCertificate, storeArchiveProof, verifyArchiveProof } from '../archive-proof.mjs';
 import { readArchivedCandidate } from '../archive-read.mjs';
 import { buildInputs, reusedBuild } from '../build-reuse.mjs';
+import { scanInputs } from '../build-evidence.mjs';
 import { archivePath } from '../candidate.mjs';
 
 test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不覆盖资产', async () => {
@@ -99,6 +100,24 @@ test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不
     const reused = reusedBuild(sdk, archived, checked, inputs);
     assert.deepEqual(fs.readFileSync(reused.artifact), bytes);
     assert.equal(reused.reusedFrom.releaseId, '701');
+    const scannerDirectory = path.join(sdk.workspace, 'scanner-inputs');
+    const scanner = scanInputs();
+    for (const file of scanner) {
+        const destination = path.join(scannerDirectory, file.path);
+        fs.mkdirSync(path.dirname(destination), { recursive: true });
+        fs.copyFileSync(path.join(root, file.path), destination);
+    }
+    assert.deepEqual(scanInputs(scannerDirectory), scanner);
+    for (const file of scanner) {
+        const destination = path.join(scannerDirectory, file.path);
+        const original = fs.readFileSync(destination);
+        fs.appendFileSync(destination, '\nchanged scan implementation');
+        assert.notDeepEqual(scanInputs(scannerDirectory), scanner, file.path);
+        assert.deepEqual(fs.readFileSync(reusedBuild(sdk, archived, checked, inputs).artifact), bytes);
+        fs.writeFileSync(destination, original);
+    }
+    fs.writeFileSync(path.join(scannerDirectory, 'README.md'), 'Documentation only', 'utf8');
+    assert.deepEqual(scanInputs(scannerDirectory), scanner);
     assert.equal(reusedBuild(sdk, archived, checked, { ...inputs, sourceCommit: '8'.repeat(40) }), null);
     const manifestFile = path.join(sdk.workspace, 'contracts/community/v1/bundle-manifest.json');
     const sdkManifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));

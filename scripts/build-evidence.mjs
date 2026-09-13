@@ -1,8 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { root, evidence } from './sdk.mjs';
+import { root, evidence, hash } from './sdk.mjs';
 import { buildPolicy } from './build-sandbox.mjs';
 import { fileDifference } from './build-files.mjs';
+
+// 扫描 SDK、社区适配及前序证据解析共同决定报告；它们变化时仍可复用原构建包。
+export function scanInputs(directory = root) {
+    return ['tools/sdk-tools.jar', 'tools/CommunityScan.java', 'scripts/build-evidence.mjs',
+        'scripts/submission-build.mjs', 'scripts/sdk.mjs', 'scripts/build-files.mjs',
+        'scripts/submission-check.mjs', 'scripts/submission-github.mjs']
+        .map(file => ({ path: file, sha256: hash(fs.readFileSync(path.join(directory, file))) }));
+}
 
 export function scanBuild(sdk, build, submission, execution, previous = null) {
     if (Boolean(submission.source.previousReviewedCommit) !== Boolean(previous)
