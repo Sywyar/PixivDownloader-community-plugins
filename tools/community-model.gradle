@@ -13,7 +13,8 @@ allprojects { project ->
                     [group: it.group ?: '', name: it.name, version: it.version ?: '', scope: configuration.name]
                 }}
             println('PIXIV_COMMUNITY_MODEL=' + JsonOutput.toJson([
-                version: project.version.toString(), artifacts: artifacts, dependencies: dependencies]))
+                version: project.version.toString(), artifacts: artifacts, dependencies: dependencies,
+                classDirectories: project.extensions.findByName('sourceSets')?.findByName('main')?.output?.classesDirs?.files?.collect { it.absolutePath } ?: []]))
         }
     }
 }

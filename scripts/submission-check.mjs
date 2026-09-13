@@ -125,7 +125,11 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
             publisher: sdk.save(publisher.bytes), publisherPath: publisherFile, path: record.path,
             previousReviewedCommit: previousCommit, sourceRoot: source.sourceRoot, imagesRoot });
         result = { operation: binding ? 'UPDATE' : 'FIRST_RELEASE', owner, pluginId: value.pluginId,
-            version: value.version, descriptor: verified.descriptor, sourceArchive: source.archiveFile,
+            version: value.version, publisherDisplayName: publisher.value.displayName,
+            descriptor: verified.descriptor, sourceArchive: source.archiveFile,
+            sourceRoot: source.sourceRoot, sourceRepositoryId: source.repositoryId, packageFile: artifact,
+            submission: value, submissionPath: record.path, submissionSha256: record.sha256,
+            bindingSha256: binding?.sha256 ?? hash(Buffer.from('null')), publisherSha256: publisher.sha256,
             package: { sha256: verified.sha256, size: verified.size }, publisherKeyFingerprint: verified.publisherKeyFingerprint };
     } else if (rotations.length) {
         if (rotations.length !== 1) throw new Error('SINGLE_ROTATION_REQUIRED');

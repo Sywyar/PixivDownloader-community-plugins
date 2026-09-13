@@ -22,3 +22,5 @@ jobs:
           distribution: temurin
           java-version: '17'
       - run: npm test
+      - name: Verify build isolation
+        run: node --test scripts/build-sandbox-integration.test.mjs scripts/build-egress.test.mjs

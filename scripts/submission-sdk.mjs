@@ -26,5 +26,5 @@ export function prepareSubmission(directory = root) {
         return file;
     };
     const document = (kind, bytes, relative) => invoke({ command: 'document', kind, file: save(bytes), path: relative });
-    return { ...sdk, invoke, save, document };
+    return { ...sdk, reviewInvoke: sdk.invoke, invoke, save, document };
 }
