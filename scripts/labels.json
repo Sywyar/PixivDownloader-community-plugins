@@ -100,6 +100,16 @@
     "description": "当前 community/admission 成功，可由所有者合并"
   },
   {
+    "name": "state:closed",
+    "color": "6a737d",
+    "description": "PR 已关闭且未合并，未执行发布或状态应用"
+  },
+  {
+    "name": "state:merged",
+    "color": "8250df",
+    "description": "维护 PR 已合并，无需执行插件发布或状态应用"
+  },
+  {
     "name": "state:awaiting-apply",
     "color": "fbca04",
     "description": "已合并且等待受保护发布/状态应用"

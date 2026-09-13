@@ -173,6 +173,32 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     const pending = await publish(7, context, prepared, call, call, readGit);
     assert.equal(pending.error, undefined);
     assert.equal([...state.checks.values()].filter(check => check.conclusion === 'success').length, 4);
+    state.pr.state = 'closed';
+    const closed = await publish(7, context, prepared, call, call, readGit);
+    notify([closed], call);
+    state.pr.state = 'open';
+    const reopened = await publish(7, context, prepared, call, call, readGit);
+    assert.equal(reopened.error, undefined);
+    assert(reopened.labels.includes('review:self-approved'));
+    assert(reopened.labels.includes('state:ready'));
+    state.run.head_sha = 'e'.repeat(40);
+    const changedSource = await publish(7, context, prepared, call, call,
+        args => args[0] === 'rev-parse' ? args[1] : '');
+    assert.equal(changedSource.error, undefined);
+    assert(changedSource.labels.includes('review:pending'));
+    assert(!changedSource.labels.includes('state:ready'));
+    assert.equal([...state.checks.values()].at(-1).conclusion, 'failure');
+    state.run.head_sha = current;
+    state.pr.head.sha = 'f'.repeat(40);
+    const changedHead = await publish(7, context, prepared, call, call, readGit);
+    assert.equal(changedHead.error, undefined);
+    assert(changedHead.labels.includes('review:pending'));
+    assert(!changedHead.labels.includes('state:ready'));
+    assert([...state.checks.values()].slice(-4).every(check => check.head_sha === state.pr.head.sha));
+    notify([changedHead], call);
+    assert(!state.labels.includes('state:closed'));
+    assert(state.labels.includes('review:pending'));
+    state.pr.head.sha = head;
     state.pr.draft = true;
     const draft = await publish(7, context, prepared, call, call, readGit);
     assert(!draft.labels.includes('state:ready'));
@@ -204,11 +230,57 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     assert.equal(state.comments.length, 2);
     notify([{ ...projection, summary: 'Blocked after a new decision' }], call);
     assert.equal(state.comments.length, 2);
-    assert.equal(state.comments[0].body, '<!-- community-review-summary --> forged');
-    assert(state.comments[1].body.endsWith('Blocked after a new decision'));
+    assert.equal(state.comments.find(comment => comment.id === 89).body, '<!-- community-review-summary --> forged');
+    assert(state.comments.find(comment => comment.user.type === 'Bot').body.endsWith('Blocked after a new decision'));
     const writes = state.writes.length;
     notify([{ number: 7, head: 'f'.repeat(40), labels: ['state:ready'] }], call);
     assert.equal(state.writes.length, writes);
+});
+
+test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒绝过期通知', async () => {
+    for (const operation of ['maintenance', 'version']) for (const merged of [false, true]) {
+        const { state, call, context } = fixture();
+        if (operation === 'version') state.files = [{
+            filename: `submissions/${policy.repositoryOwnerId}/sample/2.3.4.json`, status: 'added',
+        }];
+        Object.assign(state.pr, { state: 'closed', merged });
+        state.labels.push('ci:passed', 'review:self-approved');
+        for (const name of policy.requiredContexts) {
+            const checkId = String(state.checks.size + 1);
+            state.checks.set(checkId, { id: checkId, name, head_sha: head, status: 'completed', conclusion: 'success' });
+        }
+        const checks = structuredClone([...state.checks]);
+        const unavailable = () => { throw new Error('Closed PR must not load review sources or rebuild candidates'); };
+        const projection = await publish(7, context, new Error('SDK unavailable'), call, call, unavailable, unavailable);
+        const labels = !merged ? ['state:closed'] : operation === 'maintenance'
+            ? ['type:maintenance', 'state:merged'] : ['state:awaiting-apply'];
+        assert.equal(projection.error, undefined);
+        assert.deepEqual(projection.labels, labels);
+        assert.equal(projection.state, 'closed');
+        assert.equal(projection.merged, merged);
+        assert.equal(state.writes.length, 0);
+        assert.deepEqual([...state.checks], checks);
+        notify([projection], call);
+        assert.deepEqual(state.labels.sort(), ['custom', ...labels].sort());
+        assert.equal(state.comments.length, 1);
+        assert(state.comments[0].body.endsWith(projection.summary));
+        const writes = state.writes.length;
+        notify([projection], call);
+        assert.equal(state.writes.length, writes);
+        state.pr.merged = !merged;
+        notify([projection], call);
+        assert.equal(state.writes.length, writes);
+        state.pr.merged = merged;
+        state.pr.head.sha = 'f'.repeat(40);
+        notify([projection], call);
+        assert.equal(state.writes.length, writes);
+        state.pr.head.sha = head;
+        state.pr.state = 'open';
+        state.pr.merged = false;
+        notify([projection], call);
+        assert.equal(state.writes.length, writes);
+        assert.deepEqual([...state.checks], checks);
+    }
 });
 
 test('原生撤销必须有真实账号与理由，评论和普通标签不改变审核', () => {
@@ -290,18 +362,4 @@ test('版本审核绑定真实报告；误报、补扫、自审和撤销分别�
     assert.deepEqual(rescanned.blockingFindingIds, ['missing-delete']);
     state.pr.head.sha = '9'.repeat(40);
     assert.throws(() => facts(7, prepared, current, call, version), /VERSION_FACTS_CHANGED/);
-    state.pr.state = 'closed';
-    const noScan = async () => { throw new Error('Closed PR must not fetch or rebuild a candidate'); };
-    const checkCount = state.checks.size;
-    const closed = await publish(7, context, prepared, call, call, readGit, noScan);
-    assert.deepEqual(closed.labels, ['state:closed']);
-    assert.equal(state.checks.size, checkCount);
-    state.pr.state = 'open';
-    const writes = state.writes.length;
-    notify([closed], call);
-    assert.equal(state.writes.length, writes);
-    state.pr.state = 'closed';
-    state.pr.merged = true;
-    assert.deepEqual((await publish(7, context, prepared, call, call, readGit, noScan)).labels, ['state:awaiting-apply']);
-    assert.equal(state.checks.size, checkCount);
 });
