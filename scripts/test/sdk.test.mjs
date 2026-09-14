@@ -4,6 +4,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prepareSdk, evidence, evaluate, root, verifyTool } from '../sdk.mjs';
 
+test('真实 JVM 警告不污染 JSON 输出，非零退出仍携带诊断', () => {
+    const sdk = prepareSdk();
+    const source = path.join(sdk.workspace, 'JsonProbe.java');
+    fs.writeFileSync(source, 'public class JsonProbe { public static void main(String[] args) { '
+        + 'System.out.print("{\\"ok\\":true}"); if (args.length > 0) System.exit(7); } }', 'utf8');
+    sdk.run('javac', [source]);
+    // 合法标签组成不存在的组合，触发真实的 JVM logging warning。
+    const args = ['-Xlog:gc+os=warning', '-cp', sdk.workspace, 'JsonProbe'];
+    assert.deepEqual(JSON.parse(sdk.run('java', args)), { ok: true });
+    assert.throws(() => sdk.run('java', [...args, 'fail']), error => {
+        assert.equal(error.status, 7);
+        assert.deepEqual(JSON.parse(error.stdout), { ok: true });
+        assert.match(error.stderr, /\[warning\]\[logging\]/u);
+        return true;
+    });
+});
+
 test('实际固定 SDK 处理原生审核、自审、拒绝及旧 head', () => {
     const prepared = prepareSdk();
     const pr = { githubRepositoryId: '101', number: 2, authorAccountId: '23', headRepositoryId: '102',

@@ -238,8 +238,8 @@
     },
     {
       "path": "scripts/sdk.mjs",
-      "size": 4487,
-      "sha256": "b2169049281a3f00402db450dbcce333c33bf5ea83be2aa81ec95ccb57da8032"
+      "size": 4679,
+      "sha256": "39f3a59532da98973c631d80365770ecf26f753c5cfbdd64220e21722e86989e"
     },
     {
       "path": "scripts/submission-check.mjs",
