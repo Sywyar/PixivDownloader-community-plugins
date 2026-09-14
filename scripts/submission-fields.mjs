@@ -83,9 +83,9 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.') {
 }
 
 export async function marketFields(sdk, ui, owner, facts, changes, previous) {
-    const locale = await ui.ask('locale', previous?.defaultLocale ?? 'en');
+    const locale = await ui.ask('locale', previous?.defaultLocale ?? ui.locale ?? 'en');
     const market = { defaultLocale: locale,
-        displayName: { [locale]: await ui.ask('name', previous?.displayName?.[locale] ?? facts.displayName) },
+        displayName: { [locale]: await ui.ask('name', previous?.displayName?.[locale] ?? '') },
         summary: { [locale]: await ui.ask('summary', previous?.summary?.[locale] ?? '') } };
     const description = await ui.ask('description', previous?.description?.[locale] ?? '');
     if (description) market.description = { [locale]: description };

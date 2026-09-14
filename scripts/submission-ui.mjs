@@ -210,5 +210,5 @@ export async function terminal(input = process.stdin, output = process.stdout) {
         close();
         throw error;
     }
-    return { ask, say, select, multiselect, confirm, task, text, close };
+    return { locale: locales[index], ask, say, select, multiselect, confirm, task, text, close };
 }
