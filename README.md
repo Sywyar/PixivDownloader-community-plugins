@@ -33,7 +33,7 @@ Git 还需配置提交用的 `user.name` 和 `user.email`。
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
-irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/06b2e718ba1945e1c3e5e3a443b3b9efdbd83063/tools/submit.ps1' | iex
+irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1' | iex
 ```
 
 按提示完成以下内容：

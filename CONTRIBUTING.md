@@ -22,7 +22,7 @@
 
 版本清单有效期为九十天，到期前需要再次签发，即使工具源码没有变化。每次签发基于最新 `origin/master` 的清单递增序号；多个尚未合并的签发结果可能使用同一序号，只合并其中一个，其余重新签发。签名、有效期、历史序号或缓存核验失败时，入口停止，不回退到旧工具。首次使用或删除本地状态后，历史序号保护从当前有效清单重新开始。
 
-`tools/submission-channel.cjs` 是协议校验器的唯一源码，`node scripts/submission-channel.mjs embed` 将其嵌入 PowerShell，`check` 验证二者一致。已发布入口通过完整 commit SHA 固定，内置公钥与校验代码不随渠道更新。首次发布时将中英文 README 的命令固定到实际入口提交；修改协议或信任根需要发布新的固定入口。签名清单始终从默认分支的 `tools/submission-channel.json` 读取，工具文件仅从验签通过的完整 commit 下载。
+`tools/submission-channel.cjs` 是协议校验器的唯一源码，`node scripts/submission-channel.mjs embed` 将其嵌入 PowerShell，`check` 验证二者一致。投稿命令读取 `master/tools/submit.ps1`，启动器及其内置公钥和校验代码以受保护的 `master` 为来源。修改启动器须通过维护 PR 和入口回归，并验证与已发布签名清单的兼容性；用户下次执行同一命令即可取得更新。签名清单始终从 `master/tools/submission-channel.json` 读取，工具文件仅从验签通过的完整 commit 下载。
 
 `npm run repository:plan` 输出仓库保护的目标设置。`npm run repository:check` 回读 GitHub 当前设置。`node scripts/configure-repository.mjs --apply` 只在核对数字仓库身份、当前账号及公开状态后应用配置。它不创建仓库、不改变可见性、不上传 Secret、不批准 Environment，也不合并 PR。
 
