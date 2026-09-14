@@ -84,7 +84,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
         // 原生命令错误可能包含工程输出，只向终端投影固定错误码。
         const code = /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message
             : /ContractException: ([A-Z][A-Z0-9_]+)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
-        if (ui) ui.say('failed', { code });
+        const stage = ['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'BODY'].includes(error.downloadStage) ? error.downloadStage : undefined;
+        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...(stage ? { stage } : {}) });
         else console.error(code);
         process.exitCode = 1;
         return { failed: code };

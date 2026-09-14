@@ -93,6 +93,7 @@ const messages = {
     original: ['已存在相同请求或已发布的相同包，返回原记录。', 'The same request or package was already processed. Returning the original record.', '相同請求或套件已處理，傳回原紀錄。', '同じ申請またはパッケージは処理済みです。元の記録を返します。', '동일한 요청 또는 패키지가 처리되어 원본 기록을 반환합니다.'],
     submitted: ['PR 已准备好，请等待仓库审核。', 'The PR is ready for repository review.', 'PR 已準備好，請等候儲存庫審核。', 'PR を作成しました。リポジトリでの審査をお待ちください。', 'PR이 준비되었습니다. 저장소 검토를 기다려 주세요.'],
     failed: ['向导已停止，请根据错误码检查输入后重试。', 'The wizard stopped. Check the input using this error code, then retry.', '精靈已停止，請依錯誤碼檢查輸入後重試。', 'ウィザードを停止しました。エラーコードを確認し、入力を修正して再実行してください。', '마법사가 중지되었습니다. 오류 코드를 확인하고 입력을 수정한 뒤 다시 시도하세요.'],
+    downloadFailed: ['下载失败。请根据错误码检查网络、代理或文件摘要后重试。', 'Download failed. Use the error code to check the network, proxy or file digest, then retry.', '下載失敗。請依錯誤碼檢查網路、代理或檔案摘要後重試。', 'ダウンロードに失敗しました。エラーコードに従ってネットワーク、プロキシ、ファイルのダイジェストを確認してください。', '다운로드하지 못했습니다. 오류 코드에 따라 네트워크, 프록시 또는 파일 다이제스트를 확인하고 다시 시도하세요.'],
 };
 
 export async function terminal(input = process.stdin, output = process.stdout) {
@@ -113,8 +114,8 @@ export async function terminal(input = process.stdin, output = process.stdout) {
             prompts.log.info(text(key), common);
             prompts.note(JSON.stringify(value, null, 2), '', common);
         }
-        if (['submitted', 'original', 'cancelled', 'failed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
-            (['cancelled', 'failed'].includes(key) ? prompts.cancel : prompts.outro)(text(key), common);
+        if (['submitted', 'original', 'cancelled', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
+            (['cancelled', 'failed', 'downloadFailed'].includes(key) ? prompts.cancel : prompts.outro)(text(key), common);
         } else if (value === undefined) prompts.log.info(text(key), common);
     };
     const checked = value => {

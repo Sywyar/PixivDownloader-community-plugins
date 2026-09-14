@@ -39,4 +39,4 @@ jobs:
           distribution: temurin
           java-version: '17'
           verify-signature: true
-      - run: node --test scripts/test/submission-channel.test.mjs scripts/test/submission-bootstrap.test.mjs
+      - run: node --test scripts/test/submission-channel.test.mjs scripts/test/submission-bootstrap.test.mjs scripts/test/download-proxy.test.mjs

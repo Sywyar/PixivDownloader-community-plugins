@@ -212,9 +212,14 @@
       "sha256": "32f1606169c0ff504ad1c0fe1dfe34532e8c4af1ac117a04459510c03982ba2b"
     },
     {
+      "path": "scripts/download-proxy.mjs",
+      "size": 5552,
+      "sha256": "d057a1292125e8a996273bcb80336ba609b36e85521534327fdfd113adbd83e6"
+    },
+    {
       "path": "scripts/download.mjs",
-      "size": 4667,
-      "sha256": "3ccf46c6f620becc3039155a5afb72bef4d4d25096655b740a97723d97af1eef"
+      "size": 6426,
+      "sha256": "1f0dddc666e047c296375bdd2e745b5031e0d0c136867baaeee3a3abd9b0e4ae"
     },
     {
       "path": "scripts/github.mjs",
@@ -273,8 +278,8 @@
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 26292,
-      "sha256": "9464f3d2a91beed297a1e6968e269618fc25ec9ed67837a160cb122d9aefff7b"
+      "size": 26944,
+      "sha256": "c4a2eb55bd14141fed6f5d3ea673ebbc515c62e7fa83ca69a11d41ba3cfcc2ce"
     },
     {
       "path": "scripts/submission-write.mjs",
@@ -283,8 +288,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 5857,
-      "sha256": "fcb5d4dac1c37f1c491f373bdfa48cf38def0e48676b47a75535b5574f4c9144"
+      "size": 6076,
+      "sha256": "7ea7b00c690097d8340bb50fd8d46609d7854ecf748b0534ddf6f3ac0d2805d0"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

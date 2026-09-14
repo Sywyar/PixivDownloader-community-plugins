@@ -27,6 +27,8 @@ gh auth setup-git
 
 Git 还需配置提交用的 `user.name` 和 `user.email`。
 
+需要代理时，Windows 可沿用系统代理；也可为终端设置 `HTTPS_PROXY`，用 `NO_PROXY` 指定直连目标。插件包与源码下载支持 HTTP / HTTPS 代理。下载失败时，向导会显示错误码和失败阶段，便于区分网络问题与文件摘要不符。
+
 ### 3. 运行投稿向导
 
 进入自己的 SDK 工程目录，把示例路径替换为实际路径：
