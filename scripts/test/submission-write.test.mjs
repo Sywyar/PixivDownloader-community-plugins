@@ -6,10 +6,32 @@ import { pathToFileURL } from 'node:url';
 import { root } from '../sdk.mjs';
 import { policy } from '../github.mjs';
 import { git } from '../project.mjs';
-import { submitPreview } from '../submission-write.mjs';
+import { forkTarget, submitPreview } from '../submission-write.mjs';
 
-test('完整预览后才写入；身份、绑定和文件变化阻止 fork、push 与 PR', async () => {
+test.before(() => fs.mkdirSync(path.join(root, 'target'), { recursive: true }));
+
+test('投稿目标按数字身份区分所有者与 fork，拒绝同名替换和错误归属', () => {
+    const snapshot = { actor: { id: policy.repositoryOwnerId, login: policy.repository.split('/')[0] } };
+    const repository = { full_name: policy.repository, id: policy.repositoryId,
+        owner: { id: policy.repositoryOwnerId }, fork: false };
+    assert.deepEqual(forkTarget(snapshot, () => repository), { name: policy.repository, create: false, id: policy.repositoryId });
+    for (const changed of [{ id: '909' }, { owner: { id: '909' } }, { fork: true }]) {
+        assert.throws(() => forkTarget(snapshot, () => ({ ...repository, ...changed })), /FORK_IDENTITY_CONFLICT/u);
+    }
+    assert.throws(() => forkTarget(snapshot, () => { throw new Error('GITHUB_NOT_FOUND'); }), /GITHUB_NOT_FOUND/u);
+    snapshot.actor = { id: '101', login: 'actor' };
+    const name = `actor/${policy.repository.split('/')[1]}`;
+    const fork = { full_name: name, id: '202', owner: { id: '101' }, fork: true, parent: { id: policy.repositoryId } };
+    assert.deepEqual(forkTarget(snapshot, () => fork), { name, create: false, id: '202' });
+    assert.deepEqual(forkTarget(snapshot, () => { throw new Error('GITHUB_NOT_FOUND'); }), { name, create: true });
+    for (const changed of [{ fork: false }, { owner: { id: '909' } }, { parent: { id: '909' } }]) {
+        assert.throws(() => forkTarget(snapshot, () => ({ ...fork, ...changed })), /FORK_IDENTITY_CONFLICT/u);
+    }
+});
+
+test('完整预览后才写入；身份、绑定和文件变化阻止 fork、push 与 PR', async t => {
     const directory = fs.mkdtempSync(path.join(root, 'target/submission-write-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const base = 'a'.repeat(40);
     let actor = '101';
     const snapshot = { repositoryId: policy.repositoryId, base, actor: { id: actor, type: 'User', login: 'actor' } };
@@ -35,10 +57,11 @@ test('完整预览后才写入；身份、绑定和文件变化阻止 fork、pus
     assert.deepEqual(writes, []);
 });
 
-test('真实 Git 提交核对字节，普通 push 后断线可复用同一 head 创建 Ready PR', async () => {
+for (const owner of [false, true]) test(`真实 Git ${owner ? '所有者同仓库' : '普通 fork'}投稿在 push 断线后复用 head 创建 Ready PR`, async t => {
     const directory = fs.mkdtempSync(path.join(root, 'target/submission-write-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const upstream = path.join(directory, 'upstream');
-    const fork = path.join(directory, 'fork.git');
+    const fork = owner ? upstream : path.join(directory, 'fork.git');
     fs.mkdirSync(upstream);
     git(upstream, 'init', '--initial-branch', policy.defaultBranch);
     fs.writeFileSync(path.join(upstream, 'README.md'), 'fixture\n');
@@ -46,9 +69,11 @@ test('真实 Git 提交核对字节，普通 push 后断线可复用同一 head 
     const commit = (cwd, ...args) => git(cwd, '-c', 'user.name=Submission Test', '-c', 'user.email=submission@example.invalid', ...args);
     commit(upstream, 'commit', '-m', 'test: initial fixture');
     const base = git(upstream, 'rev-parse', 'HEAD');
-    git(directory, 'clone', '--bare', upstream, fork);
-    const forkName = 'actor/' + policy.repository.split('/')[1];
-    const snapshot = { repositoryId: policy.repositoryId, base, actor: { id: '101', type: 'User', login: 'actor' } };
+    if (!owner) git(directory, 'clone', '--bare', upstream, fork);
+    const actor = { id: owner ? policy.repositoryOwnerId : '101', type: 'User', login: owner ? policy.repository.split('/')[0] : 'actor' };
+    const repositoryId = owner ? policy.repositoryId : '202';
+    const forkName = actor.login + '/' + policy.repository.split('/')[1];
+    const snapshot = { repositoryId: policy.repositoryId, base, actor };
     let candidate;
     let body;
     let failPr = true;
@@ -63,11 +88,11 @@ test('真实 Git 提交核对字节，普通 push 后断线可复用同一 head 
             body = options.body;
             if (failPr) throw new Error('SIMULATED_DISCONNECT');
             createdPr = { number: 17, state: 'open', draft: body.draft, title: body.title, body: body.body,
-                html_url: 'https://github.com/' + policy.repository + '/pull/17', user: { id: '101' },
-                base: { sha: base }, head: { sha: candidate, repo: { id: '202' } } };
+                html_url: 'https://github.com/' + policy.repository + '/pull/17', user: { id: actor.id },
+                base: { sha: base }, head: { sha: candidate, repo: { id: repositoryId } } };
             return createdPr;
         }
-        if (endpoint === 'user') return { id: '101', type: 'User', login: 'actor' };
+        if (endpoint === 'user') return actor;
         if (endpoint === `repos/${policy.repository}`) return { full_name: policy.repository, id: policy.repositoryId,
             owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
         if (endpoint === `repos/${forkName}`) return { full_name: forkName, id: '202', owner: { id: '101' }, fork: true, parent: { id: policy.repositoryId } };
@@ -80,29 +105,39 @@ test('真实 Git 提交核对字节，普通 push 后断线可复用同一 head 
         if (endpoint.endsWith('/pulls/17')) return createdPr;
         throw new Error('UNEXPECTED_API ' + endpoint);
     };
-    const changes = new Map([['submissions/101/demo/2.3.4.json', Buffer.from('{"text":"中文"}\n')]]);
+    const file = `submissions/${actor.id}/demo/2.3.4.json`;
+    const changes = new Map([[file, Buffer.from('{"text":"中文"}\n')]]);
     const readGit = (cwd, ...args) => {
         if (args[0] === 'remote') args[3] = pathToFileURL(args[2] === 'upstream' ? upstream : fork).href;
         if (args[0] === 'commit') { commits++; return commit(cwd, ...args); }
         const result = git(cwd, ...args);
-        if (args[0] === 'push') { pushes++; candidate = git(cwd, 'rev-parse', 'HEAD'); }
+        if (args[0] === 'push') {
+            assert.match(args[2], /^HEAD:refs\/heads\/community\/first_release\/[0-9a-f]{24}$/u);
+            pushes++; candidate = git(cwd, 'rev-parse', 'HEAD');
+        }
         return result;
     };
     const input = { sdk: { workspace: directory, invoke: request => ({ path: path.join(request.root, request.path) }) },
         snapshot, changes, result: { operation: 'FIRST_RELEASE' }, title: 'feat(plugin): demo 2.3.4', call, readGit,
-        confirm: () => true, recheck: async () => {} };
+        confirm: preview => {
+            assert.equal(preview.fork.name, forkName);
+            assert.deepEqual(preview.actions, ['CREATE_COMMIT', 'PUSH_BRANCH', 'CREATE_READY_PR']);
+            return true;
+        }, recheck: async () => {} };
     await assert.rejects(submitPreview(input), /SIMULATED_DISCONNECT/u);
     const firstHead = candidate;
     failPr = false;
     assert.equal((await submitPreview(input)).head, firstHead);
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
     assert.equal(body.base, policy.defaultBranch);
+    assert.match(body.head, new RegExp(`^${actor.login}:community/first_release/`));
+    assert.equal(git(upstream, 'rev-parse', policy.defaultBranch), base);
     assert(writes.every(endpoint => endpoint.endsWith('/pulls')));
-    assert.equal(git(fork, 'show', `${firstHead}:submissions/101/demo/2.3.4.json`), '{"text":"中文"}');
+    assert.equal(git(fork, 'show', `${firstHead}:${file}`), '{"text":"中文"}');
     candidate = null;
     const before = writes.length;
     await assert.rejects(submitPreview({ ...input, readGit: (cwd, ...args) => {
-        if (args.includes('add') && args.includes('--')) fs.writeFileSync(path.join(cwd, 'submissions/101/demo/2.3.4.json'), '{"tampered":true}\n');
+        if (args.includes('add') && args.includes('--')) fs.writeFileSync(path.join(cwd, file), '{"tampered":true}\n');
         return readGit(cwd, ...args);
     } }), /COMMIT_BYTES_CHANGED/u);
     assert.equal(writes.length, before); assert.equal(pushes, 1);

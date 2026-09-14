@@ -278,8 +278,8 @@
     },
     {
       "path": "scripts/submission-write.mjs",
-      "size": 8540,
-      "sha256": "084592574437ad23fb8e7f3f29abc3e8d8caad82cbf35fa99e61c3079cb57d11"
+      "size": 8842,
+      "sha256": "3d973abe930aeafaf50119e192506074b15207e9b3245c27c503daad15815ac0"
     },
     {
       "path": "scripts/submit.mjs",
