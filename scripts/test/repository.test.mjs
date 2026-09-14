@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { policy, prefix, list, api } from '../github.mjs';
+import { policy, prefix, list, api, API_BYTES, API_TIMEOUT } from '../github.mjs';
 import { labels, labelChanges, syncLabels } from '../sync-labels.mjs';
 import { desiredSettings, checkSettings, configure, readSettings } from '../configure-repository.mjs';
 
@@ -124,4 +124,24 @@ test('分页遗漏、重复和来源不完整均失败关闭', () => {
     assert.throws(() => list(`${prefix}/environments`, 'environments', () => [{ total_count: 2, environments: [{ id: 1 }] }]), /INCOMPLETE/);
     assert.throws(() => list(`${prefix}/labels`, null, () => [[{ id: 1 }], [{ id: 1 }]]), /DUPLICATED/);
     assert.deepEqual(list(`${prefix}/labels`, null, () => [[{ id: 1 }], [{ id: 2 }]]), [{ id: 1 }, { id: 2 }]);
+});
+
+test('原始 job 日志按字节读取控制字符，普通 API 保留终端保护和失败传播', () => {
+    const logs = Buffer.from('2026-01-01T00:00:00Z \u001b[36mrunner\u001b[0m\n');
+    const endpoint = `${prefix}/actions/jobs/123/logs`;
+    const execute = (_command, args, options) => {
+        assert.deepEqual(options.stdio, ['pipe', 'pipe', 'pipe']);
+        assert.equal(options.maxBuffer, API_BYTES);
+        assert.equal(options.timeout, API_TIMEOUT);
+        if (args.includes('--allow-escape-sequences')) {
+            assert.equal(options.encoding, 'buffer');
+            return logs;
+        }
+        return options.encoding === 'buffer' ? Buffer.from('archive') : '{}';
+    };
+    assert.deepEqual(api(endpoint, { raw: true }, execute), logs);
+    assert.deepEqual(api(endpoint, {}, execute), {});
+    assert.deepEqual(api(`${prefix}/actions/artifacts/456/zip`, { raw: true }, execute), Buffer.from('archive'));
+    const failure = new Error('HTTP failure');
+    assert.throws(() => api(endpoint, { raw: true }, () => { throw failure; }), error => error === failure);
 });
