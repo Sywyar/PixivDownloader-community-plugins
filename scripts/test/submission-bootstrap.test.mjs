@@ -16,7 +16,8 @@ const source = fs.readFileSync(new URL('../../tools/submit.ps1', import.meta.url
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 
 async function fixture(t, shell, exitCode = 0) {
-    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'community-bootstrap-'));
+    // Windows 临时目录可能使用短路径；与 Git 返回的真实工程路径保持一致。
+    const folder = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'community-bootstrap-')));
     const project = path.join(folder, '工程 space,#');
     fs.mkdirSync(project);
     for (const args of [['init'], ['add', '.pixivdownloader-plugin-project']]) {
