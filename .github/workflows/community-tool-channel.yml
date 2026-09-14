@@ -1,0 +1,62 @@
+name: Sign submission tool channel
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_commit:
+        description: Full merged commit SHA containing the verified submission runtime
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: community-tool-channel
+  queue: max
+jobs:
+  verify:
+    if: >-
+      github.repository_id == '1347624983' && github.repository_owner_id == '83223374' &&
+      github.ref == 'refs/heads/master'
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          verify-signature: true
+      - run: node --test scripts/test/submission-channel.test.mjs scripts/test/submission-bootstrap.test.mjs
+  sign:
+    needs: verify
+    if: >-
+      github.repository_id == '1347624983' && github.repository_owner_id == '83223374' &&
+      github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - name: Sign the merged runtime after environment approval
+        run: node scripts/submission-channel.mjs issue "$RUNTIME_COMMIT" "$RUNNER_TEMP/submission-channel.json"
+        env:
+          RUNTIME_COMMIT: ${{ inputs.runtime_commit }}
+          COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64: ${{ secrets.COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64 }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: submission-tool-channel
+          path: ${{ runner.temp }}/submission-channel.json
+          if-no-files-found: error
+          retention-days: 7

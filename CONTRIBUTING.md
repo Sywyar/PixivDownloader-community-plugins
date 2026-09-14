@@ -12,7 +12,17 @@
 
 投稿者统一使用 [PowerShell 向导](README.md#投稿与版本管理)，准备最终包后选择版本投稿或管理操作。向导只在完整预览得到确认且当前事实复核成功后创建 fork PR；原生身份与静态检查仍由社区端独立取得和计算。
 
-修改向导运行文件后执行 `node scripts/submission-manifest.mjs --write`，再用 `node scripts/submission-manifest.mjs` 校验闭包。先提交运行文件和 `tools/submission-files.json`，再在单独提交中将 `tools/submit.ps1` 的 `RuntimeCommit` 固定到前一提交的完整 SHA，并将 `ManifestSha256` 设为该提交中清单原始字节的 SHA-256。入口本身不进入清单，避免循环引用；发布入口前须确保固定提交及其文件已能从公共仓库读取。不要将固定值改为分支名、移动标签或未经摘要验证的下载地址。
+修改向导运行文件后执行 `node scripts/submission-manifest.mjs --write`，再用 `node scripts/submission-manifest.mjs` 校验闭包。运行文件和清单经测试及 PR 合并后，按下节签发新的工具版本清单。日常向导更新只改签名清单，投稿命令保持不变。
+
+### 更新投稿工具
+
+1. 在默认分支运行 **Sign submission tool channel**，填写已合并的工具源码完整 SHA。
+2. 等待入口测试通过并批准 `release` Environment。签发器只接受主线祖先，逐文件核对该提交的清单、大小和摘要，不执行所选提交中的工具。
+3. 下载运行产物 `submission-tool-channel`，将其中的 `submission-channel.json` 原样放入 `tools/`，通过维护 PR 合并。不要格式化或手改签名文件；运行产物保留七天，workflow 不直接推送默认分支。
+
+版本清单有效期为九十天，到期前需要再次签发，即使工具源码没有变化。每次签发基于最新 `origin/master` 的清单递增序号；多个尚未合并的签发结果可能使用同一序号，只合并其中一个，其余重新签发。签名、有效期、历史序号或缓存核验失败时，入口停止，不回退到旧工具。首次使用或删除本地状态后，历史序号保护从当前有效清单重新开始。
+
+`tools/submission-channel.cjs` 是协议校验器的唯一源码，`node scripts/submission-channel.mjs embed` 将其嵌入 PowerShell，`check` 验证二者一致。已发布入口通过完整 commit SHA 固定，内置公钥与校验代码不随渠道更新。首次发布时将中英文 README 的命令固定到实际入口提交；修改协议或信任根需要发布新的固定入口。签名清单始终从默认分支的 `tools/submission-channel.json` 读取，工具文件仅从验签通过的完整 commit 下载。
 
 `npm run repository:plan` 输出仓库保护的目标设置。`npm run repository:check` 回读 GitHub 当前设置。`node scripts/configure-repository.mjs --apply` 只在核对数字仓库身份、当前账号及公开状态后应用配置。它不创建仓库、不改变可见性、不上传 Secret、不批准 Environment，也不合并 PR。
 
@@ -49,8 +59,8 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 | Environment | 限制与凭据 |
 |---|---|
 | `community-gate` | 仅 `master` 分支；保存现有 Gate App 的 `GATE_APP_PRIVATE_KEY`。官方 App action 只申请本社区仓库的短期 `checks:write` token，并在 job 结束撤销 |
-| `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准 |
+| `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。`COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64` 保存专用 Ed25519 PKCS#8 PEM 私钥文件的 Base64 编码，仅传给工具清单签名步骤 |
 
-Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或社区签名私钥写入 Git、评论或 artifact。社区签名私钥只允许在 `release` 的签名步骤使用；当前仓库没有签名入口。
+Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单使用专用密钥，公钥固定在启动器中；它不用于插件包签名。社区插件签名私钥只允许在 `release` 的插件签名步骤使用，该插件签名入口尚未接通。
 
 保护配置将所有者的 PR-only bypass 限于更新限制；另一 Ruleset 的四个必需检查、禁止删除和 force push 规则没有 bypass。合并方式为 Merge commit。受保护结果采用机器人结果 PR、所有者合并的模式，配置不授予自动发布 bypass。
