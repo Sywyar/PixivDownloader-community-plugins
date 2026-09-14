@@ -7,14 +7,18 @@ export const prefix = `repos/${policy.repository}`;
 export const API_TIMEOUT = 60_000;
 export const API_BYTES = 32 * 1024 * 1024;
 
-export function api(endpoint, { method = 'GET', body, token, pages = false, raw = false } = {}) {
+export function api(endpoint, { method = 'GET', body, token, pages = false, raw = false } = {}, execute = execFileSync) {
     if (!endpoint.startsWith(`${prefix}/`) && endpoint !== prefix && endpoint !== 'user') {
         throw new Error('GITHUB_TARGET_MISMATCH');
     }
     const args = ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint];
+    // 原始 job 日志只进入有界 pipe，保留控制字符供来源校验，不直接投影到终端。
+    if (raw && method === 'GET' && new RegExp(`^${prefix}/actions/jobs/[1-9][0-9]*/logs$`).test(endpoint)) {
+        args.push('--allow-escape-sequences');
+    }
     if (pages) args.push('--paginate', '--slurp');
     if (body !== undefined) args.push('--input', '-');
-    const output = execFileSync('gh', args, {
+    const output = execute('gh', args, {
         encoding: raw ? 'buffer' : 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
         stdio: ['pipe', 'pipe', 'pipe'], input: body === undefined ? undefined : JSON.stringify(body),
         env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },

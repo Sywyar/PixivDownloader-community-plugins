@@ -223,8 +223,8 @@
     },
     {
       "path": "scripts/github.mjs",
-      "size": 3353,
-      "sha256": "6b591cb4d6d5000e20d8ac61e389ee29cd83480d26407ef54280928397a03e2e"
+      "size": 3645,
+      "sha256": "4cac5ba97f6eb4d8826afef6f24944335b925feba4791df48e46e52cb0f836cd"
     },
     {
       "path": "scripts/project.mjs",
