@@ -40,12 +40,14 @@
     }
   },
   "market": {
-    "defaultLocale": "en",
+    "defaultLocale": "zh-CN",
     "displayName": {
-      "en": "plugin.name"
+      "zh-CN": "抖音",
+      "en": "Douyin"
     },
     "summary": {
-      "en": "添加抖音下载支持(非Tiktok)"
+      "zh-CN": "添加抖音下载支持（不支持 TikTok）",
+      "en": "Adds download support for Douyin (not TikTok)."
     },
     "category": "download-type",
     "tags": []
