@@ -7,13 +7,43 @@ import { root, hash, evidence } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { buildPath, writeCandidate, candidateIdentity } from '../candidate.mjs';
 import { verifyBuildRun } from '../candidate-run.mjs';
-import { unpackCandidate } from '../candidate-transfer.mjs';
+import { downloadCandidate, unpackCandidate } from '../candidate-transfer.mjs';
 import { archiveCandidate } from '../archive.mjs';
 import { archiveCertificate, storeArchiveProof, verifyArchiveProof } from '../archive-proof.mjs';
 import { readArchivedCandidate } from '../archive-read.mjs';
 import { buildInputs, reusedBuild } from '../build-reuse.mjs';
 import { scanInputs } from '../build-evidence.mjs';
 import { archivePath } from '../candidate.mjs';
+
+test('候选下载按 API 选择媒体类型，并保留字节校验和拒绝覆写', t => {
+    fs.mkdirSync(path.join(root, 'target'), { recursive: true });
+    const directory = fs.mkdtempSync(path.join(root, 'target/candidate-transfer-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const bytes = Buffer.from([0x50, 0x4b, 0, 0xff]);
+    const expected = { size: bytes.length, sha256: hash(bytes) };
+    for (const [route, accept] of [['actions/artifacts/123/zip', 'application/vnd.github+json'],
+        ['releases/assets/456', 'application/octet-stream']]) {
+        const endpoint = `${prefix}/${route}`;
+        const file = path.join(directory, route.startsWith('actions/') ? 'artifact.zip' : 'asset.jar');
+        const execute = (command, args, options) => {
+            assert.equal(command, 'gh');
+            assert.deepEqual(args, ['api', '--hostname', 'github.com', '-H', `Accept: ${accept}`, endpoint]);
+            assert.equal(options.encoding, 'buffer');
+            assert.equal(options.maxBuffer, bytes.length + 1);
+            return bytes;
+        };
+        assert.deepEqual(downloadCandidate(endpoint, file, bytes.length, expected, execute), expected);
+        assert.deepEqual(fs.readFileSync(file), bytes);
+        assert.throws(() => downloadCandidate(endpoint, file, bytes.length, expected, execute), { code: 'EEXIST' });
+        const rejected = file + '.rejected';
+        assert.throws(() => downloadCandidate(endpoint, rejected, bytes.length, { ...expected, sha256: '0'.repeat(64) }, execute),
+            /CANDIDATE_DOWNLOAD_CHANGED/u);
+        assert.throws(() => downloadCandidate(endpoint, rejected, bytes.length - 1, expected, () => bytes), /CANDIDATE_DOWNLOAD_CHANGED/u);
+        assert.equal(fs.existsSync(rejected), false);
+    }
+    assert.throws(() => downloadCandidate(`${prefix}/actions/artifacts/0/zip`, '', bytes.length, expected,
+        () => assert.fail('invalid endpoint executed')), /CANDIDATE_DOWNLOAD_INVALID/u);
+});
 
 test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不覆盖资产', async () => {
     const sdk = prepareSubmission();
