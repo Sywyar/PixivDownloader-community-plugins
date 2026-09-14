@@ -8,11 +8,15 @@ import { git } from './project.mjs';
 import { github, checkedRepository, unchanged, paged } from './submission-github.mjs';
 
 export function forkTarget(snapshot, call = github) {
-    const name = `${snapshot.actor.login}/${policy.repository.split('/')[1]}`;
+    const owner = snapshot.actor.id === policy.repositoryOwnerId;
+    const name = owner ? policy.repository : `${snapshot.actor.login}/${policy.repository.split('/')[1]}`;
     let repository;
     try { repository = checkedRepository(name, call); }
-    catch (error) { if (error.message === 'GITHUB_NOT_FOUND') return { name, create: true }; throw error; }
-    if (!repository.fork || id(repository.owner.id) !== snapshot.actor.id || id(repository.parent.id) !== policy.repositoryId) {
+    catch (error) { if (!owner && error.message === 'GITHUB_NOT_FOUND') return { name, create: true }; throw error; }
+    // 所有者在社区仓库内创建投稿分支；其他账号必须使用属于自己的社区 fork。
+    if (id(repository.owner.id) !== snapshot.actor.id || (owner
+        ? repository.fork || id(repository.id) !== policy.repositoryId
+        : !repository.fork || id(repository.parent.id) !== policy.repositoryId)) {
         throw new Error('FORK_IDENTITY_CONFLICT');
     }
     return { name, create: false, id: id(repository.id) };
