@@ -23,6 +23,7 @@ test('下载逐跳固定公共 IP，无凭据且校验实际大小与摘要', as
     const bytes = Buffer.from('streamed bytes');
     let calls = 0;
     const network = {
+        proxyForUrl: async () => null,
         lookup: async () => [{ address: '8.8.8.8', family: 4 }],
         request: (url, options, callback) => {
             calls++;
@@ -76,6 +77,21 @@ test('项目标识必须受 Git 跟踪，错误目录先失败；模型批处理
         fs.writeFileSync(batch, '@exit /b 7\r\n');
         assert.throws(() => runBuild(batch, [], folder), error => error.status === 7);
     }
+});
+
+test('下载的 DNS、连接及 TLS 异常转换为安全诊断，期限覆盖 DNS 等待', async () => {
+    const folder = temporary();
+    const network = { proxyForUrl: async () => null, lookup: async () => [{ address: '8.8.8.8', family: 4 }] };
+    for (const [native, code] of [['ETIMEDOUT', 'DOWNLOAD_TIMEOUT'], ['ECONNRESET', 'DOWNLOAD_CONNECTION_RESET'],
+        ['ENOTFOUND', 'DOWNLOAD_DNS_FAILED'], ['EAI_AGAIN', 'DOWNLOAD_DNS_FAILED'], ['ECONNREFUSED', 'DOWNLOAD_CONNECTION_FAILED'],
+        ['ERR_TLS_CERT_ALTNAME_INVALID', 'DOWNLOAD_TLS_FAILED']]) {
+        const error = Object.assign(new Error('sensitive request details'), { code: native });
+        await assert.rejects(download('https://example.org/file', path.join(folder, native), 100, null, { ...network,
+            request: () => { const request = new EventEmitter(); queueMicrotask(() => request.emit('error', error)); return request; } }),
+        error => error.message === code && error.downloadStage === 'CONNECT' && !String(error).includes('sensitive'));
+    }
+    await assert.rejects(download('https://example.org/file', path.join(folder, 'dns'), 100, null, { ...network,
+        lookup: () => new Promise(() => {}), timeout: 20 }), error => error.message === 'DOWNLOAD_TIMEOUT' && error.downloadStage === 'DNS');
 });
 
 test('写入前两次身份快照拒绝账号或主线改变', () => {

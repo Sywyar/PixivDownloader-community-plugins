@@ -27,6 +27,8 @@ gh auth setup-git
 
 Configure Git's `user.name` and `user.email` for commits as well.
 
+On Windows, package and source downloads use the system proxy unless `HTTPS_PROXY` is set in the terminal. Use `NO_PROXY` to select destinations that should connect directly. HTTP and HTTPS proxies are supported. Download errors include a code and failure stage to distinguish connection problems from file digest mismatches.
+
 ### 3. Run the submission wizard
 
 Open your SDK project directory, replacing the example path below:

@@ -10,7 +10,7 @@ export function buildInputs(sdk, checked) {
     const toolchain = buildToolchain(sdk);
     const implementation = ['scripts/build-profile.mjs', 'scripts/build.mjs', 'scripts/build-sandbox.mjs',
         'scripts/build-files.mjs', 'scripts/build-tools.mjs', 'scripts/build-proxy.mjs', 'scripts/project.mjs', 'scripts/sdk.mjs',
-        'scripts/submission-sdk.mjs', 'scripts/github.mjs', 'scripts/download.mjs',
+        'scripts/submission-sdk.mjs', 'scripts/github.mjs', 'scripts/download.mjs', 'scripts/download-proxy.mjs',
         'tools/CommunityModel.java', 'tools/CommunitySubmission.java', 'tools/CommunitySource.java', 'tools/community-model.gradle']
         .map(file => ({ path: file, sha256: hash(fs.readFileSync(path.join(root, file))) }));
     return { sourceCommit: checked.submission.source.commit, sourceArchive: checked.submission.source.archive,

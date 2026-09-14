@@ -10,6 +10,7 @@ import { prepareSubmission } from '../submission-sdk.mjs';
 import { root, hash } from '../sdk.mjs';
 import { git } from '../project.mjs';
 import { httpsUrl } from '../download.mjs';
+import { runWizard } from '../submit.mjs';
 
 const originalTerm = process.env.TERM;
 before(() => { process.env.TERM = 'xterm-256color'; });
@@ -139,6 +140,24 @@ test('加载时按 Esc 返回取消并恢复终端，不从组件中直接退出
     } finally { ui.close(); }
     assert.equal(tty.input.isRaw, false);
     assert.equal(tty.input.listenerCount('keypress'), 0);
+});
+
+test('向导投影下载错误码及阶段，不输出原始异常或凭据', async () => {
+    const sdk = prepareSubmission();
+    const project = path.join(sdk.workspace, 'error-project');
+    fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
+    git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    const previous = process.exitCode;
+    const spoken = [];
+    try {
+        const result = await runWizard(project, { ui: { select: () => {
+            throw Object.assign(new Error('DOWNLOAD_CONNECTION_RESET'), { downloadStage: 'PROXY_CONNECT', stderr: 'secret' });
+        }, say: (...args) => spoken.push(args), close: () => {} } });
+        assert.deepEqual(result, { failed: 'DOWNLOAD_CONNECTION_RESET' });
+        assert.equal(process.exitCode, 1);
+        assert.deepEqual(spoken, [['downloadFailed', { code: 'DOWNLOAD_CONNECTION_RESET', stage: 'PROXY_CONNECT' }]]);
+    } finally { process.exitCode = previous; }
 });
 
 test('许可证按所选工程建议并确认，市场字段与图片由固定 SDK 接受', async () => {
