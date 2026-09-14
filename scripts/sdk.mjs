@@ -31,7 +31,9 @@ export function prepareSdk(directory = root) {
     fs.cpSync(path.join(directory, 'schemas/community/v1'), path.join(workspace, 'contracts/community/v1'), { recursive: true });
     const classes = path.join(workspace, 'runtime');
     fs.mkdirSync(classes);
-    const run = (command, args, cwd = workspace) => execFileSync(command, args, {
+    // JVM 默认将统一日志写入 stdout；合同 JSON 独占 stdout，诊断转入 stderr。
+    const run = (command, args, cwd = workspace) => execFileSync(command,
+        command === 'java' ? ['-Xlog:all=off:stdout', '-Xlog:all=warning:stderr', ...args] : args, {
         cwd, encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
         // 子进程只处理固定合同和平台数据，不继承 GitHub token 或 App key。
         env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PRIVATE_KEY|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|CLASSPATH/iu.test(key))),

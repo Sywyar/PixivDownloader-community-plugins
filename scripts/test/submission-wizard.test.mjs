@@ -32,6 +32,7 @@ test('各语言使用真实交互确认，外部显示值不能注入终端控�
         const tty = consoleStreams();
         tty.key('\x1b[B'.repeat(i) + '\r');
         const ui = await terminal(tty.input, tty.output);
+        assert.equal(ui.locale, locales[i]);
         prompts.add(ui.text('trust'));
         tty.key('\x1b[B\r');
         assert.equal(await ui.confirm('trust', { project: '中文工程', profile: 'maven-java17-v1' }), true);
@@ -160,6 +161,25 @@ test('向导投影下载错误码及阶段，不输出原始异常或凭据', as
     } finally { process.exitCode = previous; }
 });
 
+test('市场默认语言跟随向导，首次显示名由开发者填写，已有市场信息继续作为建议', async () => {
+    for (const locale of locales) {
+        for (const previous of [undefined, { defaultLocale: 'en', displayName: { en: 'Existing name' }, summary: { en: 'Existing summary' } }]) {
+            const defaults = new Map();
+            const ui = { locale, ask: async (key, fallback = '') => {
+                defaults.set(key, fallback);
+                return fallback || ({ name: 'Entered name', summary: 'Entered summary' }[key] ?? '');
+            }, select: async (_key, values) => values[0], multiselect: async () => [] };
+            const market = await marketFields(null, ui, {}, { displayName: 'plugin.name' }, new Map(), previous);
+            const expectedLocale = previous?.defaultLocale ?? locale;
+            assert.equal(defaults.get('locale'), expectedLocale);
+            assert.equal(defaults.get('name'), previous?.displayName.en ?? '');
+            assert.equal(market.defaultLocale, expectedLocale);
+            assert.deepEqual(market.displayName, { [expectedLocale]: previous?.displayName.en ?? 'Entered name' });
+            assert.deepEqual(market.summary, { [expectedLocale]: previous?.summary.en ?? 'Entered summary' });
+        }
+    }
+});
+
 test('许可证按所选工程建议并确认，市场字段与图片由固定 SDK 接受', async () => {
     const sdk = prepareSubmission();
     const project = path.join(sdk.workspace, 'project');
@@ -184,7 +204,7 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     const changes = new Map();
     submission.market = await marketFields(sdk, { select: async (_key, values) => values[0], say: () => {},
         multiselect: async (_key, values) => values.slice(0, 2),
-        ask: async (key, fallback) => ({ summary: 'Example summary', icon: image, screenshots: image,
+        ask: async (key, fallback) => ({ name: 'Example plugin', summary: 'Example summary', icon: image, screenshots: image,
             alt: 'Example image', description: '' })[key] ?? fallback ?? '' },
     { accountId: '101' }, { pluginId: submission.pluginId, version: submission.version, displayName: 'Example plugin' }, changes);
     assert.equal(submission.market.screenshots[0].path, submission.market.icon.path);
