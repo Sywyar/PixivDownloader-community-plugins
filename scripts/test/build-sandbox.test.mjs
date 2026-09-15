@@ -2,6 +2,20 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildPolicy, containerOptions } from '../build-sandbox.mjs';
 import { proxyConfiguration } from '../build-proxy.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { copyBuildScripts } from '../build-tools.mjs';
+
+test('容器脚本交付包含可独立加载的 SDK 模型依赖', t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'build-scripts-'));
+    t.after(() => fs.rmSync(directory, { recursive: true }));
+    copyBuildScripts(directory);
+    assert.throws(() => execFileSync(process.execPath, [path.join(directory, 'scripts/build-profile.mjs')], {
+        cwd: directory, encoding: 'utf8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'],
+    }), error => error.status === 1 && error.stderr.trim() === 'BUILD_PROFILE_ARGUMENTS');
+});
 
 test('构建参数限制网络、权限和资源，离线容器不继承预取网络', () => {
     const policy = { ...buildPolicy, cpus: 3, memoryBytes: 4096, diskBytes: 8192, pids: 23, timeoutMs: 5000 };

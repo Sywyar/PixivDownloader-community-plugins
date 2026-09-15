@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { modelArguments } from './project.mjs';
+import { modelArguments } from '../tools/build-model.mjs';
 import { API_BYTES, main } from './github.mjs';
 
 /** 此入口只在无凭据的构建容器内执行；参数不能提供任意命令。 */

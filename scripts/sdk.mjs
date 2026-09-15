@@ -32,12 +32,12 @@ export function prepareSdk(directory = root) {
     const classes = path.join(workspace, 'runtime');
     fs.mkdirSync(classes);
     // JVM 默认将统一日志写入 stdout；合同 JSON 独占 stdout，诊断转入 stderr。
-    const run = (command, args, cwd = workspace) => execFileSync(command,
+    const run = (command, args, cwd = workspace, input) => execFileSync(command,
         command === 'java' ? ['-Xlog:all=off:stdout', '-Xlog:all=warning:stderr', ...args] : args, {
         cwd, encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
         // 子进程只处理固定合同和平台数据，不继承 GitHub token 或 App key。
         env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PRIVATE_KEY|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|CLASSPATH/iu.test(key))),
-        stdio: ['ignore', 'pipe', 'pipe'],
+        input, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
     run('jar', ['--extract', '--file', path.join(workspace, 'tools/sdk-tools.jar'), 'BOOT-INF/classes', 'BOOT-INF/lib'], classes);
     const classpath = [path.join(classes, 'BOOT-INF/classes'), path.join(classes, 'BOOT-INF/lib/*'), classes].join(path.delimiter);
