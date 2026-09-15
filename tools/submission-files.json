@@ -263,8 +263,8 @@
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 10969,
-      "sha256": "272c3b3a20fe6f7f844ffc97fccf615ce48948405be32d9a00b92834ee5ed003"
+      "size": 11120,
+      "sha256": "f4b586ea8563292aa0e133b368854fea8c65ad525a9c082ce33b79e62659a251"
     },
     {
       "path": "scripts/submission-messages.mjs",

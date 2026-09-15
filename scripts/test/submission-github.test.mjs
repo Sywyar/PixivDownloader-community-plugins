@@ -37,6 +37,10 @@ test('读取重试共用截止时间并保留安全诊断，超限与取消直�
         assert(!JSON.stringify(error).includes('secret')); return true;
     });
     assert.deepEqual(timeouts, [2500, 1400]); assert.deepEqual(waits, [1000]);
+    time = 0; let calls = 0;
+    assert.throws(() => githubRequest(() => { calls++; throw native(); },
+        { timeout: 2500, now: () => time, wait: () => { time = 5000; } }), { message: 'GITHUB_TIMEOUT', attempts: 1 });
+    assert.equal(calls, 1);
     for (const [code, message] of [['ENOBUFS', 'INPUT_SIZE_EXCEEDED'], ['ENOENT', 'GITHUB_CLI_REQUIRED']]) {
         assert.throws(() => githubRequest(() => { throw Object.assign(native(), { code }); }), { message });
     }

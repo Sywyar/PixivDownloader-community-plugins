@@ -9,7 +9,9 @@ export function githubRequest(work, { method = 'GET', timeout = API_TIMEOUT, now
     wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
     const deadline = now() + timeout;
     for (let attempt = 1; ; attempt++) {
-        try { return work(Math.max(1, deadline - now())); }
+        const remaining = deadline - now();
+        if (remaining <= 0) throw Object.assign(new Error('GITHUB_TIMEOUT'), { github: true, method, attempts: attempt - 1 });
+        try { return work(remaining); }
         catch (error) {
             if (error.message === 'CANCELLED') throw error;
             if (error.code === 'ENOBUFS') throw new Error('INPUT_SIZE_EXCEEDED');
