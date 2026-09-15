@@ -223,27 +223,35 @@ test('恢复提示使用已保存语言，继续跳过语言选择，拒绝恢�
 });
 
 test('真实业务线程阻塞期间终端持续刷新，异步字段验证和密码通过线程交接', { timeout: 10000 }, async t => {
+    // 此夹具模拟交互终端；Clack 在 CI 日志模式下有意停止重复动画帧。
+    const originalCI = process.env.CI;
+    process.env.CI = 'false';
+    t.after(() => { if (originalCI === undefined) delete process.env.CI; else process.env.CI = originalCI; });
     const tty = consoleStreams();
     const cancelled = new Int32Array(new SharedArrayBuffer(4));
+    const blocked = new Int32Array(new SharedArrayBuffer(4));
     const worker = new Worker(new URL('data:text/javascript,' + encodeURIComponent(`
         import { parentPort, workerData } from 'node:worker_threads';
         import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
         import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
-        const ui = await workerTerminal(parentPort, workerData);
+        const ui = await workerTerminal(parentPort, workerData.cancelled);
         const wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-        await ui.task('preparing', () => observe('checkingPath', '', () => wait(700)));
+        await ui.task('preparing', () => observe('checkingPath', '', () => Atomics.wait(workerData.blocked, 0, 0, 5000)));
         const value = await ui.ask('name', '', value => { wait(100); if (value !== 'Example') throw new Error('FIELD_PLACEHOLDER'); });
         const password = await ui.password('password', value => { if (value !== 'secret') throw new Error('KEY_PASSWORD_INVALID'); });
         ui.close();
         parentPort.postMessage({ method: 'result', args: [{ value, passwordLength: password.length }] });
         parentPort.close();
-    `)), { workerData: cancelled });
+    `)), { workerData: { cancelled, blocked } });
     t.after(() => worker.terminate());
     const result = connectTerminal(worker, cancelled, tty.input, tty.output);
+    result.catch(() => {}); // 断言失败后的线程清理不产生另一个未处理拒绝；下方仍核对原 Promise。
     const until = async value => { for (let i = 0; i < 100 && !tty.rendered().includes(value); i++) await setTimeout(20); assert(tty.rendered().includes(value), value); };
     await until('Choose a language'); await tty.key('\x1b[B\r');
     await until('Validate file paths'); const before = tty.rendered().length;
-    await setTimeout(200); assert(tty.rendered().length > before);
+    for (let i = 0; i < 100 && tty.rendered().length === before; i++) await setTimeout(20);
+    assert(tty.rendered().length > before);
+    Atomics.store(blocked, 0, 1); Atomics.notify(blocked, 0);
     await until('Plugin display name'); await tty.key('Example\r');
     await until('Private key password'); await tty.key('secret\r');
     assert.deepEqual(await result, { value: 'Example', passwordLength: 6 });
