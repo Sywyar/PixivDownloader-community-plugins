@@ -4,7 +4,7 @@
     {
       "path": "schemas/community/v1/bundle-manifest.json",
       "size": 7164,
-      "sha256": "548660a30647c8f0764672d81e181623c104b96749de19de91c9095904179862"
+      "sha256": "57aabb8040e9bcc0a4ec1e6259edf8f5089794ea0ece9202aeb66b725d12360a"
     },
     {
       "path": "schemas/community/v1/catalogs.json",
@@ -344,27 +344,27 @@
     {
       "path": "tools/community-contract.json",
       "size": 384,
-      "sha256": "4d347652a4b71d8bae5f046a8a03d394f1e3b8769c22d4845210901849e60266"
+      "sha256": "1e20dc099767f6ca10f3f1226bf7c8d0a4a63b19315f49ea787f472248fcd75b"
     },
     {
       "path": "tools/sdk-lock.json",
       "size": 355,
-      "sha256": "0c219c71c74e99f58f4a89a4cdea5dff64a4e2c814a4716c65bbd19ecab891a4"
+      "sha256": "136e0f3149ac5295e5fbecb57a9f471fc7996915f7af658d3565528ab5b06756"
     },
     {
       "path": "tools/sdk-tools.jar",
-      "size": 15430190,
-      "sha256": "29cf52a6875e2ce7f7689d8ae37165fbd1e462a4f51dddfe2b5bb00f06dcbd42"
+      "size": 15430843,
+      "sha256": "b489e79abb96fc5668232e35f0a7c4c99753ed15d62a6d603f923eca6bd6ea0c"
     },
     {
       "path": "tools/signing-tool.jar",
-      "size": 67202,
-      "sha256": "fe37c3c0bae1c37ad73b3cec7abee217ce1a92333aebe9bfbbbf628a2be30a4a"
+      "size": 67854,
+      "sha256": "7818e282f7b0c33c77226a367caee3ec097f7c0f72f25a9df106ecf40dec4f44"
     },
     {
       "path": "tools/signing-tool.json",
       "size": 287,
-      "sha256": "02e78f270a18a55e75329231ec49a92839cbd59d50cdcd9b14db54de07b49e2a"
+      "sha256": "8727f0aaff8bec6d965beba500f2af0ffcc3586f5b67525b85a5a3c3acb1ca16"
     }
   ]
 }
