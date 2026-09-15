@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { API_BYTES, API_TIMEOUT, prefix, id } from './github.mjs';
 import { root, hash } from './sdk.mjs';
+import { observe } from './submission-progress.mjs';
 
 // GitHub API 的重定向及认证由已有 gh 客户端处理；二进制入口只接受本仓库的数字 asset ID。
 export function downloadCandidate(endpoint, file, maximum, expected, execute = execFileSync) {
@@ -18,10 +19,11 @@ export function downloadGithubBinary(endpoint, file, maximum, expected, execute 
         || !Number.isSafeInteger(maximum) || maximum < 1) throw new Error('CANDIDATE_DOWNLOAD_INVALID');
     const accept = endpoint.endsWith('/zip') ? 'application/vnd.github+json' : 'application/octet-stream';
     let bytes;
-    try { bytes = execute('gh', ['api', '--hostname', 'github.com', '-H', `Accept: ${accept}`, endpoint],
+    try { bytes = observe('downloadingCandidate', '', () => execute('gh', ['api', '--hostname', 'github.com', '-H', `Accept: ${accept}`, endpoint],
         { encoding: 'buffer', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: maximum + 1,
-            stdio: ['ignore', 'pipe', 'pipe'] }); }
+            stdio: ['ignore', 'pipe', 'pipe'] })); }
     catch (error) {
+        if (error.message === 'CANCELLED') throw error;
         if (error.code === 'ETIMEDOUT') throw new Error('DOWNLOAD_TIMEOUT');
         if (error.code === 'ENOBUFS') throw new Error('INPUT_SIZE_EXCEEDED');
         if (error.code === 'ENOENT') throw new Error('GITHUB_CLI_REQUIRED');

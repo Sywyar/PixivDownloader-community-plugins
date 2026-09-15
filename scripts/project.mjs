@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { API_BYTES, API_TIMEOUT, sha } from './github.mjs';
+import { observe } from './submission-progress.mjs';
 
 export const markerName = '.pixivdownloader-plugin-project';
 export const markerMissing = '未检测到项目标识，您的SDK版本可能低于3600837c或非SDK目录';
-export const git = (directory, ...args) => execFileSync('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.longpaths=true',
+export const git = (directory, ...args) => observe(['fetch', 'push', 'commit'].includes(args[0]) ? 'git_' + args[0] : 'checkingProject', '', () => execFileSync('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.longpaths=true',
     '-C', directory, ...args], { encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
-        stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
+        stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd());
 
 // 入口预检不写文件、不执行工程脚本、不调用 GitHub；固定 SDK 随后再次完整核验。
 export function preflight(directory) {

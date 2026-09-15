@@ -52,7 +52,7 @@ function verifyCommit(checkout, head, preview, changes, readGit) {
 
 // 确认对象是完整预览；所有外部写入都在两次原生复核之后，普通 push 不覆盖远端分支。
 export async function submitPreview({ sdk, snapshot, changes, result, title, confirm, recheck,
-    actions = [], beforeWrite,
+    actions = [], beforeWrite, write = work => work(),
     call = github, readGit = git, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
     unchanged(snapshot, call);
     const fork = forkTarget(snapshot, call);
@@ -60,6 +60,7 @@ export async function submitPreview({ sdk, snapshot, changes, result, title, con
     preview.actions.unshift(...actions);
     if (!await confirm(preview)) return { cancelled: true };
     await recheck();
+    return write(async () => {
     unchanged(snapshot, call);
     if (!isDeepStrictEqual(forkTarget(snapshot, call), fork)) throw new Error('FORK_CHANGED');
     for (const file of preview.files) {
@@ -136,4 +137,5 @@ export async function submitPreview({ sdk, snapshot, changes, result, title, con
     if (actual.draft || actual.state !== 'open' || actual.head.sha !== head || actual.base.sha !== snapshot.base
         || id(actual.user.id) !== snapshot.actor.id || id(actual.head.repo.id) !== id(repository.id)) throw new Error('CREATED_PR_MISMATCH');
     return { url: actual.html_url, head };
+    });
 }

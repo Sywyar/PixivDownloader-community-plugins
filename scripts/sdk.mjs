@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { API_BYTES, API_TIMEOUT, main, sha } from './github.mjs';
+import { observe } from './submission-progress.mjs';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 export const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -32,13 +33,13 @@ export function prepareSdk(directory = root) {
     const classes = path.join(workspace, 'runtime');
     fs.mkdirSync(classes);
     // JVM 默认将统一日志写入 stdout；合同 JSON 独占 stdout，诊断转入 stderr。
-    const run = (command, args, cwd = workspace, input) => execFileSync(command,
+    const run = (command, args, cwd = workspace, input) => observe('tool_' + command, '', () => execFileSync(command,
         command === 'java' ? ['-Xlog:all=off:stdout', '-Xlog:all=warning:stderr', ...args] : args, {
         cwd, encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
         // 子进程只处理固定合同和平台数据，不继承 GitHub token 或 App key。
         env: Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PRIVATE_KEY|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|CLASSPATH/iu.test(key))),
         input, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-    });
+    }));
     run('jar', ['--extract', '--file', path.join(workspace, 'tools/sdk-tools.jar'), 'BOOT-INF/classes', 'BOOT-INF/lib'], classes);
     const classpath = [path.join(classes, 'BOOT-INF/classes'), path.join(classes, 'BOOT-INF/lib/*'), classes].join(path.delimiter);
     run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', classpath, '-d', classes, path.join(directory, 'tools/CommunityReview.java')]);

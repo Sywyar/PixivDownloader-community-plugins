@@ -31,14 +31,14 @@ function appliedRequest(sdk, state, changes) {
     return null;
 }
 
-export async function runWizard(directory = process.cwd(), { ui: suppliedUi, call = github } = {}) {
+export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiFactory = terminal, call = github } = {}) {
     // 在创建缓存、查询账号或执行工程前检查 SDK 标识。
     const project = preflight(directory);
     let ui = suppliedUi;
     let sdk;
     let context;
     try {
-        ui ??= await terminal();
+        ui ??= await uiFactory();
         context = { ui, projectRoot: project.gitRoot, call,
             bindProject(repositoryId, projectDir, pluginId) {
                 const identity = projectIdentity(repositoryId, projectDir, pluginId);
@@ -94,8 +94,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
                     await prepared.recheck?.();
                     await validate();
                 });
-                ui.say('writing');
-            } });
+            }, write: work => ui.task('writing', work) });
         });
         if (outcome.sourceChangeRequired || outcome.original) return outcome;
         if (!outcome.cancelled) context.store?.complete({ ...(context.store.record.receipt ?? {}), ...outcome });
@@ -129,6 +128,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
 
 main(import.meta.url, async () => {
     if (process.argv.length > 3) throw new Error('SUBMISSION_ARGUMENTS_INVALID');
-    try { await runWizard(process.argv[2]); }
+    try {
+        const { runInteractive } = await import('./submission-terminal.mjs');
+        const outcome = await runInteractive(process.argv[2]);
+        if (outcome?.failed) process.exitCode = 1;
+    }
     catch (error) { throw new Error(error.message === markerMissing ? markerMissing : 'PROJECT_PREFLIGHT_FAILED'); }
 });

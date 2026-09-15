@@ -103,7 +103,9 @@ export function failureCode(error) {
         : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
 }
 
-export async function terminal(input = process.stdin, output = process.stdout) {
+export const localizedText = (locale, key) => (additions[key] ?? messages[key])?.[Math.max(0, locales.indexOf(locale))] ?? key;
+
+export async function terminal(input = process.stdin, output = process.stdout, options = {}) {
     const common = { input, output };
     let index = 1;
     let navigationEnabled = false;
@@ -157,12 +159,12 @@ export async function terminal(input = process.stdin, output = process.stdout) {
     const ask = async (key, fallback = '', validate) => {
         const actual = value => value?.trim() === visible(fallback) ? fallback : value?.trim() ?? '';
         const value = await prompt(prompts.text, {
-            message: text(key) + '\n' + text('formNavigation'), initialValue: visible(fallback),
-            validate: value => {
+            message: text(key) + '\n│  ' + text('formNavigation'), initialValue: visible(fallback),
+            validate: async value => {
                 const candidate = actual(value);
                 if (!candidate && !['description', 'icon', 'screenshots', 'homepage'].includes(key)) return text('required');
                 if (['name', 'summary', 'display'].includes(key) && messages[key].includes(candidate)) return errors.FIELD_PLACEHOLDER[index];
-                try { validate?.(candidate); } catch (error) { return errorText(error); }
+                try { await validate?.(candidate); } catch (error) { return errorText(error); }
             },
         });
         return actual(value);
@@ -194,6 +196,7 @@ export async function terminal(input = process.stdin, output = process.stdout) {
                 visible(value.branch), `${text('files')}: ${value.files.length}`,
                 ...value.actions.map(action => text(action)),
             ].join('\n'), text('submissionSummary'), common);
+            if (!await select('confirmSummary', [false, true], accepted => text(accepted ? 'confirmAction' : 'cancelAction'))) return false;
             prompts.note(formatMetadata(previewMetadata(value), text), text('details'), common);
             say(key);
         } else say(key, value);
@@ -206,19 +209,22 @@ export async function terminal(input = process.stdin, output = process.stdout) {
         }
     };
     const password = async (key = 'password', validate) => prompt(prompts.password, {
-        message: text(key) + '\n' + text('formNavigation'), validate: value => {
+        message: text(key) + '\n│  ' + text('formNavigation'), validate: async value => {
             if (!value) return text('required');
-            try { validate?.(value); } catch (error) { return errorText(error); }
+            try { await validate?.(value); } catch (error) { return errorText(error); }
         },
     });
-    const task = async (key, work) => {
-        prompts.log.step(text(key), common);
+    const activity = (key, detail) => {
         const loading = prompts.spinner({ ...common, cancelMessage: text('cancelled'), errorMessage: text('failed'), onCancel: end });
-        loading.start(text(key));
+        loading.start(text(key) + (detail ? ' · ' + visible(detail) : ''));
+        return loading;
+    };
+    const task = async (key, work) => {
+        const loading = activity(key);
         try {
             await setImmediate();
             if (controller.signal.aborted) throw new Error('CANCELLED');
-            const result = await work();
+            const result = await work((step, detail) => loading.message(text(key) + ' · ' + text(step) + (detail ? ' · ' + visible(detail) : '')));
             if (controller.signal.aborted) throw new Error('CANCELLED');
             loading.stop(text(key) + ' · ' + text('done'));
             return result;
@@ -243,5 +249,5 @@ export async function terminal(input = process.stdin, output = process.stdout) {
         close();
         throw error;
     }
-    return { locale: locales[index], signal: controller.signal, ask, say, select, multiselect, confirm, task, text, errorText, password, close };
+    return { locale: locales[index], signal: controller.signal, ask, say, select, multiselect, confirm, task, activity, text, errorText, password, close };
 }

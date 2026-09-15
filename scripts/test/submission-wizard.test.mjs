@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { PassThrough, Writable } from 'node:stream';
+import { Worker } from 'node:worker_threads';
 import { setImmediate, setTimeout } from 'node:timers/promises';
 import { terminal, locales } from '../submission-ui.mjs';
 import { licenseFields, marketFields } from '../submission-fields.mjs';
@@ -16,6 +17,7 @@ import { navigation } from '../submission-navigation.mjs';
 import { publisherOwner } from '../submission-release.mjs';
 import { unlockPrivateKey } from '../submission-signing.mjs';
 import { errors } from '../submission-messages.mjs';
+import { connectTerminal } from '../submission-terminal.mjs';
 
 const originalTerm = process.env.TERM;
 before(() => { process.env.TERM = 'xterm-256color'; });
@@ -165,13 +167,15 @@ test('各语言使用真实交互确认，外部显示值不能注入终端控�
         prompts.add(ui.text('trust'));
         tty.key('\x1b[B\r');
         assert.equal(await ui.confirm('trust', { project: '中文工程', profile: 'maven-java17-v1' }), true);
-        tty.key('\r');
-        assert.equal(await ui.confirm('preview', {
+        const preview = ui.confirm('preview', {
             title: 'Example submission', repository: 'example/community', actor: { login: 'author' },
             fork: { name: 'author/community' }, branch: 'community/example',
             files: [{ path: 'submissions/example.json', sha256: 'a'.repeat(64), content: '{"example":true}' }],
             actions: ['CREATE_FORK', 'CREATE_COMMIT', 'PUSH_BRANCH', 'CREATE_READY_PR'],
-        }), false);
+        });
+        await tty.key('\x1b[B\r');
+        await tty.key('\r');
+        assert.equal(await preview, false);
         assert(tty.rendered().includes(ui.text('submissionSummary')));
         assert(tty.rendered().includes('submissions/example.json'));
         assert(tty.rendered().includes('a'.repeat(64)));
@@ -186,6 +190,49 @@ test('各语言使用真实交互确认，外部显示值不能注入终端控�
         assert.equal(tty.input.listenerCount('keypress'), 0);
     }
     assert.equal(prompts.size, locales.length);
+});
+
+test('摘要单独确认后才展示完整内容，快捷键说明与引导线对齐', async t => {
+    const tty = consoleStreams(); tty.key('\x1b[B\r');
+    const ui = await terminal(tty.input, tty.output); t.after(() => ui.close());
+    const preview = ui.confirm('preview', { title: 'Example', repository: 'example/community', actor: { login: 'author' },
+        fork: { name: 'author/community' }, branch: 'community/example', files: [{ path: 'unique-preview-file.json' }], actions: [] });
+    await setImmediate();
+    assert(tty.rendered().includes(ui.text('submissionSummary')));
+    assert(!tty.rendered().includes('unique-preview-file.json'));
+    await tty.key('\x1b[B\r'); await setImmediate();
+    assert(tty.rendered().includes('unique-preview-file.json'));
+    await tty.key('\r'); assert.equal(await preview, false);
+    const name = ui.ask('name'); await tty.key('Example\r'); await name;
+    assert(tty.rendered().includes('│  ' + ui.text('formNavigation')));
+});
+
+test('真实业务线程阻塞期间终端持续刷新，异步字段验证和密码通过线程交接', { timeout: 10000 }, async t => {
+    const tty = consoleStreams();
+    const cancelled = new Int32Array(new SharedArrayBuffer(4));
+    const worker = new Worker(new URL('data:text/javascript,' + encodeURIComponent(`
+        import { parentPort, workerData } from 'node:worker_threads';
+        import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
+        import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
+        const ui = await workerTerminal(parentPort, workerData);
+        const wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+        await ui.task('preparing', () => observe('checkingPath', '', () => wait(700)));
+        const value = await ui.ask('name', '', value => { wait(100); if (value !== 'Example') throw new Error('FIELD_PLACEHOLDER'); });
+        const password = await ui.password('password', value => { if (value !== 'secret') throw new Error('KEY_PASSWORD_INVALID'); });
+        ui.close();
+        parentPort.postMessage({ method: 'result', args: [{ value, passwordLength: password.length }] });
+        parentPort.close();
+    `)), { workerData: cancelled });
+    t.after(() => worker.terminate());
+    const result = connectTerminal(worker, cancelled, tty.input, tty.output);
+    const until = async value => { for (let i = 0; i < 100 && !tty.rendered().includes(value); i++) await setTimeout(20); assert(tty.rendered().includes(value), value); };
+    await until('Choose a language'); await tty.key('\x1b[B\r');
+    await until('Validate file paths'); const before = tty.rendered().length;
+    await setTimeout(200); assert(tty.rendered().length > before);
+    await until('Plugin display name'); await tty.key('Example\r');
+    await until('Private key password'); await tty.key('secret\r');
+    assert.deepEqual(await result, { value: 'Example', passwordLength: 6 });
+    assert(!tty.rendered().includes('secret'));
 });
 
 test('方向键选择原始对象，空格多选可增删，错误输入原地重试且默认值可编辑', { timeout: 10000 }, async t => {

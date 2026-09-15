@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { API_BYTES, API_TIMEOUT, id, sha, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
+import { observe } from './submission-progress.mjs';
 
 export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
     if (!/^(?:user(?:\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
@@ -11,10 +12,14 @@ export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
     if (pages) args.push('--paginate', '--slurp');
     if (body !== undefined) args.push('--input', '-');
     try {
-        const output = execFileSync('gh', args, { encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT,
-            maxBuffer: API_BYTES, input: body === undefined ? undefined : JSON.stringify(body), stdio: ['pipe', 'pipe', 'pipe'] });
+        const step = endpoint === 'user' ? 'readingActor' : endpoint.includes('/pulls') ? 'readingPulls'
+            : endpoint.includes('/releases') ? 'readingCandidate' : endpoint.includes('/actions') ? 'readingCI'
+                : endpoint.includes('/git/') ? 'readingGitObjects' : 'readingRepository';
+        const output = observe(method === 'GET' ? step : 'writingGithub', '', () => execFileSync('gh', args, { encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT,
+            maxBuffer: API_BYTES, input: body === undefined ? undefined : JSON.stringify(body), stdio: ['pipe', 'pipe', 'pipe'] }));
         return output.trim() ? JSON.parse(output) : null;
     } catch (error) {
+        if (error.message === 'CANCELLED') throw error;
         if (error.stderr?.includes('(HTTP 404)')) throw new Error('GITHUB_NOT_FOUND');
         // 不把原生命令、认证环境或带参数的请求输出带入错误预览。
         throw new Error('GITHUB_REQUEST_FAILED');
