@@ -18,7 +18,7 @@ export function submissionManifest(directory = root) {
     visit('scripts/submit.mjs');
     selected.add('scripts/repository-policy.json');
     for (const name of ['CommunityReview.java', 'CommunitySubmission.java', 'CommunitySource.java',
-        'community-model.gradle', 'sdk-tools.jar', 'sdk-lock.json', 'community-contract.json', 'signing-tool.jar', 'signing-tool.json']) selected.add('tools/' + name);
+        'sdk-tools.jar', 'sdk-lock.json', 'community-contract.json', 'signing-tool.jar', 'signing-tool.json']) selected.add('tools/' + name);
     for (const file of fs.readdirSync(path.join(directory, 'schemas/community/v1'), { recursive: true, withFileTypes: true })) {
         if (file.isFile()) selected.add(path.relative(directory, path.join(file.parentPath, file.name)).split(path.sep).join('/'));
         else if (!file.isDirectory()) throw new Error('SUBMISSION_RESOURCE_INVALID');

@@ -7,7 +7,7 @@ import { root, hash, evidence } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { buildPath, writeCandidate, candidateIdentity } from '../candidate.mjs';
 import { verifyBuildRun } from '../candidate-run.mjs';
-import { downloadCandidate, unpackCandidate } from '../candidate-transfer.mjs';
+import { downloadCandidate, downloadGithubBinary, unpackCandidate } from '../candidate-transfer.mjs';
 import { archiveCandidate } from '../archive.mjs';
 import { archiveCertificate, storeArchiveProof, verifyArchiveProof } from '../archive-proof.mjs';
 import { readArchivedCandidate } from '../archive-read.mjs';
@@ -43,6 +43,15 @@ test('候选下载按 API 选择媒体类型，并保留字节校验和拒绝覆
     }
     assert.throws(() => downloadCandidate(`${prefix}/actions/artifacts/0/zip`, '', bytes.length, expected,
         () => assert.fail('invalid endpoint executed')), /CANDIDATE_DOWNLOAD_INVALID/u);
+    const sourceEndpoint = 'repos/source/plugin/releases/assets/456';
+    assert.throws(() => downloadCandidate(sourceEndpoint, '', bytes.length, expected), /CANDIDATE_DOWNLOAD_INVALID/u);
+    assert.deepEqual(downloadGithubBinary(sourceEndpoint, path.join(directory, 'source.jar'), bytes.length, expected, (_command, args) => {
+        assert(args.includes('Accept: application/octet-stream')); return bytes;
+    }), expected);
+    assert.throws(() => downloadGithubBinary('repos/../plugin/releases/assets/456', '', bytes.length), /CANDIDATE_DOWNLOAD_INVALID/u);
+    for (const [code, projected] of [['ETIMEDOUT', 'DOWNLOAD_TIMEOUT'], ['ENOBUFS', 'INPUT_SIZE_EXCEEDED'], ['EPIPE', 'GITHUB_REQUEST_FAILED']]) {
+        assert.throws(() => downloadGithubBinary(sourceEndpoint, '', bytes.length, expected, () => { throw Object.assign(new Error('native details'), { code }); }), { message: projected });
+    }
 });
 
 test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不覆盖资产', async () => {

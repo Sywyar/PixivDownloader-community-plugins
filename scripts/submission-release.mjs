@@ -1,34 +1,57 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import { id } from './github.mjs';
-import { sourceFacts, queryModel } from './project.mjs';
-import { github, paged, eligible } from './submission-github.mjs';
+import { sourceFacts } from './project.mjs';
+import { github, paged, eligible, repositoryTree, readBlob } from './submission-github.mjs';
+import { policy } from './github.mjs';
+import { sourceCandidate } from './submission-candidate.mjs';
 import { activeKey, publisherPath, bindingPath, versionAvailable, sourceLocation } from './submission-check.mjs';
-import { exportKey, keyLocation } from './submission-signing.mjs';
+import { exportKey, keyLocation, keyDirectory, unlockPrivateKey } from './submission-signing.mjs';
 import { licenseFields, marketFields, readFile } from './submission-fields.mjs';
-import { download, httpsUrl } from './download.mjs';
+import { download } from './download.mjs';
 
 export async function signingKey(context, existing, requirePrivate = true) {
-    const { sdk, sign, ui, projectRoot } = context;
+    const { sdk, sign, ui, projectRoot, store } = context;
+    const remembered = store?.record.key;
     const choice = await ui.select('keyAction', ['existingKey', 'generateKey'], value => ui.text(value));
     let publicFile;
     let privateFile;
     let keyId;
     if (choice === 'generateKey') {
-        const directory = keyLocation(await ui.ask('keyDirectory', '', value => { keyLocation(value, projectRoot, true); }), projectRoot, true);
-        if (!await ui.confirm('generateKey', { directory })) throw new Error('CANCELLED');
-        sign('keygen', '--directory', directory);
+        const parent = await ui.ask('keyDirectory', remembered?.directory ?? os.homedir(), value => { keyDirectory(value, projectRoot); });
+        const protection = await ui.select('keyProtection', ['protectedKey', 'plainKey'], value => ui.text(value));
+        const generated = context.generatedKey;
+        const directory = generated?.parent === parent && generated?.protection === protection ? generated.directory : keyDirectory(parent, projectRoot);
+        if (!await ui.confirm('generateKey', { directory, protection })) throw new Error('CANCELLED');
         publicFile = path.join(directory, 'public-key.pem');
         privateFile = path.join(directory, 'private-key.pem');
-        keyId = await ui.ask('keyId', crypto.randomUUID());
+        if (generated?.directory !== directory) {
+            if (protection === 'protectedKey') {
+                const password = await ui.password('password', value => { if (Buffer.byteLength(value, 'utf8') > 4096) throw new Error('INPUT_SIZE_EXCEEDED'); });
+                await ui.password('passwordAgain', value => { if (value !== password) throw new Error('KEY_PASSWORD_MISMATCH'); });
+                sign.password(privateFile, password);
+            }
+            sign('keygen', '--directory', directory);
+            context.generatedKey = { parent, protection, directory, keyId: crypto.randomUUID() };
+            // 生成后立即保存定位信息，取消或保存退出也能找到已经落盘的私钥。
+            store?.update({ key: { keyId: context.generatedKey.keyId, publicFile, privateFile, directory: parent } });
+        }
+        keyId = await ui.ask('keyId', context.generatedKey.keyId, value => sdk.invoke({ command: 'field', field: 'keyId', value }));
     } else {
-        publicFile = keyLocation(await ui.ask('publicKey', '', value => { keyLocation(value, projectRoot); }), projectRoot);
-        keyId = await ui.ask('keyId', existing?.keyId ?? '');
+        publicFile = keyLocation(await ui.ask('publicKey', remembered?.publicFile ?? '', value => { keyLocation(value, projectRoot); }), projectRoot);
+        keyId = await ui.ask('keyId', existing?.keyId ?? remembered?.keyId ?? '', value => sdk.invoke({ command: 'field', field: 'keyId', value }));
     }
     const { fingerprint, ...key } = exportKey(sdk, sign, publicFile, keyId);
-    if (requirePrivate) privateFile = keyLocation(privateFile ?? await ui.ask('privateKey', '', value => { keyLocation(value, projectRoot); }), projectRoot);
+    if (requirePrivate) {
+        privateFile = keyLocation(privateFile ?? await ui.ask('privateKey', remembered?.privateFile ?? '', value => { keyLocation(value, projectRoot); }), projectRoot);
+        await unlockPrivateKey(context, privateFile, publicFile);
+    }
     if (!await ui.confirm('keyAction', { key, fingerprint, publicFile, ...(requirePrivate ? { privateFile } : {}) })) throw new Error('CANCELLED');
+    store?.update({ key: { keyId, fingerprint, publicFile, ...(privateFile ? { privateFile } : {}),
+        directory: choice === 'generateKey' ? context.generatedKey.parent : path.dirname(publicFile) } });
+    store?.remember('keyAction:0', 'existingKey');
     return { key, fingerprint, privateFile };
 }
 
@@ -42,14 +65,17 @@ export async function publisherOwner(context, binding) {
     const choice = await ui.select('owner', ['personal', 'organization'], value => ui.text(value));
     let account = { id: snapshot.actor.id, type: 'User', login: snapshot.actor.login };
     if (choice === 'organization') {
-        const selected = await ui.select('organization', paged('user/orgs', call), organization => organization.login);
+        const organizations = paged('user/orgs', call);
+        const selectedId = await ui.select('organization', organizations.map(value => id(value.id)),
+            value => organizations.find(organization => id(organization.id) === value).login);
+        const selected = organizations.find(value => id(value.id) === selectedId);
         account = { id: id(selected.id), type: 'Organization', login: selected.login };
         if (!eligible({ accountId: account.id, accountType: account.type }, snapshot.actor, call)
             || !await ui.confirm('representation', account)) throw new Error('OWNER_AUTHORIZATION_REQUIRED');
     }
     const publishers = [...state.tree.keys()].filter(file => file.startsWith(`publishers/${account.id}/`) && file.endsWith('.json'));
     const suggestion = publishers.length === 1 ? state.read(publishers[0], 'PUBLISHER').value.publisherId : account.login.toLowerCase();
-    const publisherId = await ui.ask('publisher', suggestion);
+    const publisherId = await ui.ask('publisher', suggestion, value => context.sdk.invoke({ command: 'field', field: 'publisher', value }));
     const owner = { accountId: account.id, accountType: account.type, publisherId };
     if (!await ui.confirm('publisher', owner)) throw new Error('CANCELLED');
     return owner;
@@ -58,21 +84,21 @@ export async function publisherOwner(context, binding) {
 export async function prepareRelease(context, selection, profileId) {
     const { sdk, ui, sign, state, snapshot, projectRoot, call = github } = context;
     const source = sourceFacts(projectRoot);
-    const license = await licenseFields(sdk, ui, projectRoot, selection.projectDir);
-    if (!license) return null;
-    if (!await ui.confirm('trust', { project: selection.project, profileId })) throw new Error('CANCELLED');
-    const model = await ui.task('model', () => queryModel(sdk, selection, profileId));
-    if (!isDeepStrictEqual(sourceFacts(projectRoot), source)) throw new Error('SOURCE_CHANGED_DURING_MODEL_QUERY');
-    const artifactPath = await ui.select('artifact', model.artifacts);
-    const buildProfile = sdk.invoke({ command: 'select', gitRoot: projectRoot, projectDir: selection.projectDir,
-        profileId, artifactPath, outputs: model.artifacts });
-    const artifact = path.join(selection.project, artifactPath);
-    const facts = await ui.task('inspecting', () => sdk.invoke({ command: 'inspect', file: artifact }));
-    if (facts.version !== model.version) throw new Error('MODEL_PACKAGE_VERSION_MISMATCH');
-    if (!await ui.confirm('risk', facts.descriptor)) { ui.say('rebuildPackage'); return null; }
+    ui.say('loading');
+    const candidate = await sourceCandidate(context, source, selection, profileId);
+    const { facts, artifact, packageUrl } = candidate;
+    const buildProfile = candidate.candidate.buildProfile;
     const original = versionAvailable(state, facts.pluginId, facts.version, facts.sha256);
     if (original) return { original };
     const binding = state.read(bindingPath(facts.pluginId), 'BINDING');
+    if (binding && !eligible(binding.value.owner, snapshot.actor, call)) throw new Error('PLUGIN_ID_ALREADY_BOUND');
+    const pending = pendingVersion(context, facts, source, binding);
+    if (pending) return { original: { value: pending } };
+    const prior = state.published(facts.pluginId)[0];
+    const previous = prior ? sdk.document('SUBMISSION', state.reference(prior.value.submissionRef), prior.value.submissionRef.path).value : null;
+    const license = await licenseFields(sdk, ui, projectRoot, selection.projectDir, previous?.license ?? context.store?.record.license);
+    if (!license) return null;
+    if (!await ui.confirm('risk', facts.descriptor)) { ui.say('rebuildPackage'); return null; }
     const owner = await publisherOwner(context, binding);
     const publisherFile = publisherPath(owner);
     const existing = state.read(publisherFile, 'PUBLISHER');
@@ -84,35 +110,33 @@ export async function prepareRelease(context, selection, profileId) {
     const changes = new Map();
     if (!existing) {
         const account = owner.accountType === 'User' ? snapshot.actor : call(`organizations/${owner.accountId}`);
-        const publisher = { schemaVersion: 1, publisherId: owner.publisherId, displayName: await ui.ask('display', account.login),
+        const publisher = { schemaVersion: 1, publisherId: owner.publisherId, displayName: await ui.ask('display', account.login,
+            value => sdk.invoke({ command: 'field', field: 'display', value })),
             githubAccount: { id: owner.accountId, type: owner.accountType, loginAtRegistration: account.login }, signingKeys: [{ ...selectedKey.key, state: 'ACTIVE' }] };
         sdk.document('PUBLISHER', publisher, publisherFile);
         changes.set(publisherFile, Buffer.from(JSON.stringify(publisher, null, 2) + '\n'));
     }
-    const releases = await ui.task('loading', () => paged(`repos/${source.name}/releases`, call).filter(release => !release.draft));
-    const release = await ui.select('release', [...releases, null],
-        release => release ? `${release.tag_name} (${release.id})` : ui.text('packageUrl'));
-    let packageUrl;
-    let selectedAsset;
-    if (release) {
-        selectedAsset = await ui.select('asset', paged(`repos/${source.name}/releases/${id(release.id)}/assets`, call)
-            .filter(asset => /\.(jar|zip)$/iu.test(asset.name)), asset => `${asset.name} (${asset.size})`);
-        packageUrl = selectedAsset.browser_download_url;
-    } else packageUrl = await ui.ask('packageUrl', '', value => { httpsUrl(value); });
-    const remotePackage = path.join(sdk.workspace, crypto.randomUUID() + path.extname(artifact));
-    await ui.task('downloading', () => download(packageUrl, remotePackage, sdk.invoke({ command: 'limits' }).maxArchiveBytes, { size: facts.size, sha256: facts.sha256 }));
     const signatureFile = path.join(sdk.workspace, crypto.randomUUID() + '.signature.json');
-    sign('artifact', '--artifact', remotePackage, '--plugin-id', facts.pluginId, '--version', facts.version,
+    sign('artifact', '--artifact', artifact, '--plugin-id', facts.pluginId, '--version', facts.version,
         '--key-id', selectedKey.key.keyId, '--private-key', selectedKey.privateFile, '--out', signatureFile);
     const fixedSource = { repository: source.repository, commit: source.commit,
         previousReviewedCommit: state.published(facts.pluginId)[0]?.value.sourceCommit ?? null };
     const archiveFile = path.join(sdk.workspace, crypto.randomUUID() + '.zip');
     const archive = await ui.task('downloading', () => download(sourceLocation(fixedSource).url, archiveFile, sdk.invoke({ command: 'limits' }).maxArchiveBytes));
     fixedSource.archive = { url: archive.url, size: archive.size, sha256: archive.sha256 };
-    const prior = state.published(facts.pluginId)[0];
-    const previousMarket = prior ? sdk.document('SUBMISSION', state.reference(prior.value.submissionRef),
-        prior.value.submissionRef.path).value.market : null;
-    const market = await marketFields(sdk, ui, owner, facts, changes, previousMarket);
+    const market = await marketFields(sdk, ui, owner, facts, changes, previous?.market ?? context.store?.record.market, file => {
+        if (state.tree.has(file)) return state.raw(file);
+        const old = context.store?.record.marketAssets?.[file];
+        const cached = old && context.store.cached(old.sha256, old.size);
+        return cached ? readFile(cached, old.size) : null;
+    });
+    const marketAssets = {};
+    for (const [file, bytes] of changes) if (file.startsWith('assets/')) {
+        const sha256 = (await import('./sdk.mjs')).hash(bytes);
+        context.store?.retain(sdk.save(bytes), sha256, bytes.length);
+        marketAssets[file] = { sha256, size: bytes.length };
+    }
+    context.store?.update({ license, market, marketAssets });
     const submission = { schemaVersion: 1, publisherId: owner.publisherId, pluginId: facts.pluginId, version: facts.version,
         source: fixedSource, buildProfile, license,
         package: { url: packageUrl, expectedSize: facts.size, sha256: facts.sha256, signature: JSON.parse(readFile(signatureFile, 16 * 1024).toString('utf8')) }, market };
@@ -121,14 +145,39 @@ export async function prepareRelease(context, selection, profileId) {
         if (!isDeepStrictEqual(sourceFacts(projectRoot), source)) throw new Error('SOURCE_CHANGED');
         const local = sdk.invoke({ command: 'inspect', file: artifact });
         if (local.sha256 !== facts.sha256 || local.size !== facts.size) throw new Error('LOCAL_ARTIFACT_CHANGED');
-        if (selectedAsset) {
-            const current = call(`repos/${source.name}/releases/assets/${id(selectedAsset.id)}`);
-            for (const field of ['id', 'name', 'size', 'browser_download_url', 'updated_at', 'digest']) {
-                if (current[field] !== selectedAsset[field]) throw new Error('RELEASE_ASSET_CHANGED');
-            }
-        }
-        await download(packageUrl, path.join(sdk.workspace, crypto.randomUUID() + '.package'), sdk.invoke({ command: 'limits' }).maxArchiveBytes,
-            { size: facts.size, sha256: facts.sha256 });
+        if (pendingVersion(context, facts, source, binding)) throw new Error('VERSION_SUBMISSION_CONFLICT');
+        await candidate.recheck();
     };
-    return { changes, recheck, model, title: `feat(plugin): ${facts.pluginId} ${facts.version}` };
+    return { changes, recheck, beforeWrite: candidate.beforeWrite, fetch: candidate.fetch, actions: candidate.actions,
+        sourceRelease: candidate.sourceRelease, previousMarket: previous?.market, submission,
+        title: `feat(plugin): ${facts.pluginId} ${facts.version}` };
+}
+
+// 查重只阻止重复投稿，不能授予插件所有权；最终静态检查和受保护 Gate 仍重新验证身份。
+export function pendingVersion(context, facts, source, binding) {
+    const { call = github, sdk, snapshot } = context;
+    const matches = [];
+    for (const pull of paged(`repos/${policy.repository}/pulls?state=open`, call)) {
+        const files = paged(`repos/${policy.repository}/pulls/${id(pull.number)}/files`, call)
+            .filter(file => file.filename.startsWith('submissions/') && file.filename.split('/')[2] === facts.pluginId);
+        if (!files.length) continue;
+        if (!pull.head?.repo || id(pull.base.repo.id) !== policy.repositoryId) throw new Error('PENDING_SUBMISSION_CONFLICT');
+        const tree = repositoryTree(pull.head.repo.full_name, pull.head.sha, call);
+        for (const file of files) {
+            const value = sdk.document('SUBMISSION', readBlob(pull.head.repo.full_name, tree.get(file.filename), call), file.filename).value;
+            if (!binding) {
+                const accountId = file.filename.split('/')[1];
+                const publisherFile = `publishers/${accountId}/${value.publisherId}.json`;
+                const publisher = context.state.read(publisherFile, 'PUBLISHER')
+                    ?? sdk.document('PUBLISHER', readBlob(pull.head.repo.full_name, tree.get(publisherFile), call), publisherFile);
+                if (publisher.value.githubAccount.id !== accountId || !eligible({ accountId,
+                    accountType: publisher.value.githubAccount.type }, snapshot.actor, call)) throw new Error('PLUGIN_ID_SUBMISSION_CONFLICT');
+            }
+            if (value.version !== facts.version) continue;
+            if (id(pull.user.id) !== snapshot.actor.id || value.package.sha256 !== facts.sha256 || value.source.commit !== source.commit) throw new Error('VERSION_SUBMISSION_CONFLICT');
+            matches.push({ url: pull.html_url, pluginId: facts.pluginId, version: facts.version, reused: true });
+        }
+    }
+    if (matches.length > 1) throw new Error('VERSION_SUBMISSION_CONFLICT');
+    return matches[0] ?? null;
 }

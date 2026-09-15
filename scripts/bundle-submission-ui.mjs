@@ -6,7 +6,7 @@ import { root } from './sdk.mjs';
 // 交付完整依赖闭包；入口只下载清单内的固定字节，不在用户机器安装 npm 包。
 const result = await build({
     absWorkingDir: root,
-    stdin: { contents: "export { intro, outro, cancel, text, select, multiselect, note, log, spinner, isCancel, SELECT_INSTRUCTIONS, MULTISELECT_INSTRUCTIONS } from '@clack/prompts';", resolveDir: root },
+    stdin: { contents: "export { intro, outro, cancel, text, password, select, multiselect, note, log, spinner, isCancel, SELECT_INSTRUCTIONS, MULTISELECT_INSTRUCTIONS } from '@clack/prompts';", resolveDir: root },
     bundle: true, platform: 'node', format: 'esm', target: 'node24',
     write: false, metafile: true, legalComments: 'inline',
     plugins: [{ name: 'submission-prompts', setup(builder) {

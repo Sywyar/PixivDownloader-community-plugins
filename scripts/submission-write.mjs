@@ -52,10 +52,12 @@ function verifyCommit(checkout, head, preview, changes, readGit) {
 
 // 确认对象是完整预览；所有外部写入都在两次原生复核之后，普通 push 不覆盖远端分支。
 export async function submitPreview({ sdk, snapshot, changes, result, title, confirm, recheck,
+    actions = [], beforeWrite,
     call = github, readGit = git, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
     unchanged(snapshot, call);
     const fork = forkTarget(snapshot, call);
     const preview = writePreview(snapshot, changes, result, fork, title);
+    preview.actions.unshift(...actions);
     if (!await confirm(preview)) return { cancelled: true };
     await recheck();
     unchanged(snapshot, call);
@@ -65,6 +67,9 @@ export async function submitPreview({ sdk, snapshot, changes, result, title, con
         if (!bytes || bytes.length !== file.size || hash(bytes) !== file.sha256) throw new Error('PREVIEW_CHANGED');
     }
     if (changes.size !== preview.files.length) throw new Error('PREVIEW_CHANGED');
+    await beforeWrite?.();
+    unchanged(snapshot, call);
+    if (!isDeepStrictEqual(forkTarget(snapshot, call), fork)) throw new Error('FORK_CHANGED');
     if (fork.create) {
         call(`repos/${policy.repository}/forks`, { method: 'POST', body: { default_branch_only: true } });
         let ready = false;

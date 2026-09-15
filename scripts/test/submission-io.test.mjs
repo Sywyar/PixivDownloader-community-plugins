@@ -6,7 +6,8 @@ import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import { root, hash } from '../sdk.mjs';
 import { download, publicAddress, httpsUrl } from '../download.mjs';
-import { preflight, markerMissing, sourceFacts, git, runBuild } from '../project.mjs';
+import { preflight, markerMissing, sourceFacts, git } from '../project.mjs';
+import { runBuild } from '../../tools/build-model.mjs';
 import { protectedSnapshot, unchanged, readBlob } from '../submission-github.mjs';
 import { policy } from '../github.mjs';
 

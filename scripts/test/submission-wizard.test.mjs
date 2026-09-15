@@ -11,10 +11,36 @@ import { root, hash } from '../sdk.mjs';
 import { git } from '../project.mjs';
 import { httpsUrl } from '../download.mjs';
 import { runWizard } from '../submit.mjs';
+import { navigation } from '../submission-navigation.mjs';
+import { publisherOwner } from '../submission-release.mjs';
 
 const originalTerm = process.env.TERM;
 before(() => { process.env.TERM = 'xterm-256color'; });
 after(() => { if (originalTerm === undefined) delete process.env.TERM; else process.env.TERM = originalTerm; });
+
+test('组织历史按数字身份恢复，改名后仍重新校验当前成员资格', async () => {
+    const answers = new Map();
+    const store = { folder: '/project-a', answer: key => answers.get(key), remember: (key, value) => answers.set(key, value) };
+    let login = 'first-name'; let active = true; let memberships = 0;
+    const defaults = [];
+    const ui = { text: key => key, confirm: async () => true, ask: async (_key, value) => value,
+        select: async (key, values, label, initial) => {
+            if (key === 'owner') return 'organization';
+            assert.equal(key, 'organization'); assert.equal(label('301'), login); defaults.push(initial); return '301';
+        } };
+    const call = endpoint => {
+        if (endpoint === 'user/orgs?per_page=100') return [[{ id: 301, login }]];
+        if (endpoint === 'organizations/301') return { id: 301, type: 'Organization', login };
+        assert.equal(endpoint, 'user/memberships/orgs/' + login); memberships++;
+        return { state: active ? 'active' : 'pending', user: { id: 201 }, organization: { id: 301 } };
+    };
+    const run = () => navigation(ui, () => store).run(form => publisherOwner({ ui: form, call,
+        state: { tree: new Map() }, snapshot: { actor: { id: '201', login: 'developer' } }, sdk: { invoke() {} } }));
+    const owner = await run(); assert.equal(owner.accountId, '301');
+    login = 'renamed'; assert.deepEqual(await run(), owner);
+    assert.deepEqual(defaults, [undefined, '301']); assert.equal(memberships, 2);
+    active = false; await assert.rejects(run(), /OWNER_AUTHORIZATION_REQUIRED/u);
+});
 
 function consoleStreams() {
     const input = new PassThrough();
@@ -25,6 +51,68 @@ function consoleStreams() {
     Object.assign(output, { isTTY: true, columns: 80, rows: 24 });
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
+
+test('真实终端返回修改前一项、清空可选值、保存退出并隐藏密码', { timeout: 10000 }, async t => {
+    const tty = consoleStreams();
+    tty.key('\x1b[B\r');
+    const ui = await terminal(tty.input, tty.output);
+    t.after(() => ui.close());
+    const answers = new Map();
+    const store = { folder: '/project-a', answer: key => answers.get(key), remember: (key, value) => answers.set(key, value) };
+    const navigator = navigation(ui, () => store);
+    const running = navigator.run(async form => ({ name: await form.ask('name'), summary: await form.ask('summary') }));
+    await tty.key('First\r'); await setImmediate();
+    await tty.key('\x02'); await setImmediate();
+    await tty.key('\x7f'.repeat(5) + 'Second\r'); await setImmediate();
+    await tty.key('Summary\r');
+    assert.deepEqual(await running, { name: 'Second', summary: 'Summary' });
+    tty.key('\x7f'.repeat(3) + '\r');
+    assert.equal(await ui.ask('description', 'old'), '');
+    tty.key('private-passphrase\r');
+    assert.equal(await navigator.ui.password('password'), 'private-passphrase');
+    assert(!tty.rendered().includes('private-passphrase'));
+    assert(!JSON.stringify([...answers]).includes('private-passphrase'));
+    tty.key('\x13');
+    await assert.rejects(navigator.run(form => form.ask('name')), /WIZARD_SAVE/u);
+    assert.equal(tty.input.listenerCount('keypress'), 0);
+});
+
+test('真实终端接受发布者校验结果，返回时重校验，并接受路径和密码的成功结果', { timeout: 10000 }, async t => {
+    const tty = consoleStreams();
+    tty.key('\x1b[B\r');
+    const ui = await terminal(tty.input, tty.output);
+    t.after(() => ui.close());
+    let validations = 0;
+    const sdk = { invoke(input) {
+        assert.deepEqual(input, { command: 'field', field: 'publisher', value: 'developer' });
+        validations++;
+        return { valid: true };
+    } };
+    const running = navigation(ui).run(async form => ({
+        owner: await publisherOwner({ ui: form, sdk, state: { tree: new Map() }, snapshot: { actor: { id: '201', login: 'developer' } } }),
+        summary: await form.ask('summary'),
+    }));
+    await tty.key('\r'); await setImmediate();
+    await tty.key('\r'); await setImmediate();
+    await tty.key('\x1b[B\r'); await setImmediate();
+    await tty.key('\x02'); await setImmediate();
+    assert.equal(validations, 2);
+    await tty.key('\x1b[B\r'); await setImmediate();
+    await tty.key('Summary\r');
+    assert.deepEqual(await running, { owner: { accountId: '201', accountType: 'User', publisherId: 'developer' }, summary: 'Summary' });
+    tty.key('example.pem\r');
+    assert.equal(await ui.ask('privateKey', '', value => path.resolve(value)), 'example.pem');
+    let settled = false;
+    const password = ui.password('password', value => {
+        if (value !== 'secret') throw new Error('KEY_PASSWORD_MISMATCH');
+        return { valid: true };
+    }).then(value => { settled = true; return value; });
+    await tty.key('wrong\r'); await setImmediate();
+    assert.equal(settled, false);
+    await tty.key('\x7f'.repeat(5) + 'secret\r');
+    assert.equal(await password, 'secret');
+    assert(!tty.rendered().includes('secret'));
+});
 
 test('各语言使用真实交互确认，外部显示值不能注入终端控制字符', async () => {
     const prompts = new Set();
@@ -107,6 +195,50 @@ test('方向键选择原始对象，空格多选可增删，错误输入原地�
     } finally { ui.close(); }
     assert.equal(tty.input.isRaw, false);
     assert.equal(tty.input.listenerCount('keypress'), 0);
+});
+
+test('名称占位值不能确认，合法语言简码保留而错误语言标记拒绝', async t => {
+    const tty = consoleStreams();
+    tty.key('\x1b[B\r');
+    const ui = await terminal(tty.input, tty.output);
+    t.after(() => ui.close());
+    let settled = false;
+    const placeholder = ui.text('name');
+    const name = ui.ask('name', placeholder).then(value => { settled = true; return value; });
+    await tty.key('\r'); await setImmediate();
+    assert.equal(settled, false);
+    await tty.key('\x7f'.repeat(placeholder.length) + 'Example name\r');
+    assert.equal(await name, 'Example name');
+    const sdk = prepareSubmission();
+    for (const value of ['en', 'en-US', 'zh-Hant']) {
+        assert.equal(sdk.invoke({ command: 'field', field: 'locale', value }).valid, true);
+    }
+    assert.throws(() => sdk.invoke({ command: 'field', field: 'locale', value: 'en_US' }), /LOCALE_INVALID/u);
+});
+
+test('更新保留其它语言与图片原始字节，并允许清空当前语言正文和主页', async () => {
+    const image = fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/images/static.png'));
+    const digest = hash(image);
+    const oldPath = `assets/101/example/2.3.4/${digest}.png`;
+    const previous = { defaultLocale: 'en', displayName: { en: 'Old name', 'zh-CN': '名称' },
+        summary: { en: 'Summary', 'zh-CN': '摘要' }, description: { en: 'Remove this', 'zh-CN': '保留正文' },
+        homepageUrl: 'https://example.org/', category: 'tools', tags: [],
+        icon: { path: oldPath, alt: { en: 'Icon', 'zh-CN': '图标' } } };
+    const before = structuredClone(previous);
+    const changes = new Map();
+    const market = await marketFields(null, {
+        ask: async (key, fallback) => ['description', 'homepage'].includes(key) ? '' : key === 'name' ? 'New name' : fallback,
+        select: async (key, values, _label, initial) => key === 'imageAction' ? 'keepImages' : initial ?? values[0],
+        multiselect: async (_key, _values, initial) => initial,
+    }, { accountId: '101' }, { pluginId: 'example', version: '2.3.5' }, changes, previous,
+    file => { assert.equal(file, oldPath); return image; });
+    assert.deepEqual(previous, before);
+    assert.deepEqual(market.displayName, { en: 'New name', 'zh-CN': '名称' });
+    assert.deepEqual(market.description, { 'zh-CN': '保留正文' });
+    assert.equal(market.homepageUrl, undefined);
+    assert.equal(market.icon.path, `assets/101/example/2.3.5/${digest}.png`);
+    assert.deepEqual(market.icon.alt, before.icon.alt);
+    assert.deepEqual(changes.get(market.icon.path), image);
 });
 
 test('首屏取消、输入关闭及加载失败释放终端，重定向输入不能自动确认', async () => {

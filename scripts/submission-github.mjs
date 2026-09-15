@@ -6,7 +6,7 @@ import { hash } from './sdk.mjs';
 export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
     if (!/^(?:user(?:\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
         || endpoint.split('/').some(part => part === '..' || part === '.')) throw new Error('GITHUB_TARGET_MISMATCH');
-    if (!['GET', 'POST'].includes(method)) throw new Error('GITHUB_METHOD_FORBIDDEN');
+    if (!['GET', 'POST'].includes(method) && !(method === 'PATCH' && /^repos\/[^/]+\/[^/]+\/releases\/[1-9][0-9]*$/u.test(endpoint))) throw new Error('GITHUB_METHOD_FORBIDDEN');
     const args = ['api', '--hostname', 'github.com', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint];
     if (pages) args.push('--paginate', '--slurp');
     if (body !== undefined) args.push('--input', '-');

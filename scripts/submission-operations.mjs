@@ -1,9 +1,9 @@
 import { activeKey, publisherPath } from './submission-check.mjs';
-import { eligible, github } from './submission-github.mjs';
+import { eligible, github, checkedRepository } from './submission-github.mjs';
 import { id } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { signingKey } from './submission-release.mjs';
-import { signOperation, keyLocation } from './submission-signing.mjs';
+import { signOperation, keyLocation, unlockPrivateKey } from './submission-signing.mjs';
 import { readFile } from './submission-fields.mjs';
 
 const encoded = value => Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
@@ -11,7 +11,10 @@ const encoded = value => Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf
 async function currentProof(context, publisher) {
     const { ui, projectRoot } = context;
     if (!await ui.confirm('optionalKey', { keyId: activeKey(publisher).keyId })) return null;
-    const privateFile = keyLocation(await ui.ask('privateKey'), projectRoot);
+    const privateFile = keyLocation(await ui.ask('privateKey', context.store?.record.key?.privateFile ?? '', value => keyLocation(value, projectRoot)), projectRoot);
+    const key = activeKey(publisher);
+    const publicFile = context.sdk.save(Buffer.from('-----BEGIN PUBLIC KEY-----\n' + key.publicKeySpkiBase64 + '\n-----END PUBLIC KEY-----\n'), '.pem');
+    await unlockPrivateKey(context, privateFile, publicFile);
     if (!await ui.confirm('keyAction', { privateFile, keyId: activeKey(publisher).keyId })) throw new Error('CANCELLED');
     return { keyId: activeKey(publisher).keyId, privateFile };
 }
@@ -41,8 +44,18 @@ async function selectBinding(context, partiesOnly = true) {
     const bindings = [...state.tree.keys()].filter(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))
         .map(file => state.read(file, 'BINDING')).filter(record => !partiesOnly || authorized(record.value.owner));
     const selected = await ui.select('plugin', bindings, record => `${record.value.pluginId} (${record.value.owner.publisherId})`);
+    bindHistory(context, selected.value.pluginId);
     if (partiesOnly && selected.value.owner.accountType === 'Organization' && !await ui.confirm('representation', selected.value.owner)) throw new Error('CANCELLED');
     return selected;
+}
+
+function bindHistory(context, pluginId) {
+    const prior = context.state.published(pluginId)[0];
+    if (!prior) return;
+    const submission = context.sdk.document('SUBMISSION', context.state.reference(prior.value.submissionRef), prior.value.submissionRef.path).value;
+    const name = new URL(submission.source.repository).pathname.slice(1);
+    const repository = checkedRepository(name, context.call ?? github);
+    context.bindProject?.(id(repository.id), submission.buildProfile.projectDir, pluginId);
 }
 
 export async function prepareStatus(context, action) {
@@ -71,7 +84,7 @@ export async function prepareTransfer(context) {
     const proposal = await ui.select('proposal', [null, ...requests], record => record ? `${record.value.payload.pluginId} (${record.value.requestId})` : ui.text('newProposal'));
     const changes = new Map();
     let request;
-    if (proposal) request = proposal.value;
+    if (proposal) { request = proposal.value; bindHistory(context, request.payload.pluginId); }
     else {
         const binding = await selectBinding(context, false);
         const login = await ui.ask('targetLogin');
