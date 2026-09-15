@@ -2,6 +2,32 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { API_BYTES, API_TIMEOUT, id, sha, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
+import { observe } from './submission-progress.mjs';
+
+// gh 的 HTTP 失败带有状态标记；其余输出只用于分类，绝不作为用户诊断返回。
+export function githubRequest(work, { method = 'GET', timeout = API_TIMEOUT, now = Date.now,
+    wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
+    const deadline = now() + timeout;
+    for (let attempt = 1; ; attempt++) {
+        const remaining = deadline - now();
+        if (remaining <= 0) throw Object.assign(new Error('GITHUB_TIMEOUT'), { github: true, method, attempts: attempt - 1 });
+        try { return work(remaining); }
+        catch (error) {
+            if (error.message === 'CANCELLED') throw error;
+            if (error.code === 'ENOBUFS') throw new Error('INPUT_SIZE_EXCEEDED');
+            if (error.code === 'ENOENT') throw new Error('GITHUB_CLI_REQUIRED');
+            const status = Number(/\(HTTP ([1-5][0-9]{2})\)/u.exec(String(error.stderr ?? ''))?.[1]) || undefined;
+            const code = status === 404 ? 'GITHUB_NOT_FOUND' : error.code === 'ETIMEDOUT' ? 'GITHUB_TIMEOUT'
+                : status === 401 ? 'GITHUB_AUTH_REQUIRED' : status === 403 ? 'GITHUB_ACCESS_DENIED'
+                    : status === 429 ? 'GITHUB_RATE_LIMITED' : 'GITHUB_REQUEST_FAILED';
+            const failure = Object.assign(new Error(code), { github: true, method, status, attempts: attempt });
+            const delay = attempt * 1000;
+            if (method !== 'GET' || ![408, 500, 502, 503, 504].includes(status)
+                || attempt >= 3 || now() + delay >= deadline) throw failure;
+            observe('retryingGithub', `${attempt + 1}/3`, () => wait(delay));
+        }
+    }
+}
 
 export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
     if (!/^(?:user(?:\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
@@ -11,11 +37,14 @@ export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
     if (pages) args.push('--paginate', '--slurp');
     if (body !== undefined) args.push('--input', '-');
     try {
-        const output = execFileSync('gh', args, { encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT,
-            maxBuffer: API_BYTES, input: body === undefined ? undefined : JSON.stringify(body), stdio: ['pipe', 'pipe', 'pipe'] });
+        const step = endpoint === 'user' ? 'readingActor' : endpoint.includes('/pulls') ? 'readingPulls'
+            : endpoint.includes('/releases') ? 'readingCandidate' : endpoint.includes('/actions') ? 'readingCI'
+                : endpoint.includes('/git/') ? 'readingGitObjects' : 'readingRepository';
+        const output = githubRequest(timeout => observe(method === 'GET' ? step : 'writingGithub', '', () => execFileSync('gh', args, { encoding: 'utf8', windowsHide: true, timeout,
+            maxBuffer: API_BYTES, input: body === undefined ? undefined : JSON.stringify(body), stdio: ['pipe', 'pipe', 'pipe'] })), { method });
         return output.trim() ? JSON.parse(output) : null;
     } catch (error) {
-        if (error.stderr?.includes('(HTTP 404)')) throw new Error('GITHUB_NOT_FOUND');
+        if (error.github || ['CANCELLED', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED'].includes(error.message)) throw error;
         // 不把原生命令、认证环境或带参数的请求输出带入错误预览。
         throw new Error('GITHUB_REQUEST_FAILED');
     }

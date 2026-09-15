@@ -36,7 +36,7 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
             assert(permission); assert.deepEqual(options.body, { draft: false, prerelease: true, make_latest: 'false' });
             writes.push(endpoint); release.draft = false; tagExists = true;
             for (const asset of assets) asset.browser_download_url = publicUrl(asset.name);
-            return { ...release };
+            throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true, method: 'PATCH' });
         }
         if (options.method === 'POST') {
             assert(permission); assert(endpoint.endsWith('/actions/runs/301/rerun'));

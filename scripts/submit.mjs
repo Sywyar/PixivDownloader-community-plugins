@@ -2,10 +2,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { root } from './sdk.mjs';
 import { main } from './github.mjs';
-import { preflight, markerMissing } from './project.mjs';
+import { preflight, markerMissing, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { terminal, failureCode } from './submission-ui.mjs';
-import { protectedSnapshot, stateReader, eligible, unchanged, github } from './submission-github.mjs';
+import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer } from './submission-operations.mjs';
@@ -14,6 +14,7 @@ import { submitPreview } from './submission-write.mjs';
 import { navigation } from './submission-navigation.mjs';
 import { openProject, projectIdentity } from './submission-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
+import { sessionLocator, saveSession, savePrepared, restorePrepared } from './submission-session.mjs';
 
 function appliedRequest(sdk, state, changes) {
     const kinds = { 'key-rotations': 'ROTATION', 'version-status-requests': 'STATUS_REQUEST', 'ownership-transfers': 'TRANSFER' };
@@ -31,34 +32,66 @@ function appliedRequest(sdk, state, changes) {
     return null;
 }
 
-export async function runWizard(directory = process.cwd(), { ui: suppliedUi, call = github } = {}) {
+export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiFactory = terminal, call = github, stateHome } = {}) {
     // 在创建缓存、查询账号或执行工程前检查 SDK 标识。
     const project = preflight(directory);
     let ui = suppliedUi;
     let sdk;
     let context;
     try {
-        ui ??= await terminal();
+        const locator = sessionLocator(project.cwd, stateHome);
+        const saved = locator.read();
+        ui ??= await uiFactory({ resumeLocale: saved?.session.locale });
+        let history = ui.resume && saved ? saved.session.navigation : [];
         context = { ui, projectRoot: project.gitRoot, call,
             bindProject(repositoryId, projectDir, pluginId) {
                 const identity = projectIdentity(repositoryId, projectDir, pluginId);
                 if (JSON.stringify(context.store?.identity) === JSON.stringify(identity)) return;
-                context.store?.close(); context.generatedKey = null; context.sign.close();
-                context.store = openProject(identity, context.snapshot.actor.id);
+                context.store?.close(); context.generatedKey = null; context.sign?.close();
+                context.store = openProject(identity, context.snapshot.actor.id, { home: stateHome });
+                context.store.update({ session: null });
+                saveSession(context, { navigation: history, operation: context.operation,
+                    sourceCommit: git(project.gitRoot, 'rev-parse', 'HEAD') });
+                locator.bind(context.store, context.snapshot.actor.id);
                 ui.say('restored', { projectDir, pluginId, path: context.store.folder });
             } };
-        const navigator = navigation(ui, () => context.store);
-        context.ui = navigator.ui;
-        const outcome = await navigator.run(async ui => {
-        const operation = await ui.select('operation', ['publish', 'YANK', 'UNYANK', 'REVOKE', 'transfer'], key => ui.text(key));
-        if (!sdk) {
-            sdk = await ui.task('preparing', () => prepareSubmission());
+        const initialize = async () => {
+            if (context.state) return;
+            sdk ??= await ui.task('preparing', () => prepareSubmission());
             const snapshot = await ui.task('loading', () => protectedSnapshot(call));
             Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: signingTool(sdk) });
+        };
+        if (ui.resume && saved) {
+            await initialize();
+            if (context.snapshot.actor.id !== saved.actorId) throw new Error('SESSION_ACCOUNT_CHANGED');
+            if (saved.session.sourceCommit !== git(project.gitRoot, 'rev-parse', 'HEAD')) throw new Error('SOURCE_CHANGED');
+            if (saved.session.operation === 'publish' && String(checkedRepository(sourceFacts(project.gitRoot).name, call).id) !== saved.identity.repositoryId) {
+                throw new Error('SESSION_REPOSITORY_CHANGED');
+            }
+            context.store = openProject(saved.identity, saved.actorId, { home: stateHome });
+            context.generatedKey = context.store.record.session?.generatedKey;
+            context.resumePrepared = Boolean(context.store.record.session?.prepared);
+            context.operation = saved.session.operation;
         }
+        const retry = async error => {
+            ui.say('requestFailed', { code: failureCode(error), status: error.status, attempts: error.attempts });
+            if (await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) !== 'retry') throw new Error('WIZARD_SAVE');
+            context.resumePrepared = Boolean(context.store?.record.session?.prepared);
+            return true;
+        };
+        const navigator = navigation(ui, () => context.store, { history, onFailure: retry, onChange: values => {
+            history = values; saveSession(context, { navigation: history, operation: context.operation, prepared: null });
+        }, onBack: () => { context.resumePrepared = false; } });
+        context.ui = navigator.ui;
+        context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };
+        const outcome = await navigator.run(async ui => {
+        const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'YANK', 'UNYANK', 'REVOKE', 'transfer'], key => ui.text(key));
+        context.operation = operation;
+        await initialize();
         const { snapshot, state } = context;
         let prepared;
-        if (operation === 'publish') {
+        if (context.resumePrepared) prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
+        else if (operation === 'publish') {
             const projects = sdk.invoke({ command: 'projects', gitRoot: project.gitRoot })
                 .filter(item => project.candidates.some(candidate => candidate.projectDir === item.projectDir));
             const selected = projects.length === 1 ? projects[0] : await ui.select('project', projects, item => item.projectDir);
@@ -75,6 +108,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
             if (prepared.rotation) prepared = await prepareRotation(context, prepared.rotation);
         } else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
+        savePrepared(context, prepared);
         const original = appliedRequest(sdk, state, prepared.changes);
         if (original) {
             unchanged(snapshot, call);
@@ -94,10 +128,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
                     await prepared.recheck?.();
                     await validate();
                 });
-                ui.say('writing');
-            } });
+            }, write: work => ui.task('writing', work), retry });
         });
-        if (outcome.sourceChangeRequired || outcome.original) return outcome;
+        if (outcome.original) { context.store?.complete(outcome); return outcome; }
+        if (outcome.sourceChangeRequired) return outcome;
         if (!outcome.cancelled) context.store?.complete({ ...(context.store.record.receipt ?? {}), ...outcome });
         ui.say(outcome.cancelled ? 'cancelled' : 'submitted', outcome);
         return outcome;
@@ -111,6 +145,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
         const code = failureCode(error);
         const stage = ['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'BODY'].includes(error.downloadStage) ? error.downloadStage : undefined;
         if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...(stage ? { stage } : {}),
+            ...(error.github ? { status: error.status, attempts: error.attempts } : {}),
             ...(error.statePath ? { path: error.statePath } : {}) });
         else console.error(code);
         process.exitCode = 1;
@@ -129,6 +164,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, cal
 
 main(import.meta.url, async () => {
     if (process.argv.length > 3) throw new Error('SUBMISSION_ARGUMENTS_INVALID');
-    try { await runWizard(process.argv[2]); }
+    try {
+        const { runInteractive } = await import('./submission-terminal.mjs');
+        const outcome = await runInteractive(process.argv[2]);
+        if (outcome?.failed) process.exitCode = 1;
+    }
     catch (error) { throw new Error(error.message === markerMissing ? markerMissing : 'PROJECT_PREFLIGHT_FAILED'); }
 });

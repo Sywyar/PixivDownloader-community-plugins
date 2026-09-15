@@ -5,6 +5,12 @@ $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 $LauncherPath = $MyInvocation.MyCommand.Path
 $SubmitExitCode = 0
 $SubmitFailure = $null
+$DownloadClient = $null
+$BootstrapMessages = if ([Globalization.CultureInfo]::CurrentUICulture.Name -like 'zh*') {
+    ConvertFrom-Json '{"activity":"\u51c6\u5907\u6295\u7a3f\u5de5\u5177","retry":"\u4e0b\u8f7d {0} \u4e2d\u65ad\uff08{1}\uff09\uff0c\u6b63\u5728\u91cd\u8bd5 {2}/{3}","failed":"{0}: \u4e0b\u8f7d {1} \u5931\u8d25\uff1b\u9636\u6bb5={2}\uff0c\u539f\u56e0={3}\uff0c\u5c1d\u8bd5={4}/{5}"}'
+} else {
+    ConvertFrom-Json '{"activity":"Preparing submission tools","retry":"Download of {0} interrupted ({1}); retrying {2}/{3}","failed":"{0}: download of {1} failed; stage={2}, reason={3}, attempt={4}/{5}"}'
+}
 
 $Repository = 'Sywyar/PixivDownloader-community-plugins'
 $ChannelUrl = 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submission-channel.json'
@@ -166,34 +172,102 @@ function File-Digest([string]$File, [long]$Maximum) {
     finally { $sha256.Dispose() }
 }
 
-function Download-Pinned([string]$Url, [string]$File, [long]$Maximum) {
-    # Only the signed channel is mutable data; executable files require a verified commit and digest.
-    if ($Url -cne $ChannelUrl -and (-not $RuntimeCommit -or -not $Url.StartsWith(('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/'), [StringComparison]::Ordinal))) { throw 'BOOTSTRAP_URL_INVALID' }
+function New-DownloadClient {
     Add-Type -AssemblyName System.Net.Http
     $handler = [Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
     $handler.UseCookies = $false
     $handler.UseDefaultCredentials = $false
-    $client = [Net.Http.HttpClient]::new($handler)
+    return [Net.Http.HttpClient]::new($handler)
+}
+
+function Get-DownloadFailure($Failure) {
+    $reason = 'NETWORK_ERROR'
+    $retryable = $false
+    $tls = $false
+    while ($Failure) {
+        if ($Failure -is [OperationCanceledException]) { return @{ Reason = 'TIMEOUT'; Retryable = $false } }
+        if ($Failure -is [Security.Authentication.AuthenticationException]) { $tls = $true }
+        if ($Failure -is [IO.IOException]) { $reason = 'TRANSFER_INTERRUPTED'; $retryable = $true }
+        if ($Failure -is [Net.Sockets.SocketException]) {
+            $reason = 'SOCKET_' + $Failure.SocketErrorCode
+            $retryable = $Failure.SocketErrorCode -in @('ConnectionAborted', 'ConnectionRefused', 'ConnectionReset', 'HostDown', 'HostNotFound', 'HostUnreachable', 'NetworkDown', 'NetworkReset', 'NetworkUnreachable', 'NoData', 'TimedOut', 'TryAgain')
+        }
+        if ($Failure -is [Net.WebException]) {
+            if ($Failure.Status -eq 'TrustFailure') { return @{ Reason = 'TLS_REJECTED'; Retryable = $false } }
+            $reason = 'WEB_' + $Failure.Status
+            $retryable = $Failure.Status -in @('ConnectFailure', 'ConnectionClosed', 'KeepAliveFailure', 'NameResolutionFailure', 'ProxyNameResolutionFailure', 'ReceiveFailure', 'SendFailure', 'Timeout')
+        }
+        if ($Failure.PSObject.Properties['HttpRequestError']) {
+            $reason = [string]$Failure.HttpRequestError
+            if ($reason -eq 'SecureConnectionError') { $tls = $true }
+            $retryable = $reason -in @('NameResolutionError', 'ConnectionError', 'ResponseEnded')
+        }
+        $Failure = $Failure.InnerException
+    }
+    if ($tls) { $reason = if ($retryable) { 'TLS_INTERRUPTED' } else { 'TLS_REJECTED' } }
+    return @{ Reason = $reason; Retryable = $retryable }
+}
+
+function Download-Pinned([string]$Url, [string]$File, [long]$Maximum, $Client) {
+    # Only the signed channel is mutable data; executable files require a verified commit and digest.
+    $prefix = 'https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/'
+    if ($Url -cne $ChannelUrl -and (-not $RuntimeCommit -or -not $Url.StartsWith($prefix, [StringComparison]::Ordinal))) { throw 'BOOTSTRAP_URL_INVALID' }
+    $resource = if ($Url -ceq $ChannelUrl) { 'tools/submission-channel.json' } else { $Url.Substring($prefix.Length) }
     $deadline = [Threading.CancellationTokenSource]::new(60000)
+    $attempts = 3
     try {
-        $response = $client.GetAsync($Url, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $deadline.Token).GetAwaiter().GetResult()
-        try {
-            if ([int]$response.StatusCode -ne 200) { throw 'BOOTSTRAP_DOWNLOAD_FAILED' }
-            if ($response.Content.Headers.ContentLength -gt $Maximum) { throw 'BOOTSTRAP_SIZE_EXCEEDED' }
-            $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-            $outputStream = [IO.File]::Open($File, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+        for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            $response = $null; $inputStream = $null; $outputStream = $null
+            $created = $false; $failure = $null; $code = 'BOOTSTRAP_DOWNLOAD_FAILED'; $stage = 'connect'
             try {
+                $response = $Client.GetAsync($Url, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $deadline.Token).GetAwaiter().GetResult()
+                $stage = 'headers'
+                $status = [int]$response.StatusCode
+                if ($status -ne 200) {
+                    $failure = @{ Reason = 'HTTP_' + $status; Retryable = $status -in @(408, 500, 502, 503, 504) }
+                    throw 'BOOTSTRAP_DOWNLOAD_FAILED'
+                }
+                if ($response.Content.Headers.ContentLength -gt $Maximum) { $code = 'BOOTSTRAP_SIZE_EXCEEDED'; throw $code }
+                $stage = 'read'
+                $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+                $stage = 'write'
+                $outputStream = [IO.File]::Open($File, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+                $created = $true
                 $buffer = New-Object byte[] 8192
                 [long]$total = 0
-                while (($count = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $deadline.Token).GetAwaiter().GetResult()) -gt 0) {
+                while ($true) {
+                    $stage = 'read'
+                    $readTask = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $deadline.Token)
+                    $readTask.Wait($deadline.Token)
+                    $count = $readTask.GetAwaiter().GetResult()
+                    if ($count -eq 0) { break }
                     $total += $count
-                    if ($total -gt $Maximum) { throw 'BOOTSTRAP_SIZE_EXCEEDED' }
+                    if ($total -gt $Maximum) { $code = 'BOOTSTRAP_SIZE_EXCEEDED'; throw $code }
+                    $stage = 'write'
                     $outputStream.Write($buffer, 0, $count)
                 }
-            } finally { $outputStream.Dispose(); $inputStream.Dispose() }
-        } finally { $response.Dispose() }
-    } finally { $deadline.Dispose(); $client.Dispose(); $handler.Dispose() }
+                if ($null -ne $response.Content.Headers.ContentLength -and $total -ne $response.Content.Headers.ContentLength) { throw [IO.IOException]::new('Incomplete response') }
+                return
+            } catch {
+                if (-not $failure) {
+                    $failure = if ($stage -in @('connect', 'read')) { Get-DownloadFailure $_.Exception } else { @{ Reason = 'LOCAL_IO'; Retryable = $false } }
+                }
+                if ($code -ne 'BOOTSTRAP_DOWNLOAD_FAILED') { $failure = @{ Reason = $code; Retryable = $false } }
+            } finally {
+                if ($outputStream) { $outputStream.Dispose() }
+                if ($inputStream) { $inputStream.Dispose() }
+                if ($response) { $response.Dispose() }
+            }
+            if ($created) { Assert-PlainPath $File; [IO.File]::Delete($File) }
+            if ($failure.Retryable -and $attempt -lt $attempts -and -not $deadline.IsCancellationRequested) {
+                [Console]::Error.WriteLine(($BootstrapMessages.retry -f $resource, $failure.Reason, ($attempt + 1), $attempts))
+                if (-not $deadline.Token.WaitHandle.WaitOne(1000 * $attempt)) { continue }
+            }
+            if ($deadline.IsCancellationRequested) { $failure.Reason = 'TIMEOUT' }
+            throw ($BootstrapMessages.failed -f $code, $resource, $stage, $failure.Reason, $attempt, $attempts)
+        }
+    } finally { $deadline.Dispose() }
 }
 
 try {
@@ -204,6 +278,7 @@ try {
     }
     $nodeVersion = & node --version
     if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(\d+)\.' -or [int]$Matches[1] -lt 24) { throw 'NODE_24_REQUIRED' }
+    $DownloadClient = New-DownloadClient
     $cacheBase = [IO.Path]::Combine([Environment]::GetFolderPath('LocalApplicationData'), 'PixivDownloader', 'community-tools')
     Assert-PlainPath $cacheBase
     [IO.Directory]::CreateDirectory($cacheBase) | Out-Null
@@ -218,7 +293,8 @@ try {
     catch { throw 'BOOTSTRAP_CHANNEL_BUSY' }
     $temporaryChannel = $stateFile + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
     try {
-        Download-Pinned $ChannelUrl $temporaryChannel 4096
+        Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Status 'tools/submission-channel.json'
+        Download-Pinned $ChannelUrl $temporaryChannel 4096 $DownloadClient
         $channelBytes = Read-Bounded $temporaryChannel 4096
         $priorChannel = if (Test-Path -LiteralPath $stateFile) { [Convert]::ToBase64String((Read-Bounded $stateFile 4096)) } else { '-' }
         $verifyArgs = @('-e', $ChannelVerifier, 'verify-channel', [Convert]::ToBase64String($channelBytes), $priorChannel, $ChannelPublicKey)
@@ -245,7 +321,8 @@ try {
                 (File-Digest $localManifest 65536) -eq $ManifestSha256) {
                 [IO.File]::WriteAllBytes($temporaryManifest, (Read-Bounded $localManifest 65536))
             } else {
-                Download-Pinned ('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/tools/submission-files.json') $temporaryManifest 65536
+                Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Status 'tools/submission-files.json'
+                Download-Pinned ('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/tools/submission-files.json') $temporaryManifest 65536 $DownloadClient
             }
             if ((File-Digest $temporaryManifest 65536) -ne $ManifestSha256) { throw 'BOOTSTRAP_MANIFEST_CHANGED' }
             if (-not (Test-Path -LiteralPath $manifestFile)) { [IO.File]::Move($temporaryManifest, $manifestFile) }
@@ -262,12 +339,15 @@ try {
     [IO.Directory]::CreateDirectory($cache) | Out-Null
     $seen = @{}
     [long]$total = 0
+    $completed = 0
     foreach ($file in $manifest.files) {
         if ($file.path -notmatch '^(scripts|tools|schemas)/[A-Za-z0-9._/-]+$' -or $file.path -match '(^|/)\.\.?(/|$)' -or
             $seen.ContainsKey($file.path) -or $file.sha256 -notmatch '^[0-9a-f]{64}$' -or $file.size -lt 1 -or $file.size -ne [long]$file.size) { throw 'BOOTSTRAP_MANIFEST_INVALID' }
         $seen[$file.path] = $true
         $total += $file.size
         if ($total -gt 67108864) { throw 'BOOTSTRAP_SIZE_EXCEEDED' }
+        $completed++
+        Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Status (('{0}/{1} ' -f $completed, $manifest.files.Count) + $file.path) -PercentComplete ([int](100 * ($completed - 1) / $manifest.files.Count))
         $destination = [IO.Path]::Combine($cache, $file.path)
         Assert-PlainPath $destination
         if (File-Matches $destination $file.size $file.sha256) { continue }
@@ -277,7 +357,7 @@ try {
         $temporaryFile = $destination + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
         try {
             if ($localFile -and (File-Matches $localFile $file.size $file.sha256)) { [IO.File]::WriteAllBytes($temporaryFile, (Read-Bounded $localFile $file.size)) }
-            else { Download-Pinned ('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/' + $file.path) $temporaryFile $file.size }
+            else { Download-Pinned ('https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/' + $file.path) $temporaryFile $file.size $DownloadClient }
             if (-not (File-Matches $temporaryFile $file.size $file.sha256)) { throw 'BOOTSTRAP_FILE_CHANGED' }
             if (-not (File-Matches $destination $file.size $file.sha256)) { [IO.File]::Move($temporaryFile, $destination) }
         } finally {
@@ -287,6 +367,9 @@ try {
         }
     }
     if (-not $seen.ContainsKey('scripts/submit.mjs')) { throw 'BOOTSTRAP_ENTRY_MISSING' }
+    Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Completed
+    $DownloadClient.Dispose()
+    $DownloadClient = $null
     $ChannelLock.Dispose()
     $ChannelLock = $null
     $nodeArgs = @([IO.Path]::Combine($cache, 'scripts', 'submit.mjs'), $project)
@@ -298,6 +381,8 @@ try {
     $SubmitExitCode = 1
 } finally {
     if ($ChannelLock) { $ChannelLock.Dispose() }
+    if ($DownloadClient) { $DownloadClient.Dispose() }
+    Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Completed
 }
 # Preserve native exit codes; report pipeline failures without exiting the user's terminal.
 $global:LASTEXITCODE = $SubmitExitCode

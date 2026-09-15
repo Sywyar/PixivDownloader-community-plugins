@@ -11,6 +11,7 @@ import { activeKey, publisherPath, bindingPath, versionAvailable, sourceLocation
 import { exportKey, keyLocation, keyDirectory, unlockPrivateKey } from './submission-signing.mjs';
 import { licenseFields, marketFields, readFile } from './submission-fields.mjs';
 import { download } from './download.mjs';
+import { saveSession } from './submission-session.mjs';
 
 export async function signingKey(context, existing, requirePrivate = true) {
     const { sdk, sign, ui, projectRoot, store } = context;
@@ -23,6 +24,7 @@ export async function signingKey(context, existing, requirePrivate = true) {
         const parent = await ui.ask('keyDirectory', remembered?.directory ?? os.homedir(), value => { keyDirectory(value, projectRoot); });
         const protection = await ui.select('keyProtection', ['protectedKey', 'plainKey'], value => ui.text(value));
         const generated = context.generatedKey;
+        if (generated && path.dirname(path.resolve(generated.directory)) !== path.resolve(generated.parent)) throw new Error('PROJECT_SESSION_INVALID');
         const directory = generated?.parent === parent && generated?.protection === protection ? generated.directory : keyDirectory(parent, projectRoot);
         if (!await ui.confirm('generateKey', { directory, protection })) throw new Error('CANCELLED');
         publicFile = path.join(directory, 'public-key.pem');
@@ -37,12 +39,14 @@ export async function signingKey(context, existing, requirePrivate = true) {
             context.generatedKey = { parent, protection, directory, keyId: crypto.randomUUID() };
             // 生成后立即保存定位信息，取消或保存退出也能找到已经落盘的私钥。
             store?.update({ key: { keyId: context.generatedKey.keyId, publicFile, privateFile, directory: parent } });
+            saveSession(context, { generatedKey: context.generatedKey });
         }
         keyId = await ui.ask('keyId', context.generatedKey.keyId, value => sdk.invoke({ command: 'field', field: 'keyId', value }));
     } else {
         publicFile = keyLocation(await ui.ask('publicKey', remembered?.publicFile ?? '', value => { keyLocation(value, projectRoot); }), projectRoot);
         keyId = await ui.ask('keyId', existing?.keyId ?? remembered?.keyId ?? '', value => sdk.invoke({ command: 'field', field: 'keyId', value }));
     }
+    keyLocation(publicFile, projectRoot);
     const { fingerprint, ...key } = exportKey(sdk, sign, publicFile, keyId);
     if (requirePrivate) {
         privateFile = keyLocation(privateFile ?? await ui.ask('privateKey', remembered?.privateFile ?? '', value => { keyLocation(value, projectRoot); }), projectRoot);

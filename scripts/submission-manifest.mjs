@@ -14,6 +14,9 @@ export function submissionManifest(directory = root) {
             if (match[1].startsWith('.')) visit(path.posix.normalize(path.posix.join(path.posix.dirname(relative), match[1])));
             else if (!match[1].startsWith('node:')) throw new Error('SUBMISSION_DEPENDENCY_UNPINNED');
         }
+        for (const match of source.matchAll(/new URL\(\s*['"](\.[^'"]+\.mjs)['"],\s*import\.meta\.url\)/gu)) {
+            visit(path.posix.normalize(path.posix.join(path.posix.dirname(relative), match[1])));
+        }
     };
     visit('scripts/submit.mjs');
     selected.add('scripts/repository-policy.json');
