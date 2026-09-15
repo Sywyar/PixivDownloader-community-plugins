@@ -248,8 +248,8 @@
     },
     {
       "path": "scripts/submission-candidate.mjs",
-      "size": 12631,
-      "sha256": "680c49344b1efa49117512c21b5e4a812f4fac857075751661796d9eee55e5fe"
+      "size": 13434,
+      "sha256": "0dd04d263219dd92236757f63de08ffc234d3155063e075bf9709e18826b6569"
     },
     {
       "path": "scripts/submission-check.mjs",

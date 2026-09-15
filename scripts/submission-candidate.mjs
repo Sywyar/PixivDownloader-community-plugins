@@ -12,11 +12,25 @@ import { setTimeout } from 'node:timers/promises';
 
 export const candidateTag = candidate => `candidate-${candidate.pluginId}-${candidate.version}-${candidate.sourceCommit}`;
 
+function checkAssetUrl(asset, repository, tag, draft) {
+    const location = httpsUrl(asset.browser_download_url);
+    const pathname = decodeURIComponent(location.pathname);
+    const assetTag = pathname.split('/')[5];
+    if (location.origin !== 'https://github.com' || location.search || location.hash
+        || pathname !== `/${repository}/releases/download/${assetTag}/${asset.name}`
+        || assetTag !== tag && !(draft && /^untagged-[a-f0-9]+$/u.test(assetTag))) throw new Error('CANDIDATE_ASSET_CHANGED');
+}
+
 function checkTag(call, prefix, release, commit) {
     try {
-        const value = call(`${prefix}/commits/${encodeURIComponent('refs/tags/' + release.tag_name)}`);
-        if (value.sha !== commit) throw new Error('CANDIDATE_TAG_CHANGED');
-    } catch (error) { if (!release.draft || error.message !== 'GITHUB_NOT_FOUND') throw error; }
+        const value = call(`${prefix}/git/ref/tags/${encodeURIComponent(release.tag_name)}`);
+        if (value.ref !== 'refs/tags/' + release.tag_name) throw new Error('CANDIDATE_TAG_CHANGED');
+    } catch (error) {
+        if (release.draft && error.message === 'GITHUB_NOT_FOUND') return;
+        throw error;
+    }
+    const value = call(`${prefix}/commits/${encodeURIComponent('refs/tags/' + release.tag_name)}`);
+    if (value.sha !== commit) throw new Error('CANDIDATE_TAG_CHANGED');
 }
 
 function checkCI(call, prefix, repository, source, candidate) {
@@ -62,9 +76,7 @@ export async function sourceCandidate(context, source, selection, profileId, tra
         if (asset.length !== 1 || assets.length !== 2 || asset[0].state !== 'uploaded'
             || asset[0].size !== candidate.artifact.size || asset[0].digest !== `sha256:${candidate.artifact.sha256}`
             || !['jar', 'zip'].some(ext => candidate.artifact.file === `pixivdownload-plugin-${candidate.pluginId}-${candidate.version}.${ext}`)) throw new Error('CANDIDATE_ASSET_CHANGED');
-        const location = httpsUrl(asset[0].browser_download_url);
-        if (location.origin !== 'https://github.com' || location.search || location.hash
-            || decodeURIComponent(location.pathname) !== `/${source.name}/releases/download/${candidateTag(candidate)}/${candidate.artifact.file}`) throw new Error('CANDIDATE_ASSET_CHANGED');
+        checkAssetUrl(asset[0], source.name, candidateTag(candidate), release.draft);
         matches.push({ candidate, release, asset: asset[0], metadata: metadata[0], manifest });
     }
     if (!matches.length) {
@@ -73,6 +85,8 @@ export async function sourceCandidate(context, source, selection, profileId, tra
     }
     const chosen = matches.length === 1 ? matches[0] : await ui.select('candidate', matches, item => `${item.candidate.pluginId} ${item.candidate.version}`);
     const { candidate, release, asset } = chosen;
+    // 草稿附件使用临时地址；投稿元数据固定为发布后的正式 tag 地址。
+    const packageUrl = `https://github.com/${source.name}/releases/download/${encodeURIComponent(release.tag_name)}/${encodeURIComponent(asset.name)}`;
     context.bindProject?.(repoId, selection.projectDir, candidate.pluginId);
     const store = context.store;
     const expected = { size: candidate.artifact.size, sha256: candidate.artifact.sha256 };
@@ -99,7 +113,9 @@ export async function sourceCandidate(context, source, selection, profileId, tra
         checkCI(call, prefix, repository, source, candidate);
         for (const original of [asset, chosen.metadata]) {
             const now = call(`${prefix}/releases/assets/${id(original.id)}`);
-            if (['id', 'size', 'name', 'digest', 'updated_at', 'state', 'browser_download_url'].some(field => !isDeepStrictEqual(now[field], original[field]))) throw new Error('CANDIDATE_ASSET_CHANGED');
+            if (['id', 'size', 'name', 'digest', 'updated_at', 'state'].some(field => !isDeepStrictEqual(now[field], original[field]))
+                || !promoted && now.browser_download_url !== original.browser_download_url) throw new Error('CANDIDATE_ASSET_CHANGED');
+            checkAssetUrl(now, source.name, release.tag_name, !promoted);
         }
         transfer(`${prefix}/releases/assets/${id(asset.id)}`, path.join(sdk.workspace, randomUUID() + '.package'), maximum, expected);
     };
@@ -112,17 +128,17 @@ export async function sourceCandidate(context, source, selection, profileId, tra
             store?.update({ receipt: { sourceCommit: source.commit, releaseId: id(release.id), packageSha256: expected.sha256, sourcePublished: true } });
         }
         checkTag(call, prefix, { ...release, draft: false }, source.commit);
-        await publicDownload(asset.browser_download_url, path.join(sdk.workspace, randomUUID() + '.package'), maximum, expected);
+        await publicDownload(packageUrl, path.join(sdk.workspace, randomUUID() + '.package'), maximum, expected);
     };
     const fetch = async (url, destination, limit, requested) => {
-        if (url !== asset.browser_download_url || promoted) return publicDownload(url, destination, limit, requested);
+        if (url !== packageUrl || promoted) return publicDownload(url, destination, limit, requested);
         if (!requested || requested.sha256 !== expected.sha256 || requested.size !== expected.size || expected.size > limit) throw new Error('CANDIDATE_PREVIEW_CHANGED');
         const bytes = readFile(artifact, maximum);
         if (bytes.length !== expected.size || hash(bytes) !== expected.sha256) throw new Error('CANDIDATE_PACKAGE_CHANGED');
         fs.writeFileSync(destination, bytes, { flag: 'wx' });
         return { url, ...expected };
     };
-    return { candidate, facts, artifact, packageUrl: asset.browser_download_url, recheck, beforeWrite, fetch,
+    return { candidate, facts, artifact, packageUrl, recheck, beforeWrite, fetch,
         actions: release.draft ? ['PUBLISH_SOURCE_CANDIDATE'] : [], sourceRelease: { repository: source.name, id: id(release.id), tag: release.tag_name } };
 }
 
