@@ -11,6 +11,7 @@ const labels = {
     url: 'urlLabel', html_url: 'urlLabel', version: 'versionLabel', title: 'titleLabel',
     buildProfile: 'profile', license: 'license', market: 'marketLabel', key: 'keyAction', owner: 'owner',
     code: 'errorCodeLabel', stage: 'stageLabel', branch: 'branchLabel', base: 'commitLabel',
+    status: 'statusLabel', attempts: 'attemptsLabel',
 };
 
 export function formatMetadata(value, text, depth = 0) {

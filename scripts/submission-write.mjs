@@ -51,7 +51,21 @@ function verifyCommit(checkout, head, preview, changes, readGit) {
 }
 
 // 确认对象是完整预览；所有外部写入都在两次原生复核之后，普通 push 不覆盖远端分支。
-export async function submitPreview({ sdk, snapshot, changes, result, title, confirm, recheck,
+export async function submitPreview(options) {
+    let approved;
+    for (;;) {
+        try { return await submitOnce({ ...options, confirm: async preview => {
+            if (isDeepStrictEqual(preview, approved)) return true;
+            if (!await options.confirm(preview)) return false;
+            approved = structuredClone(preview); return true;
+        } }); }
+        catch (error) {
+            if (!error.github || !options.retry || !await options.retry(error)) throw error;
+        }
+    }
+}
+
+async function submitOnce({ sdk, snapshot, changes, result, title, confirm, recheck,
     actions = [], beforeWrite, write = work => work(),
     call = github, readGit = git, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
     unchanged(snapshot, call);
@@ -72,14 +86,16 @@ export async function submitPreview({ sdk, snapshot, changes, result, title, con
     unchanged(snapshot, call);
     if (!isDeepStrictEqual(forkTarget(snapshot, call), fork)) throw new Error('FORK_CHANGED');
     if (fork.create) {
-        call(`repos/${policy.repository}/forks`, { method: 'POST', body: { default_branch_only: true } });
+        let uncertain;
+        try { call(`repos/${policy.repository}/forks`, { method: 'POST', body: { default_branch_only: true } }); }
+        catch (error) { if (!error.github) throw error; uncertain = error; }
         let ready = false;
         for (let attempt = 0; attempt < 30; attempt++) {
             const current = forkTarget(snapshot, call);
             if (!current.create) { ready = true; break; }
             await wait(1000);
         }
-        if (!ready) throw new Error('FORK_NOT_READY');
+        if (!ready) throw uncertain ?? new Error('FORK_NOT_READY');
     }
     const repository = checkedRepository(fork.name, call);
     const existing = paged(`repos/${policy.repository}/pulls?state=all&head=${encodeURIComponent(snapshot.actor.login + ':' + preview.branch)}`, call);
@@ -95,7 +111,7 @@ export async function submitPreview({ sdk, snapshot, changes, result, title, con
         const { repositoryTree, readBlob } = await import('./submission-github.mjs');
         const tree = repositoryTree(fork.name, sha(existing[0].head.sha), call);
         for (const file of preview.files) if (hash(readBlob(fork.name, tree.get(file.path), call)) !== file.sha256) throw new Error('EXISTING_PR_CONFLICT');
-        return { url: existing[0].html_url, reused: true };
+        return { url: existing[0].html_url, head: sha(existing[0].head.sha), reused: true };
     }
     const checkout = fs.mkdtempSync(path.join(sdk.workspace, 'pr-'));
     readGit(checkout, 'init');
@@ -126,15 +142,35 @@ export async function submitPreview({ sdk, snapshot, changes, result, title, con
     verifyCommit(checkout, head, preview, changes, readGit);
     // 交互期间或创建 fork 后再次变化也拒绝提交远端候选。
     unchanged(snapshot, call);
-    if (!resume) readGit(checkout, 'push', 'origin', `HEAD:refs/heads/${preview.branch}`);
+    if (!resume) {
+        try { readGit(checkout, 'push', 'origin', `HEAD:refs/heads/${preview.branch}`); }
+        catch (error) {
+            // push 响应丢失不能证明失败；只承认远端仍是本次已验证的精确 head。
+            if (!error.github) throw error;
+            let remote;
+            try { remote = call(`repos/${fork.name}/git/ref/heads/${preview.branch}`).object.sha; }
+            catch (lookup) { if (lookup.message !== 'GITHUB_NOT_FOUND') throw lookup; }
+            if (!remote) throw error;
+            if (remote !== head) throw new Error('REMOTE_HEAD_CHANGED');
+        }
+    }
     if (sha(call(`repos/${fork.name}/git/ref/heads/${preview.branch}`).object.sha) !== head) throw new Error('REMOTE_HEAD_CHANGED');
     unchanged(snapshot, call);
-    const pull = call(`repos/${policy.repository}/pulls`, { method: 'POST', body: {
+    let pull;
+    try { pull = call(`repos/${policy.repository}/pulls`, { method: 'POST', body: {
         title, head: `${snapshot.actor.login}:${preview.branch}`, base: policy.defaultBranch, draft: false,
         body: preview.body,
-    } });
+    } }); }
+    catch (error) {
+        if (!error.github) throw error;
+        const found = paged(`repos/${policy.repository}/pulls?state=all&head=${encodeURIComponent(snapshot.actor.login + ':' + preview.branch)}`, call);
+        if (!found.length) throw error;
+        if (found.length !== 1) throw new Error('EXISTING_PR_CONFLICT');
+        pull = found[0];
+    }
     const actual = call(`repos/${policy.repository}/pulls/${id(pull.number)}`);
     if (actual.draft || actual.state !== 'open' || actual.head.sha !== head || actual.base.sha !== snapshot.base
+        || actual.title !== preview.title || actual.body !== preview.body
         || id(actual.user.id) !== snapshot.actor.id || id(actual.head.repo.id) !== id(repository.id)) throw new Error('CREATED_PR_MISMATCH');
     return { url: actual.html_url, head };
     });

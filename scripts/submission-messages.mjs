@@ -1,4 +1,11 @@
 export const additions = {
+    retryingGithub: ['等待后重试 GitHub 读取', 'Wait and retry the GitHub read', '等候後重試 GitHub 讀取', '待機して GitHub の読み取りを再試行', '대기 후 GitHub 읽기 재시도'],
+    requestFailed: ['请求未完成，已保留当前投稿内容。', 'The request did not complete. Your submission is retained.', '請求未完成，已保留目前投稿內容。', 'リクエストが完了しませんでした。投稿内容は保持されています。', '요청이 완료되지 않았습니다. 제출 내용은 유지됩니다.'],
+    retrySubmission: ['重试会先核对远端结果。请选择下一步。', 'Retry checks the remote result first. Choose how to continue.', '重試會先核對遠端結果。請選擇下一步。', '再試行では先にリモートの結果を確認します。続行方法を選んでください。', '재시도 시 원격 결과를 먼저 확인합니다. 계속할 방법을 선택하세요.'],
+    retry: ['重试', 'Retry', '重試', '再試行', '재시도'],
+    saveExit: ['保存退出', 'Save and exit', '儲存並退出', '保存して終了', '저장 후 종료'],
+    statusLabel: ['HTTP 状态', 'HTTP status', 'HTTP 狀態', 'HTTP ステータス', 'HTTP 상태'],
+    attemptsLabel: ['尝试次数', 'Attempts', '嘗試次數', '試行回数', '시도 횟수'],
     confirmSummary: ['提交摘要是否正确？确认后查看完整内容。', 'Is this summary correct? Continue to the full preview.', '提交摘要是否正確？確認後查看完整內容。', '投稿の概要は正しいですか？続けて全体を確認します。', '제출 요약이 맞나요? 계속하면 전체 내용을 확인합니다.'],
     checkingProject: ['检查 Git 工程', 'Check the Git project', '檢查 Git 專案', 'Git プロジェクトを確認', 'Git 프로젝트 확인'],
     checkingPath: ['核验文件路径', 'Validate file paths', '核驗檔案路徑', 'ファイルパスを検証', '파일 경로 검증'],
@@ -67,6 +74,11 @@ export const additions = {
 };
 
 export const errors = {
+    GITHUB_REQUEST_FAILED: ['GitHub 请求失败；检查网络后可重试，写入前会重新核对远端结果。', 'GitHub request failed. Check the connection and retry; remote results are checked before writing.', 'GitHub 請求失敗；檢查網路後可重試，寫入前會重新核對遠端結果。', 'GitHub リクエストが失敗しました。接続を確認して再試行してください。書き込み前にリモートの結果を確認します。', 'GitHub 요청이 실패했습니다. 연결을 확인한 뒤 재시도하세요. 쓰기 전에 원격 결과를 확인합니다.'],
+    GITHUB_TIMEOUT: ['GitHub 请求已超时，请检查网络后重试。', 'The GitHub request timed out. Check the connection and retry.', 'GitHub 請求已逾時，請檢查網路後重試。', 'GitHub リクエストがタイムアウトしました。接続を確認して再試行してください。', 'GitHub 요청 시간이 초과되었습니다. 연결을 확인한 뒤 재시도하세요.'],
+    GITHUB_AUTH_REQUIRED: ['GitHub 登录已失效，请重新运行 gh auth login。', 'GitHub authentication expired. Run gh auth login again.', 'GitHub 登入已失效，請重新執行 gh auth login。', 'GitHub の認証が失効しました。gh auth login を再実行してください。', 'GitHub 인증이 만료되었습니다. gh auth login을 다시 실행하세요.'],
+    GITHUB_ACCESS_DENIED: ['GitHub 拒绝访问，请检查账号权限及 API 限额。', 'GitHub denied access. Check account permissions and API limits.', 'GitHub 拒絕存取，請檢查帳號權限及 API 限額。', 'GitHub がアクセスを拒否しました。権限と API 制限を確認してください。', 'GitHub 접근이 거부되었습니다. 계정 권한과 API 한도를 확인하세요.'],
+    GITHUB_RATE_LIMITED: ['GitHub 请求次数已达上限，请稍后重试。', 'GitHub rate limit reached. Retry later.', 'GitHub 請求次數已達上限，請稍後重試。', 'GitHub のレート制限に達しました。時間をおいて再試行してください。', 'GitHub 요청 한도에 도달했습니다. 나중에 재시도하세요.'],
     REGULAR_FILE_REQUIRED: ['请选择普通文件，不能选择目录或链接。', 'Choose a regular file, not a folder or link.', '請選擇一般檔案，不能選擇目錄或連結。', 'ディレクトリやリンクではなく通常のファイルを選択してください。', '폴더나 링크가 아닌 일반 파일을 선택하세요.'],
     SCHEMA_INVALID: ['内容不符合此字段的格式、长度或允许值，请修改后重试。', 'The value does not meet this field’s format, length or allowed values. Edit it and retry.', '內容不符合此欄位的格式、長度或允許值，請修改後重試。', '項目の形式、長さ、または許可された値に合いません。修正して再試行してください。', '값이 이 필드의 형식, 길이 또는 허용 값에 맞지 않습니다. 수정 후 다시 시도하세요.'],
     LICENSE_CONFLICT: ['表达式与识别到的许可证正文冲突，请核对文件和表达式。', 'The expression conflicts with the recognized license text. Check the file and expression.', '表達式與識別出的授權正文衝突，請核對檔案及表達式。', '式が識別されたライセンス本文と一致しません。両方を確認してください。', '표현식이 인식된 라이선스 본문과 충돌합니다. 파일과 표현식을 확인하세요.'],

@@ -213,8 +213,8 @@
     },
     {
       "path": "scripts/candidate-transfer.mjs",
-      "size": 3686,
-      "sha256": "7c3b547549c9e6ed1e3e0dae4dff793b371ad75ee376709a1e2393fdb4bf1f74"
+      "size": 3678,
+      "sha256": "6d0b854e40417acd09b31e85b46e7518088a650426c0ff7c9a66821ffb1045f3"
     },
     {
       "path": "scripts/download-proxy.mjs",
@@ -233,8 +233,8 @@
     },
     {
       "path": "scripts/project.mjs",
-      "size": 3165,
-      "sha256": "1b5752a7a0bdbc6fcce31b38b6a10051d20a36515834020ad19f8d769f80d13e"
+      "size": 3460,
+      "sha256": "2553b7fa197f4967e989bc414fa530b0009a8c7ea3e1a5464cb6903eba26f982"
     },
     {
       "path": "scripts/repository-policy.json",
@@ -248,8 +248,8 @@
     },
     {
       "path": "scripts/submission-candidate.mjs",
-      "size": 13434,
-      "sha256": "0dd04d263219dd92236757f63de08ffc234d3155063e075bf9709e18826b6569"
+      "size": 13671,
+      "sha256": "8cd653a5e7f2d9080d8b0506811bf40498aa25523f007689f253fab144fe5c6e"
     },
     {
       "path": "scripts/submission-check.mjs",
@@ -263,13 +263,13 @@
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 9463,
-      "sha256": "29ff1ce2f0e69d2c52271e0e4ca8cf44755cf242efbcf54765e793fb4457b7f9"
+      "size": 10969,
+      "sha256": "272c3b3a20fe6f7f844ffc97fccf615ce48948405be32d9a00b92834ee5ed003"
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 28377,
-      "sha256": "c1d8fece4b7f30ccc17b1594aa58f6b96fd71cf04db3770bc0e64d5e4dc8335f"
+      "size": 31899,
+      "sha256": "5f4c0e469165d31f63dd9d3581252cd9ac4ec34bf0599ac907d9affd11e07390"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -283,8 +283,8 @@
     },
     {
       "path": "scripts/submission-presentation.mjs",
-      "size": 3232,
-      "sha256": "3e16254177dc95776bbea8f9195d6fc253627a5650b13f85cb46b697ee77f815"
+      "size": 3286,
+      "sha256": "bb74cc96a67d87cd024c11296ef79e8fa2a16cc4377a0fbf5fc7956f3e76f728"
     },
     {
       "path": "scripts/submission-progress.mjs",
@@ -328,13 +328,13 @@
     },
     {
       "path": "scripts/submission-write.mjs",
-      "size": 9130,
-      "sha256": "600e965d4d806037eca3afa790afd656ccd64a5a61ce8a3ad1b8ac4a3b94378e"
+      "size": 10757,
+      "sha256": "4bfd19cff338288caa340d3d3cb84fe7dc44fecc5dfe13db5e3356ba8617ddc0"
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 8351,
-      "sha256": "a05d2f07f13fe6308cd7d60f4b81285185f0fbacfe8a8a078d8b07f72c0a9a5d"
+      "size": 8771,
+      "sha256": "03689ea30296151281d0e7828e6be340e4dc6ce8e04aede06416aca714dbb696"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

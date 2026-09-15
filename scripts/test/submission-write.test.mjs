@@ -57,7 +57,7 @@ test('完整预览后才写入；身份、绑定和文件变化阻止 fork、pus
     assert.deepEqual(writes, []);
 });
 
-for (const owner of [false, true]) test(`真实 Git ${owner ? '所有者同仓库' : '普通 fork'}投稿在 push 断线后复用 head 创建 Ready PR`, async t => {
+for (const owner of [false, true]) for (const lostResponse of [false, true]) test(`真实 Git ${owner ? '所有者同仓库' : '普通 fork'}投稿在${lostResponse ? '写入响应丢失' : 'PR 失败'}后复用结果`, async t => {
     const directory = fs.mkdtempSync(path.join(root, 'target/submission-write-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const upstream = path.join(directory, 'upstream');
@@ -86,10 +86,11 @@ for (const owner of [false, true]) test(`真实 Git ${owner ? '所有者同仓�
             writes.push(endpoint);
             assert.equal(endpoint, `repos/${policy.repository}/pulls`);
             body = options.body;
-            if (failPr) throw new Error('SIMULATED_DISCONNECT');
-            createdPr = { number: 17, state: 'open', draft: body.draft, title: body.title, body: body.body,
+            if (failPr && !lostResponse) throw Object.assign(new Error('SIMULATED_DISCONNECT'), { github: true });
+            createdPr = { id: 1717, number: 17, state: 'open', draft: body.draft, title: body.title, body: body.body,
                 html_url: 'https://github.com/' + policy.repository + '/pull/17', user: { id: actor.id },
                 base: { sha: base }, head: { sha: candidate, repo: { id: repositoryId } } };
+            if (lostResponse) throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true, method: 'POST' });
             return createdPr;
         }
         if (endpoint === 'user') return actor;
@@ -101,7 +102,7 @@ for (const owner of [false, true]) test(`真实 Git ${owner ? '所有者同仓�
             if (!candidate) throw new Error('GITHUB_NOT_FOUND');
             return { object: { sha: candidate } };
         }
-        if (endpoint.includes('/pulls?')) return [[]];
+        if (endpoint.includes('/pulls?')) return [createdPr ? [createdPr] : []];
         if (endpoint.endsWith('/pulls/17')) return createdPr;
         throw new Error('UNEXPECTED_API ' + endpoint);
     };
@@ -114,6 +115,7 @@ for (const owner of [false, true]) test(`真实 Git ${owner ? '所有者同仓�
         if (args[0] === 'push') {
             assert.match(args[2], /^HEAD:refs\/heads\/community\/first_release\/[0-9a-f]{24}$/u);
             pushes++; candidate = git(cwd, 'rev-parse', 'HEAD');
+            if (lostResponse) throw Object.assign(new Error('GIT_TRANSFER_FAILED'), { github: true, method: 'PUSH' });
         }
         return result;
     };
@@ -124,17 +126,21 @@ for (const owner of [false, true]) test(`真实 Git ${owner ? '所有者同仓�
             assert.deepEqual(preview.actions, ['CREATE_COMMIT', 'PUSH_BRANCH', 'CREATE_READY_PR']);
             return true;
         }, recheck: async () => {} };
-    await assert.rejects(submitPreview(input), /SIMULATED_DISCONNECT/u);
+    if (lostResponse) assert.equal((await submitPreview(input)).head, candidate);
+    else {
+        await assert.rejects(submitPreview(input), /SIMULATED_DISCONNECT/u);
+        const first = candidate; let retried = 0;
+        assert.equal((await submitPreview({ ...input, retry: () => { retried++; failPr = false; return true; } })).head, first);
+        assert.equal(retried, 1);
+    }
     const firstHead = candidate;
-    failPr = false;
-    assert.equal((await submitPreview(input)).head, firstHead);
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
     assert.equal(body.base, policy.defaultBranch);
     assert.match(body.head, new RegExp(`^${actor.login}:community/first_release/`));
     assert.equal(git(upstream, 'rev-parse', policy.defaultBranch), base);
     assert(writes.every(endpoint => endpoint.endsWith('/pulls')));
     assert.equal(git(fork, 'show', `${firstHead}:${file}`), '{"text":"中文"}');
-    candidate = null;
+    candidate = null; createdPr = null;
     const before = writes.length;
     await assert.rejects(submitPreview({ ...input, readGit: (cwd, ...args) => {
         if (args.includes('add') && args.includes('--')) fs.writeFileSync(path.join(cwd, file), '{"tampered":true}\n');

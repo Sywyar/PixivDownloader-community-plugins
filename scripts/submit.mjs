@@ -94,7 +94,11 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
                     await prepared.recheck?.();
                     await validate();
                 });
-            }, write: work => ui.task('writing', work) });
+            }, write: work => ui.task('writing', work), retry: async error => {
+                ui.say('requestFailed', { code: failureCode(error), status: error.status, attempts: error.attempts });
+                if (await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) === 'retry') return true;
+                throw new Error('WIZARD_SAVE');
+            } });
         });
         if (outcome.sourceChangeRequired || outcome.original) return outcome;
         if (!outcome.cancelled) context.store?.complete({ ...(context.store.record.receipt ?? {}), ...outcome });
@@ -110,6 +114,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         const code = failureCode(error);
         const stage = ['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'BODY'].includes(error.downloadStage) ? error.downloadStage : undefined;
         if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...(stage ? { stage } : {}),
+            ...(error.github ? { status: error.status, attempts: error.attempts } : {}),
             ...(error.statePath ? { path: error.statePath } : {}) });
         else console.error(code);
         process.exitCode = 1;
