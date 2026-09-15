@@ -914,6 +914,34 @@ var a = class extends y {
     });
   }
 };
+var u$1 = class u extends y {
+  _mask = "\u2022";
+  get cursor() {
+    return this._cursor;
+  }
+  get masked() {
+    return this.userInput.replaceAll(/./g, this._mask);
+  }
+  get userInputWithCursor() {
+    if (this.state === "submit" || this.state === "cancel")
+      return this.masked;
+    const t2 = this.userInput;
+    if (this.cursor >= t2.length)
+      return `${this.masked}${styleText(["inverse", "hidden"], "_")}`;
+    const s = this.masked, r2 = s.slice(0, this.cursor), i2 = s.slice(this.cursor, this.cursor + 1), o = s.slice(this.cursor + 1);
+    return `${r2}${styleText("inverse", i2)}${o}`;
+  }
+  clear() {
+    this._clearUserInput();
+  }
+  constructor({ mask: t2, ...s }) {
+    super(s), this._mask = t2 ?? "\u2022", this.on("userInput", (r2) => {
+      this._setValue(r2);
+    }), this.on("finalize", () => {
+      this.value === void 0 && (this.value = "");
+    });
+  }
+};
 var n$1 = class n extends y {
   options;
   cursor = 0;
@@ -1085,16 +1113,16 @@ var limitOptions = ({
   if (g > v) {
     let t2 = 0, n3 = 0, o = g;
     const h2 = l2 - T;
-    let u3 = v;
-    const L = () => I(s, o, 0, h2, u3), E = () => I(
+    let u4 = v;
+    const L = () => I(s, o, 0, h2, u4), E = () => I(
       s,
       o,
       h2 + 1,
       s.length,
-      u3,
+      u4,
       true
     );
-    d ? ({ lineCount: o, removals: t2 } = L(), o > u3 && (c2 || (u3 -= 1), { lineCount: o, removals: n3 } = E())) : (c2 || (u3 -= 1), { lineCount: o, removals: n3 } = E(), o > u3 && (u3 -= 1, { lineCount: o, removals: t2 } = L())), t2 > 0 && (d = true, s.splice(0, t2)), n3 > 0 && (c2 = true, s.splice(s.length - n3, n3));
+    d ? ({ lineCount: o, removals: t2 } = L(), o > u4 && (c2 || (u4 -= 1), { lineCount: o, removals: n3 } = E())) : (c2 || (u4 -= 1), { lineCount: o, removals: n3 } = E(), o > u4 && (u4 -= 1, { lineCount: o, removals: t2 } = L())), t2 > 0 && (d = true, s.splice(0, t2)), n3 > 0 && (c2 = true, s.splice(s.length - n3, n3));
   }
   const x = [];
   d && x.push(M);
@@ -1108,11 +1136,11 @@ var MULTISELECT_INSTRUCTIONS = [
   `${styleText2("dim", "Space:")} select`,
   `${styleText2("dim", "Enter:")} confirm`
 ];
-var m = (i2, u3) => i2.split(`
-`).map((d) => u3(d)).join(`
+var m = (i2, u4) => i2.split(`
+`).map((d) => u4(d)).join(`
 `);
 var multiselect = (i2) => {
-  const u3 = (t2, a2) => {
+  const u4 = (t2, a2) => {
     const r2 = t2.label ?? String(t2.value);
     return a2 === "disabled" ? `${styleText2("gray", S_CHECKBOX_INACTIVE)} ${m(r2, (o) => styleText2(["strikethrough", "gray"], o))}${t2.hint ? ` ${styleText2("dim", `(${t2.hint ?? "disabled"})`)}` : ""}` : a2 === "active" ? `${styleText2("cyan", S_CHECKBOX_ACTIVE)} ${r2}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "selected" ? `${styleText2("green", S_CHECKBOX_SELECTED)} ${m(r2, (o) => styleText2("dim", o))}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "cancelled" ? `${m(r2, (o) => styleText2(["strikethrough", "dim"], o))}` : a2 === "active-selected" ? `${styleText2("green", S_CHECKBOX_SELECTED)} ${r2}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "submitted" ? `${m(r2, (o) => styleText2("dim", o))}` : `${styleText2("dim", S_CHECKBOX_INACTIVE)} ${m(r2, (o) => styleText2("dim", o))}`;
   }, d = i2.required ?? true, v = i2.showInstructions ?? true;
@@ -1148,13 +1176,13 @@ ${styleText2(
 ` : ""}${a2}
 `, o = this.value ?? [], p = (n3, l2) => {
         if (n3.disabled)
-          return u3(n3, "disabled");
+          return u4(n3, "disabled");
         const s = o.includes(n3.value);
-        return l2 && s ? u3(n3, "active-selected") : s ? u3(n3, "selected") : u3(n3, l2 ? "active" : "inactive");
+        return l2 && s ? u4(n3, "active-selected") : s ? u4(n3, "selected") : u4(n3, l2 ? "active" : "inactive");
       };
       switch (this.state) {
         case "submit": {
-          const n3 = this.options.filter(({ value: s }) => o.includes(s)).map((s) => u3(s, "submitted")).join(styleText2("dim", ", ")) || styleText2("dim", i2.emptyLabel ?? "none"), l2 = wrapTextWithPrefix(
+          const n3 = this.options.filter(({ value: s }) => o.includes(s)).map((s) => u4(s, "submitted")).join(styleText2("dim", ", ")) || styleText2("dim", i2.emptyLabel ?? "none"), l2 = wrapTextWithPrefix(
             i2.output,
             n3,
             t2 ? `${styleText2("gray", S_BAR)}  ` : ""
@@ -1162,7 +1190,7 @@ ${styleText2(
           return `${r2}${l2}`;
         }
         case "cancel": {
-          const n3 = this.options.filter(({ value: s }) => o.includes(s)).map((s) => u3(s, "cancelled")).join(styleText2("dim", ", "));
+          const n3 = this.options.filter(({ value: s }) => o.includes(s)).map((s) => u4(s, "cancelled")).join(styleText2("dim", ", "));
           if (n3.trim() === "")
             return `${r2}${styleText2("gray", S_BAR)}`;
           const l2 = wrapTextWithPrefix(
@@ -1223,7 +1251,7 @@ var log = {
     spacing: l2 = 1,
     withGuide: c2
   } = {}) => {
-    const t2 = [], o = c2 ?? settings.withGuide, f = o ? r2 : "", O = o ? `${e}  ` : "", u3 = o ? `${r2}  ` : "";
+    const t2 = [], o = c2 ?? settings.withGuide, f = o ? r2 : "", O = o ? `${e}  ` : "", u4 = o ? `${r2}  ` : "";
     for (let i2 = 0; i2 < l2; i2++)
       t2.push(f);
     const g = Array.isArray(s) ? s : s.split(`
@@ -1232,7 +1260,7 @@ var log = {
       const [i2, ...y2] = g;
       i2.length > 0 ? t2.push(`${O}${i2}`) : t2.push(o ? e : "");
       for (const p of y2)
-        p.length > 0 ? t2.push(`${u3}${p}`) : t2.push(o ? r2 : "");
+        p.length > 0 ? t2.push(`${u4}${p}`) : t2.push(o ? r2 : "");
     }
     m2.write(`${t2.join(`
 `)}
@@ -1282,7 +1310,7 @@ var C = (o, e, s) => {
     hard: true,
     trim: false
   }, i2 = wrapAnsi(o, e, a2).split(`
-`), c2 = i2.reduce((n3, t2) => Math.max(dist_default2(t2), n3), 0), u3 = i2.map(s).reduce((n3, t2) => Math.max(dist_default2(t2), n3), 0), g = e - (u3 - c2);
+`), c2 = i2.reduce((n3, t2) => Math.max(dist_default2(t2), n3), 0), u4 = i2.map(s).reduce((n3, t2) => Math.max(dist_default2(t2), n3), 0), g = e - (u4 - c2);
   return wrapAnsi(o, g, a2);
 };
 var note = (o = "", e = "", s) => {
@@ -1308,6 +1336,42 @@ ${styleText2("gray", l$1 + S_BAR_H.repeat(t2 + 2) + S_CORNER_BOTTOM_RIGHT)}
 `
   );
 };
+var password = (r2) => new u$1({
+  validate: r2.validate,
+  mask: r2.mask ?? S_PASSWORD_MASK,
+  signal: r2.signal,
+  input: r2.input,
+  output: r2.output,
+  render() {
+    const e = r2.withGuide ?? settings.withGuide, o = `${e ? `${styleText2("gray", S_BAR)}
+` : ""}${symbol(this.state)}  ${r2.message}
+`, c2 = this.userInputWithCursor, i2 = this.masked;
+    switch (this.state) {
+      case "error": {
+        const s = e ? `${styleText2("yellow", S_BAR)}  ` : "", n3 = e ? `${styleText2("yellow", S_BAR_END)}  ` : "", l2 = i2 ?? "";
+        return r2.clearOnError && this.clear(), `${o.trim()}
+${s}${l2}
+${n3}${styleText2("yellow", this.error)}
+`;
+      }
+      case "submit": {
+        const s = e ? `${styleText2("gray", S_BAR)}  ` : "", n3 = i2 ? styleText2("dim", i2) : "";
+        return `${o}${s}${n3}`;
+      }
+      case "cancel": {
+        const s = e ? `${styleText2("gray", S_BAR)}  ` : "", n3 = i2 ? styleText2(["strikethrough", "dim"], i2) : "";
+        return `${o}${s}${n3}${i2 && e ? `
+${styleText2("gray", S_BAR)}` : ""}`;
+      }
+      default: {
+        const s = e ? `${styleText2("cyan", S_BAR)}  ` : "", n3 = e ? styleText2("cyan", S_BAR_END) : "";
+        return `${o}${s}${c2}
+${n3}
+`;
+      }
+    }
+  }
+}).prompt();
 var W = (l2) => styleText2("magenta", l2);
 var spinner = ({
   indicator: l2 = "dots",
@@ -1320,7 +1384,7 @@ var spinner = ({
   signal: m2,
   ...I2
 } = {}) => {
-  const u3 = isCI();
+  const u4 = isCI();
   let M, T, d = false, S = false, s = "", p, w = performance.now();
   const x = getColumns(n3), k = I2?.styleFrame ?? W, g = (e) => {
     const r2 = e > 1 ? O ?? settings.messages.error : G ?? settings.messages.cancel;
@@ -1331,7 +1395,7 @@ var spinner = ({
     process.removeListener("uncaughtExceptionMonitor", f), process.removeListener("unhandledRejection", f), process.removeListener("SIGINT", i2), process.removeListener("SIGTERM", i2), process.removeListener("exit", g), m2 && m2.removeEventListener("abort", i2);
   }, y2 = () => {
     if (p === void 0) return;
-    u3 && n3.write(`
+    u4 && n3.write(`
 `);
     const r2 = wrapAnsi(p, x, {
       hard: true,
@@ -1347,12 +1411,12 @@ var spinner = ({
 `);
     let r2 = 0, t2 = 0;
     A(), T = setInterval(() => {
-      if (u3 && s === p)
+      if (u4 && s === p)
         return;
       y2(), p = s;
       const o = k(E[r2]);
       let v;
-      if (u3)
+      if (u4)
         v = `${o}  ${s}...`;
       else if (l2 === "timer")
         v = `${o}  ${s} ${_(w)}`;
@@ -1388,7 +1452,7 @@ var spinner = ({
     }
   };
 };
-var u2 = {
+var u3 = {
   light: unicodeOr("\u2500", "-"),
   heavy: unicodeOr("\u2501", "="),
   block: unicodeOr("\u2588", "#")
@@ -1431,7 +1495,7 @@ var select = (t2) => {
         t2.message,
         s,
         m2
-      ), u3 = `${n3 ? `${styleText2("gray", S_BAR)}
+      ), u4 = `${n3 ? `${styleText2("gray", S_BAR)}
 ` : ""}${i2}
 `;
       switch (this.state) {
@@ -1441,7 +1505,7 @@ var select = (t2) => {
             o(this.options[this.cursor], "selected"),
             r2
           );
-          return `${u3}${a2}`;
+          return `${u4}${a2}`;
         }
         case "cancel": {
           const r2 = n3 ? `${styleText2("gray", S_BAR)}  ` : "", a2 = wrapTextWithPrefix(
@@ -1449,14 +1513,14 @@ var select = (t2) => {
             o(this.options[this.cursor], "cancelled"),
             r2
           );
-          return `${u3}${a2}${n3 ? `
+          return `${u4}${a2}${n3 ? `
 ${styleText2("gray", S_BAR)}` : ""}`;
         }
         default: {
-          const r2 = n3 ? `${styleText2("cyan", S_BAR)}  ` : "", a2 = u3.split(`
+          const r2 = n3 ? `${styleText2("cyan", S_BAR)}  ` : "", a2 = u4.split(`
 `).length, p = d ? formatInstructionFooter(SELECT_INSTRUCTIONS, n3) : n3 ? [styleText2("cyan", S_BAR_END)] : [], b = p.join(`
 `), f = p.length + 1;
-          return `${u3}${r2}${limitOptions({
+          return `${u4}${r2}${limitOptions({
             output: t2.output,
             cursor: this.cursor,
             options: this.options,
@@ -1531,6 +1595,7 @@ export {
   multiselect,
   note,
   outro,
+  password,
   select,
   spinner,
   text

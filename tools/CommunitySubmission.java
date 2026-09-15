@@ -30,6 +30,8 @@ import top.sywyar.pixivdownload.sdk.community.operation.VersionState;
 import top.sywyar.pixivdownload.sdk.community.operation.OperationAudit;
 import top.sywyar.pixivdownload.sdk.community.project.CommunityPaths;
 import top.sywyar.pixivdownload.sdk.community.project.PluginProjectLocator;
+import top.sywyar.pixivdownload.sdk.community.project.BuildModels;
+import top.sywyar.pixivdownload.sdk.community.candidate.SourceCandidate;
 import top.sywyar.pixivdownload.sdk.community.submission.DescriptorSnapshot;
 import top.sywyar.pixivdownload.sdk.community.submission.LicenseTemplates;
 import top.sywyar.pixivdownload.sdk.community.submission.MarketImages;
@@ -50,6 +52,12 @@ public final class CommunitySubmission {
         }
         Object result = switch (text(input, "command")) {
             case "document" -> document(input);
+            case "field" -> field(input);
+            case "candidate" -> {
+                try (var stream = Files.newInputStream(Path.of(text(input, "file")), LinkOption.NOFOLLOW_LINKS)) {
+                    yield SourceCandidate.read(stream.readNBytes(SourceCandidate.MAX_BYTES + 1));
+                }
+            }
             case "projects" -> PluginProjectLocator.discover(Path.of(text(input, "gitRoot")));
             case "inspect" -> inspect(workspace, input, null, null);
             case "verify" -> verify(workspace, input);
@@ -60,8 +68,8 @@ public final class CommunitySubmission {
             case "verify-proof" -> proof(input);
             case "status" -> status(input);
             case "source" -> CommunitySource.unpack(workspace, input);
-            case "maven-model" -> CommunityModel.maven(input);
-            case "dependency-metadata" -> CommunityModel.dependencies(input);
+            case "maven-model" -> BuildModels.maven(input);
+            case "dependency-metadata" -> BuildModels.dependencies(input);
             case "path" -> Map.of("path", CommunityPaths.resolve(Path.of(text(input, "root")), text(input, "path"),
                     input.path("allowRoot").asBoolean(), input.path("mustExist").asBoolean()).toString());
             case "limits" -> PluginPackageLimits.defaults();
@@ -76,6 +84,35 @@ public final class CommunitySubmission {
     private static String text(JsonNode input, String field) {
         if (!input.hasNonNull(field) || !input.get(field).isTextual()) throw new ContractException("SCHEMA_INVALID", "/" + field);
         return input.get(field).textValue();
+    }
+
+    private static Object field(JsonNode input) {
+        String field = text(input, "field");
+        String value = text(input, "value");
+        if (field.equals("locale")) {
+            try { new java.util.Locale.Builder().setLanguageTag(value).build(); }
+            catch (java.util.IllformedLocaleException e) { throw new ContractException("LOCALE_INVALID", "/market/defaultLocale"); }
+            CommunityJson.validateStructure("machine", input.get("value"));
+        } else if (field.equals("license")) {
+            var refs = new java.util.HashSet<String>();
+            var matches = java.util.regex.Pattern.compile("LicenseRef-[A-Za-z0-9.-]+").matcher(value);
+            while (matches.find()) refs.add(matches.group());
+            top.sywyar.pixivdownload.sdk.community.submission.SpdxExpression.validate(value, refs);
+        } else {
+            String definition = switch (field) {
+                case "name" -> "market/properties/displayName/additionalProperties";
+                case "summary" -> "market/properties/summary/additionalProperties";
+                case "description" -> "market/properties/description/additionalProperties";
+                case "alt" -> "imageInput/properties/alt/additionalProperties";
+                case "homepage" -> "url";
+                case "publisher" -> "publisher/properties/publisherId";
+                case "display" -> "publisher/properties/displayName";
+                case "keyId" -> "machine";
+                default -> throw new ContractException("SCHEMA_INVALID", "/field");
+            };
+            CommunityJson.validateStructure(definition, input.get("value"));
+        }
+        return Map.of("valid", true);
     }
 
     private static Object license(Path workspace, JsonNode input) throws Exception {

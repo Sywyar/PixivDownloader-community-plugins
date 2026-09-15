@@ -8,7 +8,7 @@ import { API_BYTES } from './github.mjs';
 export function prepareSubmission(directory = root) {
     const sdk = prepareSdk(directory);
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath,
-        '-d', path.join(sdk.workspace, 'runtime'), ...['CommunitySubmission.java', 'CommunitySource.java', 'CommunityModel.java']
+        '-d', path.join(sdk.workspace, 'runtime'), ...['CommunitySubmission.java', 'CommunitySource.java']
             .map(name => path.join(directory, 'tools', name))]);
     const inputFile = path.join(sdk.workspace, 'submission-input.json');
     const invoke = input => {

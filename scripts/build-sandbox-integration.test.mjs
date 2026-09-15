@@ -5,6 +5,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { buildPolicy, withBuildSandbox } from './build-sandbox.mjs';
 import { root } from './sdk.mjs';
+import { copyBuildScripts } from './build-tools.mjs';
 
 test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进程', async () => {
     const policy = { ...buildPolicy, cpus: 1, memoryBytes: 128 * 1024 * 1024, diskBytes: 64 * 1024 * 1024,
@@ -29,11 +30,9 @@ test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进�
         assert.equal(stats.diskBytes, (diskUsage.blocks - diskUsage.bfree) * diskUsage.bsize);
         assert.ok(stats.diskBytes > 1024 * 1024 && stats.diskBytes < policy.diskBytes);
         const modelTools = path.join(directory, 'model-tools');
-        for (const folder of ['scripts', 'node/bin', 'maven/bin']) fs.mkdirSync(path.join(modelTools, folder), { recursive: true });
+        for (const folder of ['node/bin', 'maven/bin']) fs.mkdirSync(path.join(modelTools, folder), { recursive: true });
         fs.copyFileSync(process.execPath, path.join(modelTools, 'node/bin/node'));
-        for (const file of ['build-profile.mjs', 'project.mjs', 'sdk.mjs', 'github.mjs', 'repository-policy.json']) {
-            fs.copyFileSync(path.join(root, 'scripts', file), path.join(modelTools, 'scripts', file));
-        }
+        copyBuildScripts(modelTools);
         fs.writeFileSync(path.join(modelTools, 'toolchain.json'), '{}', 'utf8');
         fs.writeFileSync(path.join(modelTools, 'maven/bin/mvn'), '#!/bin/sh\ncase "$*" in *effective-pom*) echo MODEL_QUERY_FAILED; exit 7 ;; *) exit 0 ;; esac\n', { mode: 0o755 });
         const diskStats = await sandbox.run({ phase: 'disk-stats', tools: modelTools,

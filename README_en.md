@@ -2,17 +2,17 @@
 
 [简体中文](README.md)
 
-Submit a PixivDownloader plugin for review here. With public source and a built plugin package ready, run the submission wizard from your source project to open a review PR. You do not need to clone this repository or write submission files by hand.
+Submit a PixivDownloader plugin for review here. Push your public source to GitHub, wait for the candidate CI to pass, then run the wizard from your source project. You do not need to clone this repository or write submission files by hand.
 
 > Submissions and reviews are available. Community signing, marketplace publication and the execution of version management requests are not connected yet. Approval or merging a PR does not currently list a plugin in the marketplace.
 
 ## Submissions and version management
 
-### 1. Prepare the source and package
+### 1. Push the source and wait for CI
 
-- Develop with the [Plugin SDK](https://github.com/Sywyar/PixivDownloader-Plugin-SDK), push the source to a public GitHub repository and keep the working tree clean. Commit the license and the SDK project's `.pixivdownloader-plugin-project` marker.
-- Build and test with the project's Maven, Gradle or sbt setup, and keep the final JAR / ZIP. Its version must match the project version, and its behavior declarations must match the code. The wizard reads this information; it does not build the plugin for you.
-- Upload that package to a public Release in the source repository. Prereleases can use Pre-release, but the Release must not remain a Draft. A public HTTPS download URL is also accepted. The local and downloaded packages must be identical. Do not replace an existing version's assets.
+- Develop with the [Plugin SDK](https://github.com/Sywyar/PixivDownloader-Plugin-SDK), commit your license, and retain the SDK project marker and candidate workflow.
+- Push to the public repository's default branch and wait for every **Plugin candidate** job to pass. CI tests the plugin, checks offline reproduction, and archives the package in a source repository Draft Release.
+- Keep your working tree clean and run the wizard from that same commit. You do not need to download CI artifacts or create a Release yourself. Older SDK projects need updated tools and the candidate workflow first.
 
 The community rebuilds from the submitted source and compares package bytes. Pin build tools, dependencies and packaging timestamps to avoid differences between local and community builds.
 
@@ -40,20 +40,22 @@ irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/
 
 Follow the prompts:
 
-1. Choose version submission, the project, build profile and final package. After you confirm that you trust the local project, the wizard calls the build tool to read project information.
+1. Choose version submission. A single project and build tool are detected automatically; choose when there are multiple options. The wizard retrieves this commit's CI candidate and verifies its bytes.
 2. Check the plugin version, behavior declarations and license. Choose your GitHub publisher identity and enter the plugin description and other display information.
-3. Select an existing signing key or generate one, then select the uploaded Release asset or enter its download URL. The wizard compares the public and local packages and creates the submission signature.
-4. Review the full preview and choose "Confirm and continue". The wizard then creates a fork if needed, commits and pushes the submission files, and opens a review PR.
+3. Select an existing signing key or generate one. To generate a key, select an existing parent folder; the tool creates its own subfolder. You can protect the private key with a password.
+4. Review the grouped metadata and changes, then choose "Confirm and continue". The wizard publishes the source candidate as a pre-release awaiting review, creates a fork if needed, and commits and submits the review PR.
 
-Store private keys outside Git repositories and temporary directories, and keep a backup for future versions. To change a version or behavior declaration inside the package, edit the source, rebuild and upload the package again.
+Store private keys outside Git repositories and temporary directories, and keep a backup. Encrypted keys require their password each time; the wizard does not save passwords. After changing a version, behavior declaration or source license, commit and push the changes, then wait for the new CI run before continuing.
 
-Use arrow keys to move, Enter to select, Space to toggle tags, and Esc or Ctrl+C to cancel. Confirmations default to cancellation. Nothing is submitted to GitHub before the final confirmation.
+Use arrow keys to move, Enter to select, Space to toggle tags, Ctrl+B to go back, Ctrl+S to save and exit, and Esc or Ctrl+C to cancel. Optional fields can be cleared. Every remote write is shown for confirmation beforehand; confirmation defaults to cancellation.
+
+Saved answers and verified packages stay in your user folder, isolated by source repository, project directory and plugin ID. On Windows, the default location is `%LOCALAPPDATA%\PixivDownloader\community-submission\projects\`. The next run restores this project's details and key paths while checking the account, source and candidate again. Draft Releases remain available after Actions artifacts expire. If an archive is missing, the wizard can rerun the original CI for this commit after confirmation.
 
 ### 4. Wait for review
 
 Follow check results and review comments in the PR. The community validates the submission, rebuilds the package, scans its declarations and performs human review. Waiting for review does not require another build. Changes to source, packages or build inputs require rebuilding and renewed review.
 
-For an update, prepare the new version's source and package, then use the same entry point. Key rotation, yanking, unyanking, revocation and ownership transfer have separate management options in the wizard.
+For an update, change the version, push and wait for CI, then use the same entry point. The wizard restores license and marketplace details, preserves existing languages and images, and checks for duplicate IDs and versions early. Key rotation, yanking, unyanking, revocation and ownership transfer have separate management options.
 
 ## Help and maintenance
 

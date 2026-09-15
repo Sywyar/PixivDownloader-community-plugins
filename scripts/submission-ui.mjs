@@ -1,5 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
 import * as prompts from './vendor/clack-prompts.mjs';
+import { additions, errors } from './submission-messages.mjs';
+import { visible, formatMetadata, previewMetadata } from './submission-presentation.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
@@ -96,11 +98,20 @@ const messages = {
     downloadFailed: ['下载失败。请根据错误码检查网络、代理或文件摘要后重试。', 'Download failed. Use the error code to check the network, proxy or file digest, then retry.', '下載失敗。請依錯誤碼檢查網路、代理或檔案摘要後重試。', 'ダウンロードに失敗しました。エラーコードに従ってネットワーク、プロキシ、ファイルのダイジェストを確認してください。', '다운로드하지 못했습니다. 오류 코드에 따라 네트워크, 프록시 또는 파일 다이제스트를 확인하고 다시 시도하세요.'],
 };
 
+export function failureCode(error) {
+    return /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message
+        : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
+}
+
 export async function terminal(input = process.stdin, output = process.stdout) {
     const common = { input, output };
     let index = 1;
-    const visible = value => String(value).replace(/[\x00-\x1f\x7f-\x9f]/gu, character => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'));
-    const text = key => messages[key][index];
+    let navigationEnabled = false;
+    const text = key => (additions[key] ?? messages[key])?.[index] ?? key;
+    const errorText = error => {
+        const code = failureCode(error);
+        return (errors[code]?.[index] ?? text('invalid')) + (code ? ` (${code})` : '');
+    };
     if (!input.isTTY || !output.isTTY || process.env.TERM === 'dumb') {
         prompts.log.error(text('terminalRequired'), common);
         throw new Error('INTERACTIVE_TERMINAL_REQUIRED');
@@ -112,9 +123,10 @@ export async function terminal(input = process.stdin, output = process.stdout) {
     const say = (key, value) => {
         if (value !== undefined) {
             prompts.log.info(text(key), common);
-            prompts.note(JSON.stringify(value, null, 2), '', common);
+            if (value.code && errors[value.code]) prompts.log.error(errors[value.code][index], common);
+            prompts.note(formatMetadata(value, text), '', common);
         }
-        if (['submitted', 'original', 'cancelled', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
+        if (['submitted', 'original', 'cancelled', 'saved', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
             (['cancelled', 'failed', 'downloadFailed'].includes(key) ? prompts.cancel : prompts.outro)(text(key), common);
         } else if (value === undefined) prompts.log.info(text(key), common);
     };
@@ -126,38 +138,47 @@ export async function terminal(input = process.stdin, output = process.stdout) {
     const prompt = async (render, options) => {
         if (controller.signal.aborted) throw new Error('CANCELLED');
         const active = new AbortController();
+        let navigation;
+        const keypress = (_character, key) => {
+            if (navigationEnabled && key?.ctrl && ['b', 's'].includes(key.name)) {
+                navigation = key.name === 'b' ? 'WIZARD_BACK' : 'WIZARD_SAVE';
+                active.abort();
+            }
+        };
         const abort = () => active.abort();
         controller.signal.addEventListener('abort', abort, { once: true });
-        try { return checked(await render({ ...common, ...options, signal: active.signal })); }
-        finally { controller.signal.removeEventListener('abort', abort); }
+        input.prependListener('keypress', keypress);
+        try {
+            const value = await render({ ...common, ...options, signal: active.signal });
+            if (navigation) throw new Error(navigation);
+            return checked(value);
+        } finally { controller.signal.removeEventListener('abort', abort); input.off('keypress', keypress); }
     };
     const ask = async (key, fallback = '', validate) => {
-        const actual = value => value?.trim() === visible(fallback) ? fallback : value?.trim() || fallback;
+        const actual = value => value?.trim() === visible(fallback) ? fallback : value?.trim() ?? '';
         const value = await prompt(prompts.text, {
-            message: text(key), initialValue: visible(fallback),
+            message: text(key) + '\n' + text('formNavigation'), initialValue: visible(fallback),
             validate: value => {
                 const candidate = actual(value);
-                if (!candidate && !['description', 'icon', 'screenshots'].includes(key)) return text('required');
-                try { return validate?.(candidate); }
-                catch (error) {
-                    const code = /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message : '';
-                    return text('invalid') + (code ? ` (${code})` : '');
-                }
+                if (!candidate && !['description', 'icon', 'screenshots', 'homepage'].includes(key)) return text('required');
+                if (['name', 'summary', 'display'].includes(key) && messages[key].includes(candidate)) return errors.FIELD_PLACEHOLDER[index];
+                try { validate?.(candidate); } catch (error) { return errorText(error); }
             },
         });
         return actual(value);
     };
-    const select = async (key, options, label = value => String(value)) => {
+    const select = async (key, options, label = value => String(value), initialValue) => {
         if (!options.length) throw new Error('NO_SELECTABLE_VALUES');
-        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation'));
+        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation') + ' · ' + text('formNavigation'));
         const selected = await prompt(prompts.select, {
             message: text(key),
+            initialValue: Math.max(0, options.indexOf(initialValue)),
             options: options.map((value, i) => ({ value: i, label: visible(label(value)) })),
         });
         return options[selected];
     };
     const multiselect = async (key, options, initialValues = []) => {
-        prompts.MULTISELECT_INSTRUCTIONS.splice(0, prompts.MULTISELECT_INSTRUCTIONS.length, text('multiNavigation'));
+        prompts.MULTISELECT_INSTRUCTIONS.splice(0, prompts.MULTISELECT_INSTRUCTIONS.length, text('multiNavigation') + ' · ' + text('formNavigation'));
         const selected = await prompt(prompts.multiselect, {
             message: text(key),
             required: false, emptyLabel: text('none'), initialValues: options.flatMap((value, i) => initialValues.includes(value) ? [i] : []),
@@ -171,14 +192,25 @@ export async function terminal(input = process.stdin, output = process.stdout) {
                 visible(value.title), visible(value.repository),
                 visible(value.actor.login) + ' → ' + visible(value.fork.name),
                 visible(value.branch), `${text('files')}: ${value.files.length}`,
-                ...value.actions.map(action => messages[action] ? text(action) : visible(action)),
+                ...value.actions.map(action => text(action)),
             ].join('\n'), text('submissionSummary'), common);
-            say('details', value);
+            prompts.note(formatMetadata(previewMetadata(value), text), text('details'), common);
             say(key);
         } else say(key, value);
         // 默认拒绝；必须主动切换选项并回车，普通输入与连续回车不会授权操作。
-        return select('confirm', [false, true], accepted => text(accepted ? 'confirmAction' : key === 'optionalKey' ? 'skipProof' : 'cancelAction'));
+        for (;;) {
+            const answer = await select('confirm', key === 'preview' ? [false, true, 'details'] : [false, true],
+                accepted => text(accepted === 'details' ? 'technicalDetails' : accepted ? 'confirmAction' : key === 'optionalKey' ? 'skipProof' : 'cancelAction'));
+            if (answer !== 'details') return answer;
+            prompts.note(visible(JSON.stringify(value, null, 2)).replaceAll('\\u000a', '\n'), text('technicalDetails'), common);
+        }
     };
+    const password = async (key = 'password', validate) => prompt(prompts.password, {
+        message: text(key) + '\n' + text('formNavigation'), validate: value => {
+            if (!value) return text('required');
+            try { validate?.(value); } catch (error) { return errorText(error); }
+        },
+    });
     const task = async (key, work) => {
         prompts.log.step(text(key), common);
         const loading = prompts.spinner({ ...common, cancelMessage: text('cancelled'), errorMessage: text('failed'), onCancel: end });
@@ -205,10 +237,11 @@ export async function terminal(input = process.stdin, output = process.stdout) {
         prompts.intro(text('title'), common);
         const names = ['简体中文', 'English', '繁體中文', '日本語', '한국어'];
         index = locales.indexOf(await select('language', locales, value => names[locales.indexOf(value)]));
+        navigationEnabled = true;
     } catch (error) {
         say('cancelled');
         close();
         throw error;
     }
-    return { locale: locales[index], ask, say, select, multiselect, confirm, task, text, close };
+    return { locale: locales[index], signal: controller.signal, ask, say, select, multiselect, confirm, task, text, errorText, password, close };
 }

@@ -8,10 +8,25 @@ import { root, hash } from './sdk.mjs';
 export function downloadCandidate(endpoint, file, maximum, expected, execute = execFileSync) {
     if (!new RegExp(`^${prefix}/(?:actions/artifacts/[1-9][0-9]*/zip|releases/assets/[1-9][0-9]*)$`).test(endpoint)
         || !Number.isSafeInteger(maximum) || maximum < 1) throw new Error('CANDIDATE_DOWNLOAD_INVALID');
+    return downloadGithubBinary(endpoint, file, maximum, expected, execute);
+}
+
+// 调用方先核对数字仓库身份；API 入口和重定向仍由同一个 gh 二进制下载 owner 处理。
+export function downloadGithubBinary(endpoint, file, maximum, expected, execute = execFileSync) {
+    if (!/^repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/(?:actions\/artifacts\/[1-9][0-9]*\/zip|releases\/assets\/[1-9][0-9]*)$/u.test(endpoint)
+        || endpoint.split('/').some(part => ['.', '..'].includes(part))
+        || !Number.isSafeInteger(maximum) || maximum < 1) throw new Error('CANDIDATE_DOWNLOAD_INVALID');
     const accept = endpoint.endsWith('/zip') ? 'application/vnd.github+json' : 'application/octet-stream';
-    const bytes = execute('gh', ['api', '--hostname', 'github.com', '-H', `Accept: ${accept}`, endpoint],
+    let bytes;
+    try { bytes = execute('gh', ['api', '--hostname', 'github.com', '-H', `Accept: ${accept}`, endpoint],
         { encoding: 'buffer', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: maximum + 1,
-            stdio: ['ignore', 'pipe', 'pipe'] });
+            stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (error) {
+        if (error.code === 'ETIMEDOUT') throw new Error('DOWNLOAD_TIMEOUT');
+        if (error.code === 'ENOBUFS') throw new Error('INPUT_SIZE_EXCEEDED');
+        if (error.code === 'ENOENT') throw new Error('GITHUB_CLI_REQUIRED');
+        throw new Error('GITHUB_REQUEST_FAILED');
+    }
     if (bytes.length > maximum || expected && (bytes.length !== expected.size || hash(bytes) !== expected.sha256)) {
         throw new Error('CANDIDATE_DOWNLOAD_CHANGED');
     }

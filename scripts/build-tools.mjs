@@ -13,6 +13,18 @@ export function buildToolchain(sdk) {
     return { maven, gradle, sbt };
 }
 
+// 安装容器实际执行的固定脚本闭包，集成验证使用同一个交付入口。
+export function copyBuildScripts(directory) {
+    fs.mkdirSync(path.join(directory, 'scripts'));
+    fs.mkdirSync(path.join(directory, 'tools'));
+    for (const name of ['sdk.mjs', 'github.mjs', 'repository-policy.json', 'build-profile.mjs']) {
+        fs.copyFileSync(path.join(root, 'scripts', name), path.join(directory, 'scripts', name));
+    }
+    for (const name of ['build-model.mjs', 'community-model.gradle']) {
+        fs.copyFileSync(path.join(root, 'tools', name), path.join(directory, 'tools', name));
+    }
+}
+
 // 工具版本来自已核验的 SDK 清单；下载和解包均发生在执行投稿代码之前。
 export async function prepareBuildTools(sdk, directory, fetch = download) {
     const toolchain = buildToolchain(sdk);
@@ -42,12 +54,7 @@ export async function prepareBuildTools(sdk, directory, fetch = download) {
             fs.renameSync(path.join(directory, input.folder), path.join(directory, input.name));
         }
     }
-    fs.mkdirSync(path.join(directory, 'scripts'));
-    fs.mkdirSync(path.join(directory, 'tools'));
-    for (const name of ['project.mjs', 'sdk.mjs', 'github.mjs', 'repository-policy.json', 'build-profile.mjs']) {
-        fs.copyFileSync(path.join(root, 'scripts', name), path.join(directory, 'scripts', name));
-    }
-    fs.copyFileSync(path.join(root, 'tools/community-model.gradle'), path.join(directory, 'tools/community-model.gradle'));
+    copyBuildScripts(directory);
     fs.writeFileSync(path.join(directory, 'toolchain.json'), JSON.stringify(toolchain), 'utf8');
     fs.writeFileSync(path.join(directory, 'sbt-repositories'), '[repositories]\ncentral: https://repo.maven.apache.org/maven2/\n', 'utf8');
     return inputs.map(({ name, version, url, size, sha256 }) => ({ name, version, url, size, sha256 }));

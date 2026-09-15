@@ -3,7 +3,7 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { buildPolicy, withBuildSandbox } from './build-sandbox.mjs';
 import { fileSnapshot, fileDifference, dependencyContent } from './build-files.mjs';
-import { readModel } from './project.mjs';
+import { readModel } from '../tools/build-model.mjs';
 import { API_BYTES } from './github.mjs';
 
 /** 调用方已经核验源码归档与发布者原包；只返回本次离线重建的实际事实。 */

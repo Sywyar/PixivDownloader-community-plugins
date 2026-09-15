@@ -10,7 +10,7 @@
 
 维护工作通过独立 PR 进行。社区 Schema、签名和审核语义来自固定 SDK 工具与合同资源，不能在分发副本中修改。
 
-投稿者统一使用 [PowerShell 向导](README.md#投稿与版本管理)，准备最终包后选择版本投稿或管理操作。向导只在完整预览得到确认且当前事实复核成功后创建 fork PR；原生身份与静态检查仍由社区端独立取得和计算。
+投稿者按 [PowerShell 向导说明](README.md#投稿与版本管理) 推送源码，等待候选 CI 通过后选择版本投稿；管理操作使用同一入口。向导只在完整预览得到确认且当前事实复核成功后公开源码候选并创建投稿 PR；原生身份与静态检查仍由社区端独立取得和计算。
 
 修改向导运行文件后执行 `node scripts/submission-manifest.mjs --write`，再用 `node scripts/submission-manifest.mjs` 校验闭包。运行文件和清单经测试及 PR 合并后，按下节签发新的工具版本清单。日常向导更新只改签名清单，投稿命令保持不变。
 
@@ -50,7 +50,7 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 
 `tools/sdk-lock.json` 固定 SDK 归档摘要、来源 commit 和元数据摘要。工具 JAR 与 `schemas/community/v1/` 是同一 SDK 的原始分发字节。合同、验签和审核归约在主仓库维护，不能修改分发副本来绕过验证。
 
-`tools/signing-tool.json` 单独固定发布者签名 CLI 的来源 commit、JAR 大小和 SHA-256。它提供密钥初始化、公钥导出和操作请求签名；固定 SDK 与密码学验证保持原样。私钥不能进入投稿文件，不能保存到源码仓库、临时目录、PR 或 artifact。
+`tools/signing-tool.json` 单独固定发布者签名 CLI 的来源 commit、JAR 大小和 SHA-256。它提供密钥初始化、密码加密、公钥导出和操作请求签名，向导也可读取已有明文私钥。项目档案只保存密钥路径和身份，密码仅留在当前签名会话。私钥不能进入投稿文件，不能保存到源码仓库、临时目录、PR 或 artifact。
 
 操作审计固定放在 `audits/<requestId>.json`，只能由受保护操作流程追加。状态读取必须核对请求、决定及前后状态的原始引用；重复请求返回原记录，不改写历史。恢复转移的证据使用 `ownership-transfer-evidence/<pluginId>/<sha256>.bin`，摘要基于原始字节，不能在已有请求中替换。
 
