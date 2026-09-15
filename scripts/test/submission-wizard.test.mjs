@@ -2,6 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { PassThrough, Writable } from 'node:stream';
 import { setImmediate, setTimeout } from 'node:timers/promises';
 import { terminal, locales } from '../submission-ui.mjs';
@@ -13,6 +14,8 @@ import { httpsUrl } from '../download.mjs';
 import { runWizard } from '../submit.mjs';
 import { navigation } from '../submission-navigation.mjs';
 import { publisherOwner } from '../submission-release.mjs';
+import { unlockPrivateKey } from '../submission-signing.mjs';
+import { errors } from '../submission-messages.mjs';
 
 const originalTerm = process.env.TERM;
 before(() => { process.env.TERM = 'xterm-256color'; });
@@ -51,6 +54,44 @@ function consoleStreams() {
     Object.assign(output, { isTTY: true, columns: 80, rows: 24 });
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
+
+test('密钥格式和算法错误在各语言保留独立提示，不误报为密码错误', async () => {
+    const codes = ['KEY_FORMAT_INVALID', 'KEY_ENCRYPTION_UNSUPPORTED', 'KEY_ENCRYPTION_PARAMETERS_INVALID'];
+    for (const [index, locale] of locales.entries()) {
+        const tty = consoleStreams();
+        tty.key('\x1b[B'.repeat(index) + '\r');
+        const ui = await terminal(tty.input, tty.output);
+        try {
+            assert.equal(ui.locale, locale);
+            for (const code of codes) {
+                assert(errors[code][index]);
+                assert.notEqual(errors[code][index], errors.KEY_PASSWORD_INVALID[index]);
+                ui.say('failed', { code });
+                assert(tty.rendered().includes(errors[code][index]));
+                assert(tty.rendered().includes(code));
+            }
+            assert(!tty.rendered().includes(errors.KEY_PASSWORD_INVALID[index]));
+        } finally { ui.close(); }
+    }
+});
+
+test('解锁只为缺少或错误密码再次提问，格式错误和公私钥不配套直接报告', async t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'key-error-'));
+    t.after(() => fs.rmSync(directory, { recursive: true }));
+    const file = path.join(directory, 'private.pem');
+    fs.writeFileSync(file, '-----BEGIN ENCRYPTED PRIVATE KEY-----\n');
+    for (const code of ['KEY_FORMAT_INVALID', 'KEY_ENCRYPTION_UNSUPPORTED', 'KEY_ENCRYPTION_PARAMETERS_INVALID', 'KEY_PAIR_MISMATCH']) {
+        const error = Object.assign(new Error('java failed'), { stderr: `java.io.IOException: ${code}\n` });
+        await assert.rejects(unlockPrivateKey({ sign() { throw error; }, ui: { password() { assert.fail('must not ask for a password'); } } }, file, 'public.pem'), error);
+    }
+    for (const code of ['KEY_PASSWORD_REQUIRED', 'KEY_PASSWORD_INVALID']) {
+        let password; let prompts = 0;
+        const sign = () => { if (!password) throw new Error(code); };
+        sign.password = (_file, value) => { password = value; };
+        await unlockPrivateKey({ sign, ui: { password(_key, validate) { prompts++; validate('new-password'); } } }, file, 'public.pem');
+        assert.equal(prompts, 1);
+    }
+});
 
 test('真实终端返回修改前一项、清空可选值、保存退出并隐藏密码', { timeout: 10000 }, async t => {
     const tty = consoleStreams();

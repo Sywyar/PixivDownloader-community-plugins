@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "sourceRepository": "https://github.com/Sywyar/PixivDownloader",
-  "sourceCommit": "a1faeb618755af2352e2b5334a7dbf92163497d6",
+  "sourceCommit": "d800d673992030428a1688adae3e81c7fd7bb8dd",
   "path": "tools/signing-tool.jar",
-  "size": 67202,
-  "sha256": "fe37c3c0bae1c37ad73b3cec7abee217ce1a92333aebe9bfbbbf628a2be30a4a"
+  "size": 67854,
+  "sha256": "7818e282f7b0c33c77226a367caee3ec097f7c0f72f25a9df106ecf40dec4f44"
 }
