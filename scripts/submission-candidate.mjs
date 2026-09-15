@@ -80,10 +80,13 @@ export async function sourceCandidate(context, source, selection, profileId, tra
         matches.push({ candidate, release, asset: asset[0], metadata: metadata[0], manifest });
     }
     if (!matches.length) {
+        if (context.resumeCandidateId) throw new Error('CANDIDATE_NOT_FOUND');
         await recoverCandidate(context, source, repository);
         return sourceCandidate(context, source, selection, profileId, transfer, publicDownload);
     }
-    const chosen = matches.length === 1 ? matches[0] : await ui.select('candidate', matches, item => `${item.candidate.pluginId} ${item.candidate.version}`);
+    const chosen = context.resumeCandidateId ? matches.find(item => id(item.release.id) === context.resumeCandidateId)
+        : matches.length === 1 ? matches[0] : await ui.select('candidate', matches, item => `${item.candidate.pluginId} ${item.candidate.version}`);
+    if (!chosen) throw new Error('CANDIDATE_RELEASE_CHANGED');
     const { candidate, release, asset } = chosen;
     // 草稿附件使用临时地址；投稿元数据固定为发布后的正式 tag 地址。
     const packageUrl = `https://github.com/${source.name}/releases/download/${encodeURIComponent(release.tag_name)}/${encodeURIComponent(asset.name)}`;

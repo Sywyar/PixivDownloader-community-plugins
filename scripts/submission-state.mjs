@@ -26,19 +26,32 @@ export function projectIdentity(repositoryId, projectDir, pluginId) {
     return { host: 'github.com', repositoryId: String(repositoryId), projectDir, pluginId };
 }
 
-function directory(file) {
+export function stateDirectory(file) {
     const absolute = path.resolve(file);
     const parent = path.dirname(absolute);
-    if (!fs.existsSync(absolute)) { if (parent !== absolute) directory(parent); fs.mkdirSync(absolute, { mode: 0o700 }); }
+    if (!fs.existsSync(absolute)) { if (parent !== absolute) stateDirectory(parent); fs.mkdirSync(absolute, { mode: 0o700 }); }
     if (!fs.lstatSync(file).isDirectory() || fs.realpathSync(file) !== path.resolve(file)) throw new Error('STATE_PATH_INVALID');
+}
+
+export function writeState(file, value) {
+    const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n');
+    if (bytes.length > STATE_BYTES) throw new Error('PROJECT_STATE_SIZE_EXCEEDED');
+    stateDirectory(path.dirname(file));
+    if (fs.existsSync(file)) readFile(file, STATE_BYTES);
+    const temporary = path.join(path.dirname(file), randomUUID() + '.tmp');
+    fs.writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
+    try { fs.renameSync(temporary, file); } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+}
+
+export function projectFolder(identity, home = submissionHome()) {
+    return path.resolve(home, 'projects', hash(Buffer.from(JSON.stringify(projectIdentity(identity.repositoryId, identity.projectDir, identity.pluginId)))));
 }
 
 // 项目数据不是授权源；每次使用都重新核对平台身份、源码和包字节。
 export function openProject(identity, actorId, { home = submissionHome() } = {}) {
     if (!/^[1-9][0-9]*$/u.test(String(actorId))) throw new Error('PROJECT_IDENTITY_INVALID');
-    const key = hash(Buffer.from(JSON.stringify(projectIdentity(identity.repositoryId, identity.projectDir, identity.pluginId))));
-    const folder = path.resolve(home, 'projects', key);
-    directory(folder);
+    const folder = projectFolder(identity, home);
+    stateDirectory(folder);
     const lockFile = path.join(folder, 'project.lock');
     const lock = Buffer.from(JSON.stringify({ pid: process.pid, nonce: randomUUID() }));
     try { fs.writeFileSync(lockFile, lock, { flag: 'wx', mode: 0o600 }); }
@@ -67,13 +80,18 @@ export function openProject(identity, actorId, { home = submissionHome() } = {})
     const actor = data.actors[String(actorId)] ??= { answers: {}, history: [] };
     if (!actor || typeof actor !== 'object' || !actor.answers || typeof actor.answers !== 'object'
         || Array.isArray(actor.answers) || !Array.isArray(actor.history) || actor.history.length > 20) { release(); throw new Error('PROJECT_STATE_INVALID'); }
-    const save = () => {
-        const bytes = Buffer.from(JSON.stringify(data, null, 2) + '\n');
-        if (bytes.length > STATE_BYTES) throw new Error('PROJECT_STATE_SIZE_EXCEEDED');
-        const temporary = path.join(folder, randomUUID() + '.tmp');
-        fs.writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
-        try { fs.renameSync(temporary, file); } finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+    const save = () => writeState(file, data);
+    const prunePending = () => {
+        const retained = new Set(Object.values(data.actors).map(record => record.session?.prepared?.digest));
+        for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+            const match = /^pending-([a-f0-9]{64})\.bin$/u.exec(entry.name);
+            if (!match || retained.has(match[1])) continue;
+            const candidate = path.join(folder, entry.name);
+            if (!entry.isFile() || fs.realpathSync(candidate) !== candidate) throw new Error('STATE_PATH_INVALID');
+            fs.unlinkSync(candidate);
+        }
     };
+    try { prunePending(); } catch (error) { release(); throw error; }
     const answer = (name, fallback) => Object.hasOwn(actor.answers, name) ? structuredClone(actor.answers[name]) : fallback;
     const remember = (name, value) => {
         if (!fields.has(name.split(':')[0])) return;
@@ -81,7 +99,7 @@ export function openProject(identity, actorId, { home = submissionHome() } = {})
         save();
     };
     const cache = path.join(folder, 'cache');
-    try { directory(cache); } catch (error) { release(); throw error; }
+    try { stateDirectory(cache); } catch (error) { release(); throw error; }
     const cachePath = digest => {
         if (!/^[a-f0-9]{64}$/u.test(digest)) throw new Error('CACHE_DIGEST_INVALID');
         return path.join(cache, digest);
@@ -121,17 +139,20 @@ export function openProject(identity, actorId, { home = submissionHome() } = {})
     return { identity, folder, answer, remember, cached, retain, close: release,
         get record() { return structuredClone(actor); },
         update(values) {
-            for (const field of ['key', 'license', 'market', 'marketAssets', 'receipt']) if (Object.hasOwn(values, field)) {
+            for (const field of ['key', 'license', 'market', 'marketAssets', 'receipt', 'session']) if (Object.hasOwn(values, field)) {
                 if (field === 'key') {
                     actor.key = Object.fromEntries(['keyId', 'fingerprint', 'publicFile', 'privateFile', 'directory']
                         .filter(key => typeof values.key[key] === 'string').map(key => [key, values.key[key]]));
                 } else actor[field] = structuredClone(values[field]);
             }
             save();
+            prunePending();
         },
         complete(receipt) {
             actor.receipt = receipt;
+            actor.session = null;
             actor.history = [...actor.history.slice(-19), { ...receipt, completedAt: new Date().toISOString() }];
             save();
+            prunePending();
         } };
 }

@@ -1,4 +1,6 @@
 export const additions = {
+    resumeSession: ['发现本项目未完成的投稿，是否继续上次进度？', 'An unfinished submission was found for this project. Continue where you left off?', '發現本專案未完成的投稿，是否繼續上次進度？', 'このプロジェクトに未完了の投稿があります。前回の続きから再開しますか？', '이 프로젝트에 완료되지 않은 제출이 있습니다. 이전 진행 상황부터 계속할까요?'],
+    restoringSubmission: ['恢复已准备的投稿并复核签名', 'Restore the prepared submission and verify signatures', '恢復已準備的投稿並複核簽章', '準備済みの投稿を復元し署名を確認', '준비된 제출 복원 및 서명 검증'],
     retryingGithub: ['等待后重试 GitHub 读取', 'Wait and retry the GitHub read', '等候後重試 GitHub 讀取', '待機して GitHub の読み取りを再試行', '대기 후 GitHub 읽기 재시도'],
     requestFailed: ['请求未完成，已保留当前投稿内容。', 'The request did not complete. Your submission is retained.', '請求未完成，已保留目前投稿內容。', 'リクエストが完了しませんでした。投稿内容は保持されています。', '요청이 완료되지 않았습니다. 제출 내용은 유지됩니다.'],
     retrySubmission: ['重试会先核对远端结果。请选择下一步。', 'Retry checks the remote result first. Choose how to continue.', '重試會先核對遠端結果。請選擇下一步。', '再試行では先にリモートの結果を確認します。続行方法を選んでください。', '재시도 시 원격 결과를 먼저 확인합니다. 계속할 방법을 선택하세요.'],
@@ -74,6 +76,12 @@ export const additions = {
 };
 
 export const errors = {
+    SOURCE_CHANGED: ['本地源码提交已变化。请使用原提交继续，或重新启动后选择不继续上次投稿。', 'The local source commit changed. Return to the original commit, or restart and decline to resume.', '本機原始碼提交已變化。請使用原提交繼續，或重新啟動後選擇不繼續上次投稿。', 'ローカルのソースコミットが変わりました。元のコミットを使うか、再起動時に再開を選ばないでください。', '로컬 소스 커밋이 변경되었습니다. 기존 커밋을 사용하거나 다시 시작한 후 재개하지 않음을 선택하세요.'],
+    SESSION_REPOSITORY_CHANGED: ['当前源码仓库与上次不同，请重新启动并选择不继续上次投稿。', 'The source repository differs from the saved session. Restart and decline to resume.', '目前原始碼儲存庫與上次不同，請重新啟動並選擇不繼續上次投稿。', 'ソースリポジトリが前回と異なります。再起動して再開を選ばないでください。', '소스 저장소가 이전 세션과 다릅니다. 다시 시작한 후 재개하지 않음을 선택하세요.'],
+    PROJECT_SESSION_INVALID: ['投稿记录无法读取或格式无效；原文件已保留，请检查记录路径。', 'The submission record is unreadable or invalid. The original file is preserved; check its path.', '投稿記錄無法讀取或格式無效；原檔案已保留，請檢查記錄路徑。', '投稿記録を読み取れないか形式が無効です。元のファイルは保持されています。パスを確認してください。', '제출 기록을 읽을 수 없거나 형식이 잘못되었습니다. 원본 파일은 유지됩니다. 경로를 확인하세요.'],
+    PROJECT_SESSION_CHANGED: ['保存的投稿内容已损坏或改变，不能继续使用原签名。', 'The saved submission is damaged or changed. Its signature cannot be reused.', '儲存的投稿內容已損壞或改變，不能繼續使用原簽章。', '保存済みの投稿内容が破損または変更されています。元の署名は再利用できません。', '저장된 제출이 손상되었거나 변경되었습니다. 기존 서명을 재사용할 수 없습니다.'],
+    SESSION_ACCOUNT_CHANGED: ['当前 GitHub 账号与上次不同。请切回原账号，或重新启动后选择不继续上次投稿。', 'The GitHub account differs from the saved session. Switch back, or restart and decline to resume.', '目前 GitHub 帳號與上次不同。請切回原帳號，或重新啟動後選擇不繼續上次投稿。', 'GitHub アカウントが前回と異なります。元のアカウントに戻すか、再起動時に再開を選ばないでください。', 'GitHub 계정이 이전 세션과 다릅니다. 기존 계정으로 전환하거나 다시 시작한 후 재개하지 않음을 선택하세요.'],
+    SESSION_IDENTITY_OR_BASE_CHANGED: ['社区主线或账号身份已变化，请重新启动并选择不继续上次投稿；原填写偏好仍可预填。', 'The community base or account identity changed. Restart and decline to resume; saved preferences remain available.', '社群主線或帳號身分已變化，請重新啟動並選擇不繼續上次投稿；原填寫偏好仍可預填。', 'コミュニティのベースまたはアカウントが変わりました。再起動して再開を選ばないでください。入力設定は引き続き利用できます。', '커뮤니티 기준 커밋 또는 계정이 변경되었습니다. 다시 시작하고 재개하지 않음을 선택하세요. 저장된 입력값은 계속 사용할 수 있습니다.'],
     GITHUB_REQUEST_FAILED: ['GitHub 请求失败；检查网络后可重试，写入前会重新核对远端结果。', 'GitHub request failed. Check the connection and retry; remote results are checked before writing.', 'GitHub 請求失敗；檢查網路後可重試，寫入前會重新核對遠端結果。', 'GitHub リクエストが失敗しました。接続を確認して再試行してください。書き込み前にリモートの結果を確認します。', 'GitHub 요청이 실패했습니다. 연결을 확인한 뒤 재시도하세요. 쓰기 전에 원격 결과를 확인합니다.'],
     GITHUB_TIMEOUT: ['GitHub 请求已超时，请检查网络后重试。', 'The GitHub request timed out. Check the connection and retry.', 'GitHub 請求已逾時，請檢查網路後重試。', 'GitHub リクエストがタイムアウトしました。接続を確認して再試行してください。', 'GitHub 요청 시간이 초과되었습니다. 연결을 확인한 뒤 재시도하세요.'],
     GITHUB_AUTH_REQUIRED: ['GitHub 登录已失效，请重新运行 gh auth login。', 'GitHub authentication expired. Run gh auth login again.', 'GitHub 登入已失效，請重新執行 gh auth login。', 'GitHub の認証が失効しました。gh auth login を再実行してください。', 'GitHub 인증이 만료되었습니다. gh auth login을 다시 실행하세요.'],
@@ -116,3 +124,4 @@ export const errors = {
 for (const code of ['CANDIDATE_TAG_CHANGED', 'CANDIDATE_SOURCE_MISMATCH', 'CANDIDATE_ASSET_CHANGED', 'CANDIDATE_PACKAGE_CHANGED', 'CANDIDATE_DOWNLOAD_CHANGED',
     'CANDIDATE_RELEASE_CONFLICT', 'CANDIDATE_METADATA_INVALID', 'CANDIDATE_PREVIEW_CHANGED', 'CANDIDATE_PUBLICATION_FAILED']) errors[code] = errors.CANDIDATE_RELEASE_CHANGED;
 for (const code of ['INPUT_LIMIT_EXCEEDED', 'PROJECT_STATE_SIZE_EXCEEDED', 'CACHE_SIZE_EXCEEDED', 'CACHE_ENTRY_LIMIT']) errors[code] = errors.INPUT_SIZE_EXCEEDED;
+errors.GIT_TRANSFER_FAILED = errors.GITHUB_REQUEST_FAILED;

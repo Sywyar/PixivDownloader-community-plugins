@@ -107,7 +107,8 @@ export const localizedText = (locale, key) => (additions[key] ?? messages[key])?
 
 export async function terminal(input = process.stdin, output = process.stdout, options = {}) {
     const common = { input, output };
-    let index = 1;
+    let index = locales.includes(options.resumeLocale) ? locales.indexOf(options.resumeLocale) : 1;
+    let resume = false;
     let navigationEnabled = false;
     const text = key => (additions[key] ?? messages[key])?.[index] ?? key;
     const errorText = error => {
@@ -242,12 +243,13 @@ export async function terminal(input = process.stdin, output = process.stdout, o
     try {
         prompts.intro(text('title'), common);
         const names = ['简体中文', 'English', '繁體中文', '日本語', '한국어'];
-        index = locales.indexOf(await select('language', locales, value => names[locales.indexOf(value)]));
+        if (locales.includes(options.resumeLocale)) resume = await select('resumeSession', [true, false], value => text(value ? 'yes' : 'no'));
+        if (!resume) index = locales.indexOf(await select('language', locales, value => names[locales.indexOf(value)]));
         navigationEnabled = true;
     } catch (error) {
         say('cancelled');
         close();
         throw error;
     }
-    return { locale: locales[index], signal: controller.signal, ask, say, select, multiselect, confirm, task, activity, text, errorText, password, close };
+    return { locale: locales[index], resume, signal: controller.signal, ask, say, select, multiselect, confirm, task, activity, text, errorText, password, close };
 }

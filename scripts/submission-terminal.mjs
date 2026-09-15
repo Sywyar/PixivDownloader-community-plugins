@@ -29,8 +29,8 @@ export async function workerTerminal(port, cancelled, options) {
         if (message.error) waiting.reject(Object.assign(new Error(message.error.message), message.error));
         else waiting.resolve(message.value);
     });
-    const locale = await request('open', [options]);
-    const ui = { locale, signal: controller.signal, text: key => localizedText(locale, key),
+    const { locale, resume } = await request('open', [options]);
+    const ui = { locale, resume, signal: controller.signal, text: key => localizedText(locale, key),
         ask: (key, initial, validate) => request('ask', [key, initial], validate),
         password: (key, validate) => request('password', [key], validate),
         async select(key, values, label = String, initial) {
@@ -85,7 +85,7 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                 if (method === 'open') {
                     ui = await terminal(input, output, args[0]);
                     ui.signal.addEventListener('abort', () => { Atomics.store(cancelled, 0, 1); worker.postMessage({ method: 'cancel' }); });
-                    worker.postMessage({ id: message.id, value: ui.locale }); return;
+                    worker.postMessage({ id: message.id, value: { locale: ui.locale, resume: ui.resume } }); return;
                 }
                 if (method === 'progress') {
                     if (prompting) return;

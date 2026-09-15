@@ -207,6 +207,21 @@ test('摘要单独确认后才展示完整内容，快捷键说明与引导线�
     assert(tty.rendered().includes('│  ' + ui.text('formNavigation')));
 });
 
+test('恢复提示使用已保存语言，继续跳过语言选择，拒绝恢复回到普通向导', async () => {
+    for (const locale of locales) for (const resume of [true, false]) {
+        const tty = consoleStreams();
+        tty.output.columns = 240;
+        const opening = terminal(tty.input, tty.output, { resumeLocale: locale });
+        await setImmediate();
+        assert(tty.rendered().includes((await import('../submission-ui.mjs')).localizedText(locale, 'resumeSession')));
+        await tty.key(resume ? '\r' : '\x1b[B\r');
+        if (!resume) await tty.key('\x1b[B\r');
+        const ui = await opening;
+        assert.equal(ui.resume, resume); assert.equal(ui.locale, resume ? locale : 'en-US');
+        ui.close();
+    }
+});
+
 test('真实业务线程阻塞期间终端持续刷新，异步字段验证和密码通过线程交接', { timeout: 10000 }, async t => {
     const tty = consoleStreams();
     const cancelled = new Int32Array(new SharedArrayBuffer(4));

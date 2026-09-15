@@ -1,41 +1,49 @@
 import { isDeepStrictEqual } from 'node:util';
 
-// 返回时重算表单派生值；只有本次会话中内容完全相同的已答问题可重放。
-// 确认结果不写历史，外部操作仅在最末确认和重新核验之后执行。
-export function navigation(ui, getStore = () => null) {
-    const answers = [];
+// 工具临时路径和 Buffer 不属于选择身份；恢复后返回本次重新读取的对象。
+const selectionIdentity = value => value?.candidate ? { candidate: value.candidate }
+    : value?.value && value?.sha256 ? { path: value.path, sha256: value.sha256 } : value;
+const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer']);
+
+export function navigation(ui, getStore = () => null, { history = [], onChange = () => {}, onBack = () => {}, onFailure } = {}) {
+    const answers = structuredClone(history);
     let cursor = 0;
-    let replay = 0;
+    let replay = answers.length;
     let counts = new Map();
     let sealed = false;
     const wrapped = { ...ui };
     for (const method of ['ask', 'select', 'multiselect', 'confirm', 'password']) {
         wrapped[method] = async (key, ...args) => {
+            if (method === 'password' || key === 'retrySubmission') return ui[method](key, ...args);
             const index = cursor++;
             const count = counts.get(key) ?? 0;
             counts.set(key, count + 1);
             const field = `${key}:${count}`;
             const store = getStore();
             const scope = ['operation', 'project', 'profile', 'candidate'].includes(key) ? null : store?.folder ?? null;
-            const signature = [method, key, ['ask', 'password'].includes(method) ? null : args[0], scope];
+            const signature = [method, key, method === 'ask' || method === 'confirm' && freshConfirmation.has(key)
+                ? null : method === 'select' ? args[0].map(selectionIdentity) : args[0], scope];
             const previous = answers[index];
-            if (method !== 'password' && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
+            if (!(method === 'confirm' && freshConfirmation.has(key)) && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
                 let valid = true;
+                if (method === 'select' && !args[0].some(value => isDeepStrictEqual(selectionIdentity(value), previous.value))) valid = false;
                 if (method === 'ask' && args[1]) {
                     try { await args[1](previous.value); } catch { valid = false; }
                 }
-                if (valid) return previous.value;
+                if (valid) return method === 'select' ? args[0].find(value => isDeepStrictEqual(selectionIdentity(value), previous.value)) : previous.value;
             }
-            replay = Math.min(replay, index);
+            if (!(method === 'confirm' && freshConfirmation.has(key))) replay = Math.min(replay, index);
             const remembered = previous?.field === field && previous.scope === scope ? previous.value : scope ? store?.answer(field) : undefined;
             if (method === 'ask' && remembered !== undefined) args[0] = remembered;
             if (method === 'select' && remembered !== undefined) {
-                args[2] = args[0].find(value => isDeepStrictEqual(value, remembered));
+                args[2] = args[0].find(value => isDeepStrictEqual(selectionIdentity(value), remembered));
             }
             if (method === 'multiselect' && Array.isArray(remembered)) args[1] = remembered;
             const value = await ui[method](key, ...args);
-            answers[index] = { field, scope, signature: structuredClone(signature), value: method === 'password' ? undefined : structuredClone(value) };
+            answers[index] = { field, scope, signature: structuredClone(signature), value: structuredClone(method === 'select' ? selectionIdentity(value) : value) };
             if (!['confirm', 'password'].includes(method)) store?.remember(field, value);
+            if (key !== 'preview') onChange(answers.slice(0, Math.max(cursor, replay)).map(answer => answer?.signature[0] === 'confirm' && freshConfirmation.has(answer.signature[1])
+                ? { ...answer, value: undefined } : answer));
             return value;
         };
     }
@@ -44,7 +52,9 @@ export function navigation(ui, getStore = () => null) {
             cursor = 0; counts = new Map();
             try { return await work(wrapped); }
             catch (error) {
+                if (error.github && onFailure && await onFailure(error)) { replay = answers.length; continue; }
                 if (sealed || error.message !== 'WIZARD_BACK') throw error;
+                onBack();
                 replay = Math.max(0, cursor - 2);
             }
         }
