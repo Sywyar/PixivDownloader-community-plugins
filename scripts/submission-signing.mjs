@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { root, hash } from './sdk.mjs';
 import { git } from './project.mjs';
 import { readFile } from './submission-fields.mjs';
+import { failureCode } from './submission-ui.mjs';
 
 export function signingTool(sdk) {
     const lock = JSON.parse(fs.readFileSync(path.join(root, 'tools/signing-tool.json'), 'utf8'));
@@ -74,7 +75,9 @@ export async function unlockPrivateKey(context, privateFile, publicFile) {
     const { sign, ui } = context;
     const check = () => sign('check-key', '--private-key', privateFile, '--public-key', publicFile);
     if (readFile(privateFile, 16 * 1024).subarray(0, 64).toString('ascii').startsWith('-----BEGIN ENCRYPTED PRIVATE KEY-----')) {
-        try { check(); return; } catch { /* 密码只留在当前签名会话，重新输入不会写入工程历史。 */ }
+        try { check(); return; } catch (error) {
+            if (!['KEY_PASSWORD_REQUIRED', 'KEY_PASSWORD_INVALID'].includes(failureCode(error))) throw error;
+        }
         await ui.password('password', value => {
             if (Buffer.byteLength(value, 'utf8') > 4096) throw new Error('INPUT_SIZE_EXCEEDED');
             sign.password(privateFile, value);

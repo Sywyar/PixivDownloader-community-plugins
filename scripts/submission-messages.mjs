@@ -68,6 +68,9 @@ export const errors = {
     KEY_PATH_LINK_REJECTED: ['密钥路径不能经过符号链接或目录联接。', 'Key paths must not traverse symlinks or junctions.', '金鑰路徑不能經過符號連結或目錄接合。', '鍵のパスにシンボリックリンクやジャンクションは使えません。', '키 경로에는 심볼릭 링크나 정션을 사용할 수 없습니다.'],
     KEY_ACCESS_DENIED: ['没有访问权限，请选择可读写的位置。', 'Access denied. Choose an accessible location.', '沒有存取權限，請選擇可讀寫的位置。', 'アクセス権がありません。読み書きできる場所を選択してください。', '접근 권한이 없습니다. 접근 가능한 위치를 선택하세요.'],
     KEY_PASSWORD_INVALID: ['密码错误或加密私钥已损坏，请核对密码和文件。', 'Wrong password or damaged encrypted key. Check both.', '密碼錯誤或加密私鑰已損毀，請核對密碼及檔案。', 'パスワードが違うか、暗号化された鍵が破損しています。両方を確認してください。', '비밀번호가 틀리거나 암호화된 키가 손상되었습니다. 둘 다 확인하세요.'],
+    KEY_ENCRYPTION_UNSUPPORTED: ['当前签名工具不支持此私钥的加密算法，请检查密钥生成工具及其版本。', 'This signing tool does not support the key’s encryption algorithm. Check the tool and version used to generate it.', '目前的簽章工具不支援此私鑰的加密演算法，請檢查金鑰產生工具及其版本。', 'この署名ツールは秘密鍵の暗号化方式に対応していません。鍵を生成したツールとバージョンを確認してください。', '이 서명 도구는 개인 키의 암호화 알고리즘을 지원하지 않습니다. 키를 생성한 도구와 버전을 확인하세요.'],
+    KEY_ENCRYPTION_PARAMETERS_INVALID: ['私钥的加密参数不符合工具要求，请检查密钥生成设置。', 'The key’s encryption parameters do not meet this tool’s requirements. Check the key generation settings.', '私鑰的加密參數不符合工具要求，請檢查金鑰產生設定。', '秘密鍵の暗号化パラメーターがツールの要件を満たしていません。鍵の生成設定を確認してください。', '개인 키의 암호화 매개변수가 도구 요구 사항에 맞지 않습니다. 키 생성 설정을 확인하세요.'],
+    KEY_FORMAT_INVALID: ['私钥文件格式无效或内容不完整，请检查密钥文件。', 'The private key file has an invalid format or is incomplete. Check the key file.', '私鑰檔案格式無效或內容不完整，請檢查金鑰檔案。', '秘密鍵ファイルの形式が無効か、内容が不完全です。鍵ファイルを確認してください。', '개인 키 파일 형식이 잘못되었거나 내용이 불완전합니다. 키 파일을 확인하세요.'],
     KEY_PAIR_MISMATCH: ['公钥与私钥不配套，请选择同一对密钥。', 'The public and private keys do not match. Select the same key pair.', '公鑰與私鑰不配套，請選擇同一組金鑰。', '公開鍵と秘密鍵が一致しません。同じ鍵ペアを選択してください。', '공개 키와 개인 키가 일치하지 않습니다. 같은 키 쌍을 선택하세요.'],
     FIELD_PLACEHOLDER: ['请填写实际内容，不能使用模板提示文字。', 'Enter actual content instead of template prompt text.', '請填寫實際內容，不能使用範本提示文字。', 'テンプレートの案内文ではなく実際の内容を入力してください。', '템플릿 안내 문구 대신 실제 내용을 입력하세요.'],
     LOCALE_INVALID: ['请输入合法 BCP 47 标签，例如 zh-CN、en 或 en-US。', 'Enter a valid BCP 47 tag, such as zh-CN, en or en-US.', '請輸入合法 BCP 47 標籤，例如 zh-CN、en 或 en-US。', 'zh-CN、en、en-US などの有効な BCP 47 タグを入力してください。', 'zh-CN, en, en-US 등 올바른 BCP 47 태그를 입력하세요.'],
@@ -78,5 +81,4 @@ export const errors = {
 
 for (const code of ['CANDIDATE_TAG_CHANGED', 'CANDIDATE_SOURCE_MISMATCH', 'CANDIDATE_ASSET_CHANGED', 'CANDIDATE_PACKAGE_CHANGED', 'CANDIDATE_DOWNLOAD_CHANGED',
     'CANDIDATE_RELEASE_CONFLICT', 'CANDIDATE_METADATA_INVALID', 'CANDIDATE_PREVIEW_CHANGED', 'CANDIDATE_PUBLICATION_FAILED']) errors[code] = errors.CANDIDATE_RELEASE_CHANGED;
-for (const code of ['KEY_FORMAT_INVALID', 'KEY_ENCRYPTION_UNSUPPORTED', 'KEY_ENCRYPTION_PARAMETERS_INVALID']) errors[code] = errors.KEY_PASSWORD_INVALID;
 for (const code of ['INPUT_LIMIT_EXCEEDED', 'PROJECT_STATE_SIZE_EXCEEDED', 'CACHE_SIZE_EXCEEDED', 'CACHE_ENTRY_LIMIT']) errors[code] = errors.INPUT_SIZE_EXCEEDED;

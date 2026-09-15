@@ -268,8 +268,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 22809,
-      "sha256": "9130643df62282c8fb46eff2d9446afdb5b376ca70bed61f5ee12da4d7e9e6e5"
+      "size": 24387,
+      "sha256": "121d206b5034361b347cba1eb1748a8abe8d977e980f7c912436783bcdb06f7d"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -298,8 +298,8 @@
     },
     {
       "path": "scripts/submission-signing.mjs",
-      "size": 6281,
-      "sha256": "3c6f92fae8d6941575016ae0730d21df1dad4cde32dddecdd01674d82b57b859"
+      "size": 6376,
+      "sha256": "83bb0397e4870a2004d05233438fe895d4df7e6293665e6d42b600a47ec1b0ce"
     },
     {
       "path": "scripts/submission-state.mjs",
