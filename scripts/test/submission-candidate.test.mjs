@@ -21,16 +21,22 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
     const assets = [{ id: 501, name: 'source-candidate.json', size: metadata.length, digest: 'sha256:' + hash(metadata), state: 'uploaded' },
         { id: 502, name: c.artifact.file, size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded',
             browser_download_url: `https://github.com/${source.name}/releases/download/${release.tag_name}/${c.artifact.file}` }];
+    const publicUrl = name => `https://github.com/${source.name}/releases/download/${release.tag_name}/${name}`;
+    const draftUrl = name => `https://github.com/${source.name}/releases/download/untagged-78a7a5fdc81320c954cd/${name}`;
+    for (const asset of assets) asset.browser_download_url = draftUrl(asset.name);
     const run = { repository, path: '.github/workflows/candidate.yml', status: 'completed', conclusion: 'success',
         event: 'push', head_sha: source.commit, head_branch: 'main', run_attempt: 1 };
     const store = openProject(projectIdentity('101', '.', 'example'), '201', { home: workspace });
     t.after(() => { store.close(); fs.rmSync(workspace, { recursive: true }); });
     let tag = source.commit; let listed = true; let attempts = 1; let permission = false; let total = 1;
+    let tagExists = false; let refError; let commitError;
     const writes = []; const transfers = [];
     const call = (endpoint, options = {}) => {
         if (options.method === 'PATCH') {
             assert(permission); assert.deepEqual(options.body, { draft: false, prerelease: true, make_latest: 'false' });
-            writes.push(endpoint); release.draft = false; return { ...release };
+            writes.push(endpoint); release.draft = false; tagExists = true;
+            for (const asset of assets) asset.browser_download_url = publicUrl(asset.name);
+            return { ...release };
         }
         if (options.method === 'POST') {
             assert(permission); assert(endpoint.endsWith('/actions/runs/301/rerun'));
@@ -41,7 +47,17 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
         if (endpoint.endsWith('/releases/401/assets?per_page=100')) return [structuredClone(assets)];
         if (endpoint.endsWith('/releases/401')) return { ...release };
         if (endpoint.includes('/releases/assets/')) return { ...assets.find(asset => endpoint.endsWith('/' + asset.id)) };
-        if (endpoint.includes('/commits/')) return { sha: tag };
+        if (endpoint.includes('/git/ref/tags/')) {
+            assert.equal(endpoint, `repos/${source.name}/git/ref/tags/${release.tag_name}`);
+            if (refError) throw refError;
+            if (!tagExists) throw new Error('GITHUB_NOT_FOUND');
+            return { ref: 'refs/tags/' + release.tag_name };
+        }
+        if (endpoint.includes('/commits/')) {
+            if (!tagExists) throw new Error('GITHUB_REQUEST_FAILED');
+            if (commitError) throw commitError;
+            return { sha: tag };
+        }
         if (endpoint.endsWith('/actions/runs/301/attempts/1')) return { ...run };
         if (endpoint.endsWith('/actions/runs/301')) return { ...run, conclusion: 'success', run_attempt: attempts };
         if (endpoint.includes('/attempts/1/jobs?')) return [{ total_count: 1, jobs: [{ id: 601, run_id: 301, head_sha: source.commit,
@@ -69,18 +85,39 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
         } } };
     const prepare = () => sourceCandidate(context, source, { projectDir: '.' }, c.buildProfile.id, transfer, publicDownload);
     const prepared = await prepare(); assert.equal(writes.length, 0);
+    assert.equal(prepared.packageUrl, publicUrl(c.artifact.file));
+    assert.notEqual(prepared.packageUrl, assets[1].browser_download_url);
     const preview = path.join(workspace, 'preview.jar');
     await prepared.fetch(prepared.packageUrl, preview, bytes.length, { size: bytes.length, sha256: hash(bytes) });
     assert.deepEqual(fs.readFileSync(preview), bytes);
     const packages = transfers.filter(item => item.endsWith('/502')).length;
     await prepare(); assert.equal(transfers.filter(item => item.endsWith('/502')).length, packages);
+    await prepared.recheck(); assert.equal(writes.length, 0);
+    refError = new Error('GITHUB_REQUEST_FAILED');
+    await assert.rejects(prepared.recheck(), /GITHUB_REQUEST_FAILED/u); refError = undefined;
+    release.draft = false; await assert.rejects(prepare(), /GITHUB_NOT_FOUND/u); release.draft = true;
+    tagExists = true;
+    commitError = new Error('GITHUB_NOT_FOUND');
+    await assert.rejects(prepared.recheck(), /GITHUB_NOT_FOUND/u); commitError = undefined;
+    await prepared.recheck();
     tag = 'b'.repeat(40); await assert.rejects(prepared.recheck(), /CANDIDATE_TAG_CHANGED/u); tag = source.commit;
     run.head_sha = 'b'.repeat(40); await assert.rejects(prepared.recheck(), /CANDIDATE_CI_NOT_PASSED/u); run.head_sha = source.commit;
     assets[1].digest = 'sha256:' + '0'.repeat(64); await assert.rejects(prepared.recheck(), /CANDIDATE_ASSET_CHANGED/u);
     assets[1].digest = 'sha256:' + hash(bytes);
+    assets[1].browser_download_url = draftUrl(assets[1].name).replace('/owner/source/', '/other/source/');
+    await assert.rejects(prepare(), /CANDIDATE_ASSET_CHANGED/u);
+    assets[1].browser_download_url = draftUrl(assets[1].name).replace('/untagged-', '/different-');
+    await assert.rejects(prepare(), /CANDIDATE_ASSET_CHANGED/u);
+    assets[1].browser_download_url = draftUrl(assets[1].name).replace('78a7a5fdc81320c954cd', '1234');
+    await assert.rejects(prepared.recheck(), /CANDIDATE_ASSET_CHANGED/u);
+    assets[1].browser_download_url = draftUrl(assets[1].name);
     permission = true; await prepared.beforeWrite(); await prepared.beforeWrite(); assert.equal(writes.length, 1);
     assert.equal(store.record.receipt.sourcePublished, true);
     assert.deepEqual((await prepare()).actions, []);
+    assets[1].browser_download_url = draftUrl(assets[1].name);
+    await assert.rejects(prepare(), /CANDIDATE_ASSET_CHANGED/u);
+    await assert.rejects(prepared.recheck(), /CANDIDATE_ASSET_CHANGED/u);
+    assets[1].browser_download_url = publicUrl(assets[1].name);
     listed = false; run.conclusion = 'failure';
     total = 2; await assert.rejects(prepare(), /GITHUB_PAGINATION_INVALID/u); assert.equal(writes.length, 1); total = 1;
     await prepare(); assert.equal(writes.length, 2); assert.equal(attempts, 2);
