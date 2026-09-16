@@ -97,9 +97,20 @@ export function classify(pr, files) {
         }
         return 'maintenance';
     }
+    if (paths.some(name => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(name))) {
+        if (id(pr.user.id) !== policy.repositoryOwnerId || id(pr.head.repo.id) !== policy.repositoryId) throw new Error('PROTECTED_PATH_OWNER_REQUIRED');
+        return 'apply-result';
+    }
     const versionPaths = /^(?:submissions\/[1-9][0-9]*\/[a-z0-9][a-z0-9._-]*\/[^/]+\.json|publishers\/[1-9][0-9]*\/[a-z0-9][a-z0-9._-]*\.json|assets\/.+)$/u;
     if (paths.every(name => versionPaths.test(name)) && files.every(file => file.status === 'added')
         && paths.filter(name => name.startsWith('submissions/')).length === 1) return 'version';
+    if (files.every(file => file.status === 'added' && !file.previous_filename)) {
+        if (paths.length === 1 && /^key-rotations\/[1-9][0-9]*\/[^/]+\/[a-f0-9]{64}\.json$/u.test(paths[0])) return 'rotation';
+        if (paths.length === 1 && /^version-status-requests\/[1-9][0-9]*\/[^/]+\/[^/]+\/[a-f0-9]{64}\.json$/u.test(paths[0])) return 'status';
+        const transfers = paths.filter(name => /^ownership-transfers\/[^/]+\/[a-f0-9]{64}\/(?:proposal\.json|approvals\/(?:from|to)\/[1-9][0-9]*\.json)$/u.test(name));
+        if (transfers.length && new Set(transfers.map(name => name.split('/').slice(0, 3).join('/'))).size === 1
+            && paths.every(name => transfers.includes(name) || /^ownership-transfer-evidence\/[^/]+\/[a-f0-9]{64}\.bin$/u.test(name))) return 'transfer';
+    }
     throw new Error(paths.some(isMaintenance) ? 'MIXED_OPERATION' : 'SUBMISSION_EXECUTOR_UNAVAILABLE');
 }
 
@@ -107,7 +118,7 @@ export function facts(number, prepared, current, call = api, versionContext = nu
     const pr = pull(number, call);
     const files = list(prefix + '/pulls/' + pr.number + '/files', null, call);
     const operation = classify(pr, files);
-    if (operation === 'version' && (!versionContext || versionContext.checked.pr.head !== pr.head.sha
+    if (operation !== 'maintenance' && (!versionContext || versionContext.checked.pr.head !== pr.head.sha
         || versionContext.checked.pr.base !== pr.base.sha || versionContext.checked.pr.user.id !== id(pr.user.id))) {
         throw new Error('VERSION_FACTS_CHANGED');
     }
@@ -136,15 +147,18 @@ export function facts(number, prepared, current, call = api, versionContext = nu
     });
     const reviewPolicy = { reviewerAccountIds: authorized, dismissalAccountIds: authorized,
         decisionWorkflowPath: decisionPath, decisionWorkflowShas: [current] };
-    const version = versionContext?.checked;
+    const checked = versionContext?.checked;
+    const version = checked?.submission ? checked : null;
     const report = versionContext?.report;
-    if (versionContext) for (const ref of versionContext.candidate.evidence) {
+    if (versionContext?.candidate) for (const ref of versionContext.candidate.evidence) {
         if (!references.some(row => row.path === ref.path)) references.push(ref);
     }
     const snapshot = { repositoryId: catalogId, pr: prValue(pr), version: version ? {
         submissionSha256: version.submissionSha256, sourceCommit: version.submission.source.commit, packageSha256: version.package.sha256 } : null,
-        inputSha256: hash(Buffer.from(JSON.stringify({ operation, files, candidate: versionContext?.candidate.inputSha256 ?? null }))),
-        bindingSha256: hash(Buffer.from(version ? JSON.stringify([version.bindingSha256, version.publisherSha256, version.owner]) : 'maintenance')),
+        inputSha256: hash(Buffer.from(JSON.stringify({ operation, files, candidate: versionContext?.candidate?.inputSha256 ?? null,
+            request: checked?.requestSha256 ?? null }))),
+        bindingSha256: hash(Buffer.from(checked ? JSON.stringify([checked.bindingSha256, checked.publisherSha256,
+            checked.owner, checked.from, checked.to]) : 'maintenance')),
         policySha256: hash(Buffer.from(JSON.stringify({ policy, authorized }))),
         state: pr.merged ? 'MERGED' : pr.state === 'open' ? 'OPEN' : 'CLOSED', draft: pr.draft, scan: report ? {
             runId: report.runId, runAttempt: report.runAttempt, scannerVersion: report.scannerVersion, rulesSha256: report.rulesSha256,
@@ -153,7 +167,7 @@ export function facts(number, prepared, current, call = api, versionContext = nu
         validation: { conclusion: 'SUCCESS', publisherId: id(policy.gateApp.id), headSha: snapshot.pr.headSha,
             baseSha: snapshot.pr.baseSha, inputSha256: snapshot.inputSha256, bindingSha256: snapshot.bindingSha256,
             policySha256: snapshot.policySha256 }, publisherId: id(policy.gateApp.id), policy: reviewPolicy,
-        reviews, decisions: [], report: versionContext?.candidate.scan.riskReportRef ?? null,
+        reviews, decisions: [], report: versionContext?.candidate?.scan.riskReportRef ?? null,
         declaration: version?.descriptor.riskDeclaration ?? { present: false, signals: [] }, evidence: references };
 }
 

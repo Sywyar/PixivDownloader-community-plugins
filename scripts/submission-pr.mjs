@@ -7,13 +7,14 @@ import { root } from './sdk.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { github, checkedRepository, paged, repositoryTree, readBlob, stateReader } from './submission-github.mjs';
 import { validateChanges } from './submission-check.mjs';
+import { checkResult } from './apply-result.mjs';
 
 const readOnly = (endpoint, options = {}) => {
     if (options.method && options.method !== 'GET') throw new Error('READ_ONLY_CHECK');
     return github(endpoint, options);
 };
 
-export async function checkPull(number, sdk, call = readOnly, fetch) {
+export async function checkPull(number, sdk, call = readOnly, fetch, { appliedBase } = {}) {
     const repository = checkedRepository(policy.repository, call);
     if (id(repository.id) !== policy.repositoryId || id(repository.owner.id) !== policy.repositoryOwnerId
         || repository.default_branch !== policy.defaultBranch) throw new Error('GITHUB_REPOSITORY_MISMATCH');
@@ -23,12 +24,16 @@ export async function checkPull(number, sdk, call = readOnly, fetch) {
         baseId: id(pr.base.repo.id), baseRef: pr.base.ref, base: sha(pr.base.sha), headId: id(pr.head.repo.id), head: sha(pr.head.sha) });
     const before = snapshot(pull);
     if (before.baseId !== policy.repositoryId || before.baseRef !== policy.defaultBranch || before.user.type !== 'User'
-        || before.number !== Number(number) || before.state !== 'open') throw new Error('PR_TARGET_INVALID');
+        || before.number !== Number(number) || (appliedBase ? before.state !== 'closed' || !pull.merged : before.state !== 'open')) throw new Error('PR_TARGET_INVALID');
     const files = paged(`${endpoint}/files`, call);
     if (files.length !== pull.changed_files || !files.length) throw new Error('PR_FILES_INCOMPLETE');
+    if (files.some(file => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(file.filename))) {
+        await checkResult(number, sdk, before.base, { call });
+        return { validation: 'PUBLICATION_RESULT_VALIDATED' };
+    }
     const submissionPaths = /^(?:submissions|publishers|assets|key-rotations|version-status-requests|ownership-transfers|ownership-transfer-evidence)\//u;
     if (!files.some(file => submissionPaths.test(file.filename))) return { validation: 'NOT_A_SUBMISSION' };
-    const state = stateReader(sdk, before.base, call);
+    const state = stateReader(sdk, appliedBase ?? before.base, call);
     const tree = repositoryTree(pull.head.repo.full_name, before.head, call);
     const changes = new Map();
     let total = 0;
@@ -41,6 +46,11 @@ export async function checkPull(number, sdk, call = readOnly, fetch) {
         total += bytes.length;
         if (total > API_BYTES) throw new Error('SUBMISSION_SIZE_EXCEEDED');
         changes.set(file.filename, bytes);
+    }
+    if (appliedBase) for (const [file, bytes] of changes) {
+        // 已合并的请求本身不是既有状态；先核对主线仍保留原始输入，再对当前管理状态重新检查。
+        if (!state.raw(file)?.equals(bytes)) throw new Error('MERGED_INPUT_CHANGED');
+        state.tree.delete(file);
     }
     const organizations = new Set();
     const authorize = (owner, user) => {
@@ -55,7 +65,7 @@ export async function checkPull(number, sdk, call = readOnly, fetch) {
     const result = await validateChanges({ sdk, state, changes, user: before.user, authorize, call, ...(fetch ? { fetch } : {}) });
     const after = snapshot(call(endpoint));
     const currentBase = sha(call(`repos/${policy.repository}/git/ref/heads/${policy.defaultBranch}`).object.sha);
-    if (!isDeepStrictEqual(before, after) || currentBase !== before.base) throw new Error('PR_OR_BASE_CHANGED');
+    if (!isDeepStrictEqual(before, after) || currentBase !== (appliedBase ?? before.base)) throw new Error('PR_OR_BASE_CHANGED');
     return { ...result, pr: before, organizationRepresentationRequired: [...organizations] };
 }
 

@@ -5,6 +5,16 @@ import { prepareSubmission } from './submission-sdk.mjs';
 import { versionContext } from './version-review.mjs';
 import { gatePath, execution, facts, fingerprint, event, pull, classify } from './platform.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
+import { finalizeReleases } from './publication-releases.mjs';
+
+export function appliedProjection(pr, files, result) {
+    const applied = result.applied && result.receipts.some(receipt => receipt.prNumber === pr.number
+        || files.some(file => file.filename.endsWith(`/${receipt.requestId}.json`) || file.filename.includes(`/${receipt.requestId}/`)));
+    return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged,
+        labels: [applied ? 'state:completed' : 'state:awaiting-apply'], summary: applied
+            ? `Verified generation ${result.sequence} is applied; release state has been read back. Admission checks retain their original results.`
+            : 'PR merged. Protected state application or release readback is pending.' };
+}
 
 const managedLabels = new Set(JSON.parse(fs.readFileSync(new URL('labels.json', import.meta.url), 'utf8')).map(row => row.name));
 function conclusions(result) {
@@ -12,7 +22,7 @@ function conclusions(result) {
         ['APPROVED', 'SELF_APPROVED'].includes(result.human.status), result.flow === 'READY'];
 }
 
-export async function publish(number, context, prepared, call = api, write = api, readGit, resolveVersion = versionContext) {
+export async function publish(number, context, prepared, call = api, write = api, readGit, resolveVersion = versionContext, readApplication = finalizeReleases) {
     const pr = pull(number, call);
     const head = pr.head.sha;
     const identity = { number, head, state: pr.state, merged: pr.merged };
@@ -24,13 +34,14 @@ export async function publish(number, context, prepared, call = api, write = api
     try {
         // 关闭后的通知只表达终态，不按更新后的默认分支重新签发合并准入检查。
         if (pr.state === 'closed') {
-            const operation = classify(pr, list(prefix + '/pulls/' + number + '/files', null, call));
             if (!pr.merged) return { ...identity, labels: ['state:closed'],
                 summary: 'PR closed without merging. No publication was applied.' };
+            const files = list(prefix + '/pulls/' + number + '/files', null, call);
+            const operation = classify(pr, files);
             if (operation === 'maintenance') return { ...identity, labels: ['type:maintenance', 'state:merged'],
                 summary: 'Maintenance PR merged. No publication action is required. Admission checks retain their original results.' };
-            return { ...identity, labels: ['state:awaiting-apply'],
-                summary: 'PR merged. Publication has not been applied.' };
+            if (prepared instanceof Error) throw prepared;
+            return appliedProjection(pr, files, await readApplication(context, prepared, { call, readGit, write: false }));
         }
         // 先清除同 head 的旧成功，再读取完整原生事实；任一异常均保留失败。
         for (const name of policy.requiredContexts) {
@@ -57,13 +68,16 @@ export async function publish(number, context, prepared, call = api, write = api
         const states = conclusions(result);
         const summary = 'Operation: ' + (version ? version.checked.operation : 'maintenance') + '\n\nInput: ' + result.snapshot.inputSha256
             + '\n\nHuman review: ' + result.human.status + '\n\nFlow: ' + result.flow
-            + (version ? '\n\nPlugin scan: ' + version.report.status + '; blocking findings: ' + result.blockingFindingIds.length
+            + (version?.report ? '\n\nPlugin scan: ' + version.report.status + '; blocking findings: ' + result.blockingFindingIds.length
                 + '\n\nFinding IDs (first 20): ' + result.blockingFindingIds.slice(0, 20).join(', ')
                 + '\n\nRisk declaration: ' + (before.declaration.present ? before.declaration.signals.join(', ') || 'empty' : 'not declared')
                 + '\n\nOrganization representation: ' + (version.checked.organizationRepresentationRequired?.length
                     ? 'requires human verification for GitHub organization IDs ' + version.checked.organizationRepresentationRequired.join(', ') : 'not applicable')
                 + '\n\nPending archive: ' + version.url + '\n\nThis draft is not publication or SOURCE_REVIEWED.'
-                : '\n\nPlugin scan: not applicable to the verified maintenance operation.');
+                : '\n\nPlugin scan: not applicable to this operation.')
+            + (version?.checked.recoveryRequired ? '\n\nApplication requires explicit recovery approval in the protected release workflow.' : '')
+            + (version && !version.report && version.checked.organizationRepresentationRequired?.length
+                ? '\n\nOrganization representation requires human verification: ' + version.checked.organizationRepresentationRequired.join(', ') : '');
         for (let i = 0; i < checks.length; i++) patch(checks[i], states[i] ? 'success' : 'failure', summary);
         if (fingerprint(before) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
         for (let i = 0; i < checks.length; i++) {
@@ -71,7 +85,9 @@ export async function publish(number, context, prepared, call = api, write = api
             if (id(check.app.id) !== id(policy.gateApp.id) || check.head_sha !== head || check.status !== 'completed'
                 || check.conclusion !== (states[i] ? 'success' : 'failure')) throw new Error('CHECK_READBACK_MISMATCH');
         }
-        const labels = [...result.labels, version ? version.checked.operation === 'FIRST_RELEASE' ? 'type:new-plugin' : 'type:update' : 'type:maintenance'];
+        const type = { FIRST_RELEASE: 'new-plugin', UPDATE: 'update', KEY_ROTATION: 'key-rotation',
+            YANK: 'yank', UNYANK: 'unyank', REVOKE: 'revoke', OWNERSHIP_TRANSFER: 'ownership-transfer' }[version?.checked.operation] ?? 'maintenance';
+        const labels = [...result.labels, 'type:' + type, ...(version?.checked.recoveryRequired ? ['flow:recovery'] : [])];
         // 维护合并没有目录应用动作；只有发布执行器能显示 awaiting-apply/completed。
         if (!version && result.snapshot.state === 'MERGED') labels.splice(labels.indexOf('state:awaiting-apply'), 1);
         return { ...identity, labels, summary };
@@ -83,6 +99,8 @@ export async function publish(number, context, prepared, call = api, write = api
         }
         console.error('PR #' + number + ': ' + error.message);
         if (failures.length) throw new Error('CHECK_REVOCATION_FAILED: ' + failures.join(', '));
+        if (pr.state === 'closed' && pr.merged) return { ...identity, labels: ['state:apply-failed'], error: error.message,
+            summary: 'Protected state or release readback failed. Admission checks retain their original results; inspect the publication workflow before retrying.' };
         return { ...identity, labels: ['ci:blocked', 'review:pending'], error: error.message,
             summary: 'Admission could not be verified. See the trusted workflow log. This PR is not ready.' };
     }

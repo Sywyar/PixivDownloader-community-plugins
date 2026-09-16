@@ -251,7 +251,8 @@ test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒�
         }
         const checks = structuredClone([...state.checks]);
         const unavailable = () => { throw new Error('Closed PR must not load review sources or rebuild candidates'); };
-        const projection = await publish(7, context, new Error('SDK unavailable'), call, call, unavailable, unavailable);
+        const projection = await publish(7, context, merged && operation === 'version' ? {} : new Error('SDK unavailable'), call, call, unavailable, unavailable,
+            async (_context, _sdk, options) => { assert.equal(options.write, false); return { applied: false }; });
         const labels = !merged ? ['state:closed'] : operation === 'maintenance'
             ? ['type:maintenance', 'state:merged'] : ['state:awaiting-apply'];
         assert.equal(projection.error, undefined);
@@ -280,6 +281,21 @@ test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒�
         notify([projection], call);
         assert.equal(state.writes.length, writes);
         assert.deepEqual([...state.checks], checks);
+    }
+});
+
+test('已应用请求与结果 PR 回写完成，回读失败保留原准入检查', async () => {
+    for (const file of [`version-status-requests/101/demo/2.3.4/${'a'.repeat(64)}.json`, `generated/receipts/${'a'.repeat(64)}.json`]) {
+        const { state, call, context } = fixture();
+        state.files = [{ filename: file, status: 'added' }];
+        Object.assign(state.pr, { state: 'closed', merged: true });
+        const originalChecks = structuredClone([...state.checks]);
+        const ready = await publish(7, context, {}, call, call, undefined, undefined, async () => ({ applied: true, sequence: 4,
+            receipts: [{ prNumber: 6, requestId: 'a'.repeat(64) }] }));
+        assert.deepEqual(ready.labels, ['state:completed']);
+        const failed = await publish(7, context, {}, call, call, undefined, undefined, async () => { throw new Error('PUBLICATION_ASSET_CHANGED'); });
+        assert.deepEqual(failed.labels, ['state:apply-failed']);
+        assert.deepEqual([...state.checks], originalChecks); assert.equal(state.writes.length, 0);
     }
 });
 

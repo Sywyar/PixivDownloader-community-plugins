@@ -9,15 +9,24 @@ import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
 
 // 只消费 gh 已验签的证书字段；工作流可自填的 predicate 不能认证执行身份。
 export function archiveCertificate(results, current, readGit = git) {
+    return workflowCertificate(results, current, archivePath, 'workflow_run', readGit);
+}
+
+export const publicationPath = '.github/workflows/community-publication.yml';
+export function publicationCertificate(results, current, readGit = git) {
+    return workflowCertificate(results, current, publicationPath, 'workflow_dispatch', readGit);
+}
+
+function workflowCertificate(results, current, expectedPath, trigger, readGit) {
     if (!Array.isArray(results) || !results.length) throw new Error('ARCHIVE_ATTESTATION_MISSING');
     for (const result of results) {
         const certificate = result.verificationResult?.signature?.certificate;
-        const workflow = `https://github.com/${policy.repository}/${archivePath}@refs/heads/${policy.defaultBranch}`;
+        const workflow = `https://github.com/${policy.repository}/${expectedPath}@refs/heads/${policy.defaultBranch}`;
         if (certificate?.sourceRepositoryIdentifier !== policy.repositoryId
             || certificate.sourceRepositoryOwnerIdentifier !== policy.repositoryOwnerId
             || certificate.buildSignerURI !== workflow || certificate.buildConfigURI !== workflow
             || certificate.sourceRepositoryRef !== `refs/heads/${policy.defaultBranch}`
-            || certificate.runnerEnvironment !== 'github-hosted' || certificate.buildTrigger !== 'workflow_run'
+            || certificate.runnerEnvironment !== 'github-hosted' || certificate.buildTrigger !== trigger
             || certificate.buildSignerDigest !== certificate.sourceRepositoryDigest) continue;
         const source = sha(certificate.sourceRepositoryDigest);
         readGit(['merge-base', '--is-ancestor', source, sha(current)]);
@@ -27,6 +36,14 @@ export function archiveCertificate(results, current, readGit = git) {
 }
 
 export function verifyArchiveProof(file, bundle, current, readGit = git, execute = execFileSync) {
+    return verifyProof(file, bundle, current, archivePath, archiveCertificate, readGit, execute);
+}
+
+export function verifyPublicationProof(file, bundle, current, readGit = git, execute = execFileSync) {
+    return verifyProof(file, bundle, current, publicationPath, publicationCertificate, readGit, execute);
+}
+
+function verifyProof(file, bundle, current, workflowPath, certificate, readGit, execute) {
     for (const name of [file, bundle]) {
         if (!fs.lstatSync(name).isFile() || fs.statSync(name).size > API_BYTES) throw new Error('ARCHIVE_PROOF_SIZE');
     }
@@ -34,10 +51,10 @@ export function verifyArchiveProof(file, bundle, current, readGit = git, execute
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/TOKEN|SECRET|PRIVATE_KEY/iu.test(key)));
     env.GH_CONFIG_DIR = fs.mkdtempSync(path.join(path.dirname(file), 'attestation-client-'));
     const output = execute('gh', ['attestation', 'verify', file, '--bundle', bundle, '--repo', policy.repository,
-        '--signer-workflow', `${policy.repository}/${archivePath}`, '--source-ref', `refs/heads/${policy.defaultBranch}`,
+        '--signer-workflow', `${policy.repository}/${workflowPath}`, '--source-ref', `refs/heads/${policy.defaultBranch}`,
         '--deny-self-hosted-runners', '--format', 'json'], { encoding: 'utf8', windowsHide: true,
         env, timeout: API_TIMEOUT, maxBuffer: API_BYTES, stdio: ['ignore', 'pipe', 'pipe'] });
-    return archiveCertificate(JSON.parse(output), current, readGit);
+    return certificate(JSON.parse(output), current, readGit);
 }
 
 export async function storeArchiveProof(releaseId, file, bundle, current, { call = api,

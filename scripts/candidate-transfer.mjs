@@ -36,7 +36,7 @@ export function downloadGithubBinary(endpoint, file, maximum, expected, execute 
 }
 
 export function uploadCandidate(releaseId, file, name) {
-    if (!/^(?:candidate\.json|archive-attestation\.json|pixivdownload-plugin-[A-Za-z0-9._+-]+\.(?:jar|zip)|source\.zip|review-evidence\.zip)$/u.test(name)
+    if (!/^(?:candidate\.json|archive-attestation\.json|publication(?:-attestation)?\.json|community-signature\.json|review\.json|pixivdownload-plugin-[A-Za-z0-9._+-]+\.(?:jar|zip)|source\.zip|review-evidence\.zip)$/u.test(name)
         || !fs.lstatSync(file).isFile()) throw new Error('CANDIDATE_UPLOAD_INVALID');
     const result = execFileSync('gh', ['api', '--hostname', 'github.com', '--method', 'POST',
         '-H', 'Content-Type: application/octet-stream', `https://uploads.github.com/${prefix}/releases/${id(releaseId)}/assets?name=${encodeURIComponent(name)}`,

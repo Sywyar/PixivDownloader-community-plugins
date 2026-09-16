@@ -199,6 +199,7 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
             if (endpoint.includes('/git/trees/')) return { tree: [{ path: publisherPath, sha: blobId, type: 'blob', mode: '100644', size: publisherRecord.bytes.length }] };
             if (endpoint.includes('/git/blobs/')) return { sha: blobId, size: publisherRecord.bytes.length, encoding: 'base64', content: publisherRecord.bytes.toString('base64') };
             if (endpoint === `repos/example/${policy.repository.split('/')[1]}`) throw new Error('GITHUB_NOT_FOUND');
+            if (endpoint.includes('/pulls?')) return [[]];
             assert.fail(endpoint);
         } });
         assert.deepEqual(outcome, { cancelled: true }); assert.equal(previews, 1);

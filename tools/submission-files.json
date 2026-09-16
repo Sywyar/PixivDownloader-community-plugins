@@ -213,8 +213,8 @@
     },
     {
       "path": "scripts/candidate-transfer.mjs",
-      "size": 3678,
-      "sha256": "6d0b854e40417acd09b31e85b46e7518088a650426c0ff7c9a66821ffb1045f3"
+      "size": 3752,
+      "sha256": "8879cd1b6d71b8ac41e6fcd84eb10ee2f14f1227a18326a86c382fbe6a82165b"
     },
     {
       "path": "scripts/download-proxy.mjs",
@@ -253,8 +253,8 @@
     },
     {
       "path": "scripts/submission-check.mjs",
-      "size": 12949,
-      "sha256": "68907caff559f47d0ea3abe35d22fdf750c189dce85eb4de6ec1df4f03f1011a"
+      "size": 13570,
+      "sha256": "2dbcb4f62158ca4e304d200bf754220752dfb75237c6e1d3a057b57a79dc9806"
     },
     {
       "path": "scripts/submission-fields.mjs",
@@ -263,8 +263,8 @@
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 11120,
-      "sha256": "f4b586ea8563292aa0e133b368854fea8c65ad525a9c082ce33b79e62659a251"
+      "size": 11501,
+      "sha256": "7587eb57c6b29f4c1fddbc98a34ac763151b91d038a2b4577de7ce52bba550c4"
     },
     {
       "path": "scripts/submission-messages.mjs",
@@ -333,8 +333,8 @@
     },
     {
       "path": "scripts/submission-write.mjs",
-      "size": 10757,
-      "sha256": "4bfd19cff338288caa340d3d3cb84fe7dc44fecc5dfe13db5e3356ba8617ddc0"
+      "size": 11636,
+      "sha256": "0ba00b626ff158b5e7831a00ffe91608fd1a01c6f38cc9960efd5bdb03a650f6"
     },
     {
       "path": "scripts/submit.mjs",

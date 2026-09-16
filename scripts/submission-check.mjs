@@ -144,7 +144,8 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         }
         proof(record, 'ROTATION', 'newKey', p.newKey);
         if (record.value.proofs.oldKey) proof(record, 'ROTATION', 'oldKey', activeKey(publisher.value));
-        result = { operation: 'KEY_ROTATION', owner, requestId: record.value.requestId };
+        result = { operation: 'KEY_ROTATION', owner, requestId: record.value.requestId, requestPath: record.path,
+            requestSha256: record.sha256, publisherSha256: publisher.sha256, recoveryRequired: !record.value.proofs.oldKey };
     } else if (statuses.length) {
         if (statuses.length !== 1) throw new Error('SINGLE_STATUS_REQUIRED');
         const record = read(statuses[0], 'STATUS_REQUEST');
@@ -157,7 +158,9 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         if (version.length !== 1 || version[0].value.package.sha256 !== p.packageSha256) throw new Error('PUBLISHED_VERSION_MISMATCH');
         state.currentStatus(p.pluginId, p.version, p.packageSha256, record.value);
         if (record.value.proofs.activeKey) proof(record, 'STATUS_REQUEST', 'activeKey', activeKey(publisher.value));
-        result = { operation: p.action, owner: p.owner, requestId: record.value.requestId };
+        result = { operation: p.action, owner: p.owner, pluginId: p.pluginId, version: p.version, requestId: record.value.requestId,
+            requestPath: record.path, requestSha256: record.sha256, bindingSha256: p.pluginBindingSha256,
+            publisherSha256: publisher.sha256, recoveryRequired: !record.value.proofs.activeKey };
     } else {
         const roots = new Set(transfers.map(file => file.split('/').slice(0, 3).join('/')));
         if (roots.size !== 1) throw new Error('SINGLE_TRANSFER_REQUIRED');
@@ -188,7 +191,9 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
             }
             allowed.add(reference.path);
         }
-        result = { operation: 'OWNERSHIP_TRANSFER', requestId: proposal.value.requestId, from: p.from, to: p.to };
+        result = { operation: 'OWNERSHIP_TRANSFER', requestId: proposal.value.requestId, from: p.from, to: p.to,
+            pluginId: p.pluginId, requestPath: proposal.path, requestSha256: proposal.sha256,
+            bindingSha256: p.pluginBindingSha256, publisherSha256: target?.sha256 ?? null, recoveryRequired: p.mode === 'RECOVERY' };
     }
     if (files.some(file => !allowed.has(file))) throw new Error('UNEXPECTED_SUBMISSION_FILE');
     return { ...result, validation: 'STATIC_VALIDATED' };

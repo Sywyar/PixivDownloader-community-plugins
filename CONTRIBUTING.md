@@ -1,6 +1,6 @@
 # 贡献说明
 
-版本投稿通过静态检查、隔离重建、风险复核与当前 head 的人工审核后取得准入。仓库所有者从本仓库分支提交工具、规则和文档维护 PR。正式签名发布及换钥、状态、转移执行器尚未接通；合并不表示公开发布。普通投稿者的权限边界是 fork PR，不授予本仓库 Write、Maintain 或 Admin 权限。投稿与工具维护须分开提交，不能在同一 PR 中修改投稿数据及其检查器。
+版本投稿通过静态检查、隔离重建、风险复核与当前 head 的人工审核后取得合并准入。合并请求后，维护者执行发布，再审核并合并结果 PR。仓库所有者从本仓库分支提交工具、规则和文档维护 PR。普通投稿者通过自己的 fork 投稿，不授予本仓库 Write、Maintain 或 Admin 权限；社区所有者使用本仓库内的投稿分支。投稿与工具维护须分开提交，不能在同一 PR 中修改投稿数据及其检查器。
 
 每次投稿固定源码 commit、版本和包摘要。发布者换钥、YANK、UNYANK、REVOKE 和所有权转移使用各自的请求路径，不能夹带在普通版本更新中。已发布记录保留历史字节。
 
@@ -40,7 +40,7 @@
 
 检查详情与 PR 上的一条机器人评论显示当前摘要；完整源码、依赖、许可证、SBOM、扫描差异与重建证据保存在待审核 Draft 的 `review-evidence.zip`。GitHub artifact attestation 只证明受保护归档流程保存过这些字节，不代表人工批准。不能手动改写候选资产或将待审核 Draft 公开。
 
-PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未合并关闭显示 `state:closed`；维护 PR 合并后显示 `state:merged`，版本投稿合并后显示 `state:awaiting-apply`。重新打开的 PR 按当前 head、工作流来源和审核证据重新计算准入。
+PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未合并关闭显示 `state:closed`；维护 PR 合并后显示 `state:merged`。投稿和管理请求合并后，等待执行时显示 `state:awaiting-apply`，结果及 Release 回读完成后显示 `state:completed`，回读失败时显示 `state:apply-failed`。重新打开的 PR 按当前 head、工作流来源和审核证据重新计算准入。
 
 需要使用当前受保护工具重新核对时，在默认分支运行 **Submission static check** 并填写 PR 编号。构建输入相同时复用已认证 Draft 的包，规则变化只重扫；同一 head、输入和完整扫描均未变化时直接使用已有归档。旧 run 的 rerun 仍使用原工作流来源，不能代替当前代码的重算。首次归档中断可重跑原归档流程，逐项补齐缺失资产；已有资产摘要冲突或归档证明缺失时保持阻断，不能覆盖或伪造证明。SDK 工具必须包含扫描器且符合固定锁，缺少时失败。
 
@@ -59,8 +59,26 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 | Environment | 限制与凭据 |
 |---|---|
 | `community-gate` | 仅 `master` 分支；保存现有 Gate App 的 `GATE_APP_PRIVATE_KEY`。官方 App action 只申请本社区仓库的短期 `checks:write` token，并在 job 结束撤销 |
-| `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。`COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64` 保存专用 Ed25519 PKCS#8 PEM 私钥文件的 Base64 编码，仅传给工具清单签名步骤 |
+| `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。工具清单私钥 `COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64` 与插件签名私钥 `COMMUNITY_RELEASE_PRIVATE_KEY_BASE64` 分开保存，各自仅传给对应签名步骤 |
 
-Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单使用专用密钥，公钥固定在启动器中；它不用于插件包签名。社区插件签名私钥只允许在 `release` 的插件签名步骤使用，该插件签名入口尚未接通。
+Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单公钥固定在启动器中，不用于插件包签名。两类私钥都保存 PKCS#8 PEM 文件的 Base64 编码，密钥默认不设置到期时间。
 
-保护配置将所有者的 PR-only bypass 限于更新限制；另一 Ruleset 的四个必需检查、禁止删除和 force push 规则没有 bypass。合并方式为 Merge commit。受保护结果采用机器人结果 PR、所有者合并的模式，配置不授予自动发布 bypass。
+插件签名还需在 `release` 配置 `COMMUNITY_RELEASE_KEY_ID` 和 `COMMUNITY_RELEASE_PUBLIC_KEY_BASE64` 变量，后者为 Ed25519 SPKI DER 的 Base64。社区密钥不能使用官方应用、插件或 FFmpeg 根公钥；已发布社区根也不能通过改变量直接替换。`COMMUNITY_PUBLICATION_TOKEN` 是社区所有者的令牌，只传给结果归档、Release 提升和结果 PR 写入步骤，需能读仓库审核与 Actions 事实并写本社区仓库 Contents、Pull requests。使用独立令牌创建的结果 PR 会触发原生检查；签名步骤只有仓库读取令牌。
+
+## 执行审核结果
+
+1. 确认请求 PR 已通过四项 App 检查和当前 head 的人工审核，再使用 Merge commit 合并。转移时，接收方创建含新密钥证明的 proposal，双方分别提交角色 approval；不同账号的批准须来自各自的 PR。同一账号下的发布者转移可以在同一 PR 批准两个角色。
+2. 在 `master` 运行 **Apply reviewed community operation**，选择 `action=apply`，填写已合并请求的 `prNumber` 和原审核的完整 `expectedHeadSha`。需要恢复时显式勾选 `recoveryApproved`；组织代表权须经人工核对后，填写 `organizationId:personId`，多项用逗号分隔。单纯查询到组织存在不能证明代表权。
+3. 预检通过后审阅并批准 `release` Environment。执行器复核当前原生审核、主线、绑定及密钥，调用固定 SDK 生成结果。版本发布直接使用已归档并核对的原包，等待审核和正式签名不再构建。
+4. 检查生成的 Draft 结果 PR，转为 Ready，并完成当前 head 的人工审核和四项 App 检查后合并。结果 PR 逐字节匹配受保护签发记录；投稿者不能通过仿造生成路径取得写权限。主线一次提交应用完整目录、撤销快照与审计。
+5. 等待同一 workflow 的自动收尾。它核对原包与历史资产，更新 Release 的状态及当前维护者，回写请求状态；版本撤销和所有权转移不会覆盖原包、原签名或历史作者。
+
+正式版本的 tag 为 `<原发布者>/<pluginId>-v<version>`，安装包名称也包含原发布者。执行器在结果 PR 创建前，将已核验的社区候选提升为正式 Release，并匿名下载核对公开包；目录准入仍以结果 PR 合并为准。`operation/<requestId>/<runId>-<attempt>` Draft 保留精确结果清单及 GitHub 归档证明，不自动过期删除。
+
+若上传、Release 提升或结果 PR 创建中断，重新运行相同请求和 head：执行器先读取已证明的结果，补齐缺失步骤，同名异字节资产拒绝覆盖。关闭的结果 PR 会使用新分支重新创建。其它请求推进主线时，只在当前发布者、绑定、源码前序及工具仍符合原证明时重用已签发版本，重算当前目录。已生效请求只回读结果并重试 Release 收尾，不再执行旧写入。工具、身份或原始字节变化时停止，并按具体错误重新审核；不得删除审计或改资产绕过检查。
+
+YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引用的管理者下架，社区独立限制继续保留；REVOKE 没有恢复操作。例行换钥将旧 key 留作历史，泄露处置还为使用该旧 key 的历史包生成独立撤销限制。恢复转移必须有接收方批准、可取回的恢复证据及明确的 Environment 恢复批准。
+
+撤销清单每次签发后有效三十天。即使没有新投稿，也须在 `nextUpdate` 前运行同一 workflow 的 `action=refresh`，其余请求输入留空，再批准 Environment、审核并合并结果 PR。续签递增整代与撤销序号，保留全部限制、原包和历史记录；过期不能用删除撤销条目解决。未合并结果过期时，检查会阻断；关闭旧结果 PR，重新执行原请求，复用已签发原包并生成当前整代。工具渠道的九十天有效期独立维护。
+
+保护配置将所有者的 PR-only bypass 限于更新限制；另一 Ruleset 的四个必需检查、禁止删除和 force push 规则没有 bypass。合并方式为 Merge commit。受保护执行器创建结果 PR，由所有者审核合并，配置不授予自动发布 bypass。
