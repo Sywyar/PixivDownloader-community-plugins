@@ -223,33 +223,31 @@ async function recoverCandidate(context, source, repository) {
     if (!runs.length) throw new Error('CANDIDATE_NOT_FOUND');
     const run = runs[0];
     const identity = `${id(repository.id)}/${id(run.id)}`;
-    context.recoveredCandidates ??= new Set();
-    if (context.recoveredCandidates.has(identity)) throw new Error('CANDIDATE_ARCHIVE_FAILED');
-    let attempt = run.run_attempt;
+    context.recoveredCandidates ??= new Map();
+    let recovery = context.recoveredCandidates.get(identity);
+    if (recovery?.completed) throw new Error('CANDIDATE_ARCHIVE_FAILED');
     const detail = { repository: source.name, commit: source.commit, runId: id(run.id) };
-    if (run.status === 'completed') {
-        if (!await ui.confirm('rerunCandidate', detail)) throw new Error('CANCELLED');
-        // 用户确认一次精确 run 的恢复；返回表单或重新核验不会重放这次平台操作。
-        context.recoveredCandidates.add(identity);
-        call(`${endpoint}/${id(run.id)}/rerun`, { method: 'POST' });
-        attempt++;
-    } else {
-        if (!await ui.confirm('waitCandidate', detail)) throw new Error('CANCELLED');
-        context.recoveredCandidates.add(identity);
+    if (!recovery) {
+        const rerun = run.status === 'completed';
+        if (!await ui.confirm(rerun ? 'rerunCandidate' : 'waitCandidate', detail)) throw new Error('CANCELLED');
+        recovery = { attempt: run.run_attempt + (rerun ? 1 : 0), deadline: Date.now() + 30 * 60_000, completed: false };
+        context.recoveredCandidates.set(identity, recovery);
+        // 请求或轮询中断后只继续读取同一 attempt，不重放平台写入，也不刷新等待预算。
+        if (rerun) call(`${endpoint}/${id(run.id)}/rerun`, { method: 'POST' });
     }
     await ui.task('waitCandidate', async () => {
-        const deadline = Date.now() + 30 * 60_000;
         for (;;) {
             if (ui.signal?.aborted) throw new Error('CANCELLED');
+            const remaining = recovery.deadline - Date.now();
+            if (remaining <= 0) throw new Error('CANDIDATE_WAIT_TIMEOUT');
             const current = call(`${endpoint}/${id(run.id)}`);
             if (current.head_sha !== source.commit || id(current.repository.id) !== id(repository.id)) throw new Error('CANDIDATE_SOURCE_MISMATCH');
-            if (current.run_attempt >= attempt && current.status === 'completed') {
+            if (current.run_attempt >= recovery.attempt && current.status === 'completed') {
+                recovery.completed = true;
                 if (current.conclusion !== 'success') throw new Error('CANDIDATE_ARCHIVE_FAILED');
                 return;
             }
-            const remaining = deadline - Date.now();
-            if (remaining <= 0) throw new Error('CANDIDATE_WAIT_TIMEOUT');
-            try { await setTimeout(Math.min(5000, remaining), undefined, { signal: ui.signal }); }
+            try { await setTimeout(Math.min(5000, Math.max(0, recovery.deadline - Date.now())), undefined, { signal: ui.signal }); }
             catch (error) { if (ui.signal?.aborted) throw new Error('CANCELLED'); throw error; }
         }
     });

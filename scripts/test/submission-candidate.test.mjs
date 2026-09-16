@@ -29,7 +29,7 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
     const store = openProject(projectIdentity('101', '.', 'example'), '201', { home: workspace });
     t.after(() => { store.close(); fs.rmSync(workspace, { recursive: true }); });
     let tag = source.commit; let listed = true; let attempts = 1; let permission = false; let total = 1;
-    let tagExists = false; let refError; let commitError;
+    let tagExists = false; let refError; let commitError; let pollFailure = false, dispatchFailure = false;
     const writes = []; const transfers = [];
     const call = (endpoint, options = {}) => {
         if (options.method === 'PATCH') {
@@ -40,7 +40,9 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
         }
         if (options.method === 'POST') {
             assert(permission); assert(endpoint.endsWith('/actions/runs/301/rerun'));
-            writes.push(endpoint); listed = true; attempts++; return null;
+            writes.push(endpoint); attempts++;
+            if (dispatchFailure) { dispatchFailure = false; throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true }); }
+            return null;
         }
         if (endpoint === 'repos/' + source.name) return repository;
         if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: source.commit } };
@@ -60,7 +62,10 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
             return { sha: tag };
         }
         if (endpoint.endsWith('/actions/runs/301/attempts/1')) return { ...run };
-        if (endpoint.endsWith('/actions/runs/301')) return { ...run, conclusion: 'success', run_attempt: attempts };
+        if (endpoint.endsWith('/actions/runs/301')) {
+            if (pollFailure) { pollFailure = false; throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true }); }
+            listed = true; return { ...run, conclusion: 'success', run_attempt: attempts };
+        }
         if (endpoint.includes('/attempts/1/jobs?')) return [{ total_count: 1, jobs: [{ id: 601, run_id: 301, head_sha: source.commit,
             name: `Build candidate (${hash(Buffer.from('.')).slice(0, 16)})`, status: 'completed', conclusion: 'success' }] }];
         if (endpoint.includes('/actions/runs?')) return [{ total_count: total, workflow_runs: [{ ...run, id: 301 }] }];
@@ -72,8 +77,10 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
         if (expected) assert.deepEqual(expected, { size: value.length, sha256: hash(value) });
         transfers.push(endpoint); fs.writeFileSync(destination, value, { flag: 'wx' });
     };
+    let interruptPublic = true;
     const publicDownload = async (url, destination, maximum, expected) => {
         assert.equal(release.draft, false); assert.equal(url, assets[1].browser_download_url);
+        if (interruptPublic) { interruptPublic = false; throw Object.assign(new Error('DOWNLOAD_CONNECTION_RESET'), { download: true, retryable: true }); }
         transfer(url, destination, maximum, expected);
     };
     const context = { call, store, bindProject(...parts) { assert.deepEqual(parts, ['101', '.', 'example']); },
@@ -112,7 +119,9 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
     assets[1].browser_download_url = draftUrl(assets[1].name).replace('78a7a5fdc81320c954cd', '1234');
     await assert.rejects(prepared.recheck(), /CANDIDATE_ASSET_CHANGED/u);
     assets[1].browser_download_url = draftUrl(assets[1].name);
-    permission = true; await prepared.beforeWrite(); await prepared.beforeWrite(); assert.equal(writes.length, 1);
+    permission = true; await assert.rejects(prepared.beforeWrite(), /DOWNLOAD_CONNECTION_RESET/u);
+    assert.equal(writes.length, 1); assert.equal(release.draft, false);
+    await prepared.beforeWrite(); await prepared.beforeWrite(); assert.equal(writes.length, 1);
     assert.equal(store.record.receipt.sourcePublished, true);
     assert.deepEqual((await prepare()).actions, []);
     assets[1].browser_download_url = draftUrl(assets[1].name);
@@ -121,6 +130,11 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
     assets[1].browser_download_url = publicUrl(assets[1].name);
     listed = false; run.conclusion = 'failure';
     total = 2; await assert.rejects(prepare(), /GITHUB_PAGINATION_INVALID/u); assert.equal(writes.length, 1); total = 1;
+    pollFailure = true; dispatchFailure = true;
+    await assert.rejects(prepare(), /GITHUB_REQUEST_FAILED/u); assert.equal(writes.length, 2);
+    const deadline = context.recoveredCandidates.get('101/301').deadline;
+    await assert.rejects(prepare(), /GITHUB_REQUEST_FAILED/u); assert.equal(writes.length, 2);
+    assert.equal(context.recoveredCandidates.get('101/301').deadline, deadline);
     await prepare(); assert.equal(writes.length, 2); assert.equal(attempts, 2);
     listed = false; await assert.rejects(prepare(), /CANDIDATE_ARCHIVE_FAILED/u); assert.equal(writes.length, 2);
 });

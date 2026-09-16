@@ -218,13 +218,13 @@
     },
     {
       "path": "scripts/download-proxy.mjs",
-      "size": 5552,
-      "sha256": "d057a1292125e8a996273bcb80336ba609b36e85521534327fdfd113adbd83e6"
+      "size": 5740,
+      "sha256": "68160912cc353ffda6bd989e6925ebca7372d079dedb8220c5a5baadd82cfd67"
     },
     {
       "path": "scripts/download.mjs",
-      "size": 6426,
-      "sha256": "1f0dddc666e047c296375bdd2e745b5031e0d0c136867baaeee3a3abd9b0e4ae"
+      "size": 9406,
+      "sha256": "b7a38120ab356d511ed28c8ce2dcce35586076fe7e812cf71d2ae7c61b9ae5a7"
     },
     {
       "path": "scripts/github.mjs",
@@ -248,8 +248,8 @@
     },
     {
       "path": "scripts/submission-candidate.mjs",
-      "size": 18642,
-      "sha256": "c3844fd6a963ff5133650d08f59e9693edeff52de9307dea961d152241a00ed6"
+      "size": 18729,
+      "sha256": "bf43aaa624da87fe76d186cb1c78ac2cf4d2a5ee930e6afa2ac784a6e7f7e104"
     },
     {
       "path": "scripts/submission-check.mjs",
@@ -268,18 +268,18 @@
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 11552,
-      "sha256": "5133b22d61b8dcdc2b91b1adc3e2419348a4d8df6913ac3d522a6a4a5cf3a0ca"
+      "size": 12208,
+      "sha256": "d1c5cd37b8cae84a65596c86af5db054e9680225d99ffff3fcf7c9a978c68661"
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 50509,
-      "sha256": "84c6bc7976b629612914e9bc3ab6239f345b41ad6c9c78a99bd8d2573b241eac"
+      "size": 50784,
+      "sha256": "d6764974f6b5aa7e8929034c999f50b96f1b4479016e427c19ba4ce510201dd9"
     },
     {
       "path": "scripts/submission-navigation.mjs",
-      "size": 4545,
-      "sha256": "769c14f7fef7cd9af131a08fc364d804f9629b46662fdeab1e3069714cabebd0"
+      "size": 4620,
+      "sha256": "4758b0c71719527a9ae81438a382bd92120c8b673c24f744959b243802cd61f7"
     },
     {
       "path": "scripts/submission-operations.mjs",
@@ -293,8 +293,8 @@
     },
     {
       "path": "scripts/submission-progress.mjs",
-      "size": 365,
-      "sha256": "75fd85fc453049742916bf4a5651f7c0345e7bc2e1561953a0cd3b07987e911f"
+      "size": 532,
+      "sha256": "3756372bf598b287b875596f24f956723ad10da5df2ae730f091cfd3c2c36b01"
     },
     {
       "path": "scripts/submission-release.mjs",
@@ -343,13 +343,13 @@
     },
     {
       "path": "scripts/submission-write.mjs",
-      "size": 11665,
-      "sha256": "058bea9d8f6eb5e06cd9049bdb2fb3c87232d8e3542e48399d40c55246340092"
+      "size": 11698,
+      "sha256": "63ed6b38d0d3949af75efd94efa68951dd8ef22eb52c48e99d8dc0e16a3fac18"
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 11861,
-      "sha256": "bb71f377808c388885bd29409acbe107b2deb36d6c0202a8107208882be636c0"
+      "size": 11915,
+      "sha256": "08df34d6a5e279f6a2d87d41020179cd6cf774dbe59395fb2e69fe6c893df886"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

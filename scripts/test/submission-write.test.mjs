@@ -93,6 +93,8 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     const writes = [];
     let commits = 0;
     let pushes = 0;
+    let confirmations = 0, rechecks = 0, preparations = 0, recoveredDownloads = 0;
+    const interrupted = () => Object.assign(new Error('DOWNLOAD_CONNECTION_RESET'), { download: true, retryable: true, downloadStage: 'PROXY_CONNECT', attempts: 3 });
     const call = (endpoint, options = {}) => {
         if (options.method === 'POST') {
             writes.push(endpoint);
@@ -134,10 +136,13 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     const input = { sdk: { workspace: directory, invoke: request => ({ path: path.join(request.root, request.path) }) },
         snapshot, changes, result: { operation: 'FIRST_RELEASE' }, title: 'feat(plugin): demo 2.3.4', call, readGit,
         confirm: preview => {
+            confirmations++;
             assert.equal(preview.fork.name, forkName);
             assert.deepEqual(preview.actions, ['CREATE_COMMIT', 'PUSH_BRANCH', 'CREATE_READY_PR']);
             return true;
-        }, recheck: async () => {} };
+        }, recheck: async () => { if (++rechecks === 1) throw interrupted(); },
+        beforeWrite: async () => { if (++preparations === 1) throw interrupted(); },
+        retry: error => { if (!error.download) return false; recoveredDownloads++; return true; } };
     if (lostResponse) assert.equal((await submitPreview(input)).head, candidate);
     else {
         await assert.rejects(submitPreview(input), /SIMULATED_DISCONNECT/u);
@@ -147,6 +152,8 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     }
     const firstHead = candidate;
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
+    assert.equal(recoveredDownloads, 2);
+    assert.equal(confirmations, lostResponse ? 1 : 2);
     assert.equal(body.base, policy.defaultBranch);
     assert.equal(body.maintainer_can_modify, true);
     assert.match(body.head, new RegExp(`^${actor.login}:community/first_release/`));

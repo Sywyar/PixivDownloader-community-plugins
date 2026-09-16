@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { policy, id, sha } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { git } from './project.mjs';
-import { github, checkedRepository, unchanged, paged } from './submission-github.mjs';
+import { github, checkedRepository, unchanged, paged, recoverableRequest } from './submission-github.mjs';
 
 export function forkTarget(snapshot, call = github) {
     const owner = snapshot.actor.id === policy.repositoryOwnerId;
@@ -72,7 +72,7 @@ export async function submitPreview(options) {
             approved = structuredClone(preview); return true;
         } }); }
         catch (error) {
-            if (!error.github || !options.retry || !await options.retry(error)) throw error;
+            if (!recoverableRequest(error) || !options.retry || !await options.retry(error)) throw error;
         }
     }
 }

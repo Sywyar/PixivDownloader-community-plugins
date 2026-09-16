@@ -4,6 +4,14 @@ import { API_BYTES, API_TIMEOUT, id, sha, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { observe } from './submission-progress.mjs';
 
+// 传输 owner 决定可恢复性；身份、摘要、证书及本地文件错误不能被 UI 放宽。
+export const recoverableRequest = error => Boolean(error.github || error.download && error.retryable);
+export const requestDetails = error => ({
+    ...(Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? { status: error.status } : {}),
+    ...(Number.isInteger(error.attempts) && error.attempts >= 0 && error.attempts <= 3 ? { attempts: error.attempts } : {}),
+    ...(['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'TLS', 'HEADERS', 'BODY', 'FILE'].includes(error.downloadStage) ? { stage: error.downloadStage } : {}),
+});
+
 // gh 的 HTTP 失败带有状态标记；其余输出只用于分类，绝不作为用户诊断返回。
 export function githubRequest(work, { method = 'GET', timeout = API_TIMEOUT, now = Date.now,
     wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {

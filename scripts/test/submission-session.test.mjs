@@ -8,6 +8,9 @@ import { openProject, projectIdentity } from '../submission-state.mjs';
 import { sessionLocator, saveSession, savePrepared, preparedChanges, restorePrepared } from '../submission-session.mjs';
 import { navigation } from '../submission-navigation.mjs';
 import { API_BYTES } from '../github.mjs';
+import { policy, prefix } from '../github.mjs';
+import { git } from '../project.mjs';
+import { runWizard } from '../submit.mjs';
 
 test('新进程按项目恢复语言和已答问题，未签名时仍解锁，完成预览不能清除待提交内容', async t => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-session-'));
@@ -80,4 +83,41 @@ test('已准备内容按原始字节恢复，身份、篡改、超限和私钥�
     store.close();
     const account = openProject(identity, '202', { home });
     assert.equal(account.record.session, undefined); account.close();
+});
+
+test('真实向导恢复初始化也可重试或保存退出，原项目记录不丢失', async t => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-resume-network-'));
+    t.after(() => fs.rmSync(home, { recursive: true }));
+    const project = path.join(home, 'source'); fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
+    git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    git(project, '-c', 'user.name=Submission Test', '-c', 'user.email=submission@example.invalid', 'commit', '-m', 'test: source fixture');
+    const store = openProject(projectIdentity('101', '.', 'example'), '201', { home });
+    saveSession({ store, ui: { locale: 'zh-CN' } }, { operation: 'YANK', sourceCommit: git(project, 'rev-parse', 'HEAD') });
+    const locator = sessionLocator(project, home); locator.bind(store, '201'); store.close();
+    const original = locator.read();
+    for (const failureAt of ['user', 'tree']) for (const action of ['retry', 'saveExit']) {
+        let failed = false, retries = 0, reachedForm = false;
+        const spoken = [];
+        const call = endpoint => {
+            if (!failed && (failureAt === 'user' ? endpoint === 'user' : endpoint.includes('/git/trees/'))) {
+                failed = true; throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true, attempts: 3 });
+            }
+            if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
+            if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch)) return { object: { sha: 'a'.repeat(40) } };
+            if (endpoint === 'user') return { id: '201', login: 'author', type: 'User' };
+            if (endpoint.includes('/git/trees/')) return { tree: [], truncated: false };
+            assert.fail(endpoint);
+        };
+        const outcome = await runWizard(project, { call, stateHome: home, ui: { resume: true, locale: 'zh-CN', text: key => key,
+            task: (_key, work) => work(), say: (...args) => spoken.push(args), close() {},
+            select: key => {
+                if (key === 'retrySubmission') { retries++; return action; }
+                reachedForm = true; throw new Error('CANCELLED');
+            } } });
+        assert.equal(retries, 1); assert.equal(reachedForm, action === 'retry');
+        assert.deepEqual(outcome, action === 'retry' ? { cancelled: true } : { saved: true });
+        assert.deepEqual(locator.read(), original);
+        assert(spoken.some(([key, details]) => key === 'requestFailed' && details.attempts === 3));
+    }
 });

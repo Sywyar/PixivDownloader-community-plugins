@@ -3,6 +3,11 @@ let report = () => {};
 export function progressReporter(listener) { report = listener; }
 export function observe(step, detail, work) {
     report({ step, detail, active: true });
-    try { return work(); }
-    finally { report({ step, detail, active: false }); }
+    const done = () => report({ step, detail, active: false });
+    let result;
+    try { result = work(); }
+    catch (error) { done(); throw error; }
+    if (result?.then) return Promise.resolve(result).finally(done);
+    done();
+    return result;
 }
