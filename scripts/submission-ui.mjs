@@ -119,6 +119,12 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         prompts.log.error(text('terminalRequired'), common);
         throw new Error('INTERACTIVE_TERMINAL_REQUIRED');
     }
+    // 会话统一持有逐键模式；组件之间短暂恢复行模式会让 Windows 的在途读取等待回车。
+    const setRawMode = input.setRawMode;
+    const wasRaw = Boolean(input.isRaw);
+    input.setRawMode(true);
+    input.setRawMode = function (enabled) { return enabled ? setRawMode.call(this, true) : this; };
+    let closed = false;
     const controller = new AbortController();
     common.signal = controller.signal;
     const end = () => controller.abort();
@@ -239,10 +245,13 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         }
     };
     const close = () => {
+        if (closed) return;
+        closed = true;
         input.off('end', end);
         controller.abort();
         input.pause();
-        input.setRawMode(false);
+        input.setRawMode = setRawMode;
+        input.setRawMode(wasRaw);
     };
     try {
         prompts.intro(text('title'), common);

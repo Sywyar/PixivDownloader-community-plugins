@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { API_BYTES, API_TIMEOUT, prefix, id } from './github.mjs';
+import { API_BYTES, prefix, id } from './github.mjs';
 import { root, hash } from './sdk.mjs';
 import { observe } from './submission-progress.mjs';
 import { githubRequest } from './submission-github.mjs';
@@ -38,10 +38,17 @@ export function downloadGithubBinary(endpoint, file, maximum, expected, execute 
 export function uploadCandidate(releaseId, file, name) {
     if (!/^(?:candidate\.json|archive-attestation\.json|publication(?:-attestation)?\.json|community-signature\.json|review\.json|pixivdownload-plugin-[A-Za-z0-9._+-]+\.(?:jar|zip)|source\.zip|review-evidence\.zip)$/u.test(name)
         || !fs.lstatSync(file).isFile()) throw new Error('CANDIDATE_UPLOAD_INVALID');
-    const result = execFileSync('gh', ['api', '--hostname', 'github.com', '--method', 'POST',
-        '-H', 'Content-Type: application/octet-stream', `https://uploads.github.com/${prefix}/releases/${id(releaseId)}/assets?name=${encodeURIComponent(name)}`,
-        '--input', file], { encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
-        stdio: ['ignore', 'pipe', 'pipe'] });
+    return uploadGithubBinary(prefix, releaseId, file, name);
+}
+
+export function uploadGithubBinary(repository, releaseId, file, name, execute = execFileSync) {
+    if (!/^repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repository)
+        || repository.split('/').some(part => ['.', '..'].includes(part))
+        || !/^[A-Za-z0-9][A-Za-z0-9._+-]*$/u.test(name) || !fs.lstatSync(file).isFile()) throw new Error('CANDIDATE_UPLOAD_INVALID');
+    const result = githubRequest(timeout => observe('writingGithub', '', () => execute('gh', ['api', '--hostname', 'github.com', '--method', 'POST',
+        '-H', 'Content-Type: application/octet-stream', `https://uploads.github.com/${repository}/releases/${id(releaseId)}/assets?name=${encodeURIComponent(name)}`,
+        '--input', file], { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: API_BYTES,
+        stdio: ['ignore', 'pipe', 'pipe'] })), { method: 'POST' });
     return JSON.parse(result);
 }
 

@@ -7,7 +7,7 @@ import { root, hash, evidence } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { buildPath, writeCandidate, candidateIdentity } from '../candidate.mjs';
 import { verifyBuildRun } from '../candidate-run.mjs';
-import { downloadCandidate, downloadGithubBinary, unpackCandidate } from '../candidate-transfer.mjs';
+import { downloadCandidate, downloadGithubBinary, uploadGithubBinary, unpackCandidate } from '../candidate-transfer.mjs';
 import { archiveCandidate } from '../archive.mjs';
 import { archiveCertificate, storeArchiveProof, verifyArchiveProof } from '../archive-proof.mjs';
 import { readArchivedCandidate } from '../archive-read.mjs';
@@ -52,6 +52,24 @@ test('候选下载按 API 选择媒体类型，并保留字节校验和拒绝覆
     for (const [code, projected] of [['ETIMEDOUT', 'DOWNLOAD_TIMEOUT'], ['ENOBUFS', 'INPUT_SIZE_EXCEEDED'], ['EPIPE', 'GITHUB_REQUEST_FAILED']]) {
         assert.throws(() => downloadGithubBinary(sourceEndpoint, '', bytes.length, expected, () => { throw Object.assign(new Error('native details'), { code }); }), { message: projected });
     }
+    const sourceFile = path.join(directory, 'source.jar');
+    let uploads = 0;
+    const upload = (command, args, options) => {
+        uploads++;
+        assert.equal(command, 'gh');
+        assert.deepEqual(args, ['api', '--hostname', 'github.com', '--method', 'POST', '-H', 'Content-Type: application/octet-stream',
+            'https://uploads.github.com/repos/source/plugin/releases/123/assets?name=plugin.jar', '--input', sourceFile]);
+        assert.deepEqual(fs.readFileSync(args.at(-1)), bytes);
+        assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe']);
+        return JSON.stringify({ id: 456, size: bytes.length });
+    };
+    assert.deepEqual(uploadGithubBinary('repos/source/plugin', '123', sourceFile, 'plugin.jar', upload), { id: 456, size: bytes.length });
+    assert.throws(() => uploadGithubBinary('repos/../plugin', '123', sourceFile, 'plugin.jar', upload), /CANDIDATE_UPLOAD_INVALID/u);
+    assert.throws(() => uploadGithubBinary('repos/source/plugin', '123', sourceFile, '../plugin.jar', upload), /CANDIDATE_UPLOAD_INVALID/u);
+    assert.throws(() => uploadGithubBinary('repos/source/plugin', '123', sourceFile, 'plugin.jar', () => {
+        uploads++; throw Object.assign(new Error('HTTP 503'), { stderr: 'gh: unavailable (HTTP 503)' });
+    }), /GITHUB_REQUEST_FAILED/u);
+    assert.equal(uploads, 2);
 });
 
 test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不覆盖资产', async () => {
