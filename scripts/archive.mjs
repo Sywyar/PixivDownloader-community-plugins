@@ -21,13 +21,13 @@ const draftName = candidate => `待审核 / ${candidate.owner.publisherId} / ${c
 const reservation = (candidate, manifestSha256) => ({ slot: candidateSlot(candidate), prNumber: candidate.pr.number,
     headSha: candidate.pr.head, runId: id(candidate.runId), runAttempt: candidate.runAttempt, manifestSha256 });
 
-function requireDraft(release, call) {
+export function requireDraft(release, call) {
     const actual = call(`${prefix}/releases/${id(release.id)}`);
     if (!actual.draft || actual.published_at !== null || actual.tag_name !== release.tag_name
         || actual.body !== release.body) throw new Error('CANDIDATE_RELEASE_CHANGED');
 }
 
-async function previousReservation(release, assets, candidate, sdk, download) {
+export async function candidateReservation(release, assets, workspace, download = downloadCandidate) {
     const matches = (release.body ?? '').split('\n').filter(line => line.startsWith(draftMarker));
     if (matches.length > 1) throw new Error('CANDIDATE_RELEASE_AMBIGUOUS');
     let previous;
@@ -39,14 +39,16 @@ async function previousReservation(release, assets, candidate, sdk, download) {
         const manifest = assets.find(asset => asset.name === 'candidate.json');
         if (!manifest || manifest.state !== 'uploaded' || !Number.isSafeInteger(manifest.size) || manifest.size < 1
             || manifest.size > API_BYTES || !/^sha256:[a-f0-9]{64}$/u.test(manifest.digest)) throw new Error('CANDIDATE_ASSET_MISSING');
-        const file = path.join(sdk.workspace, `previous-${crypto.randomUUID()}.json`);
+        const file = path.join(workspace, `previous-${crypto.randomUUID()}.json`);
         await download(`${prefix}/releases/assets/${id(manifest.id)}`, file, API_BYTES,
             { size: manifest.size, sha256: manifest.digest.slice(7) });
         const original = JSON.parse(fs.readFileSync(file, 'utf8'));
         if (candidateIdentity(original) !== release.tag_name) throw new Error('CANDIDATE_TAG_CHANGED');
         previous = reservation(original, manifest.digest.slice(7));
     }
-    if (previous.slot !== candidateSlot(candidate) || !Number.isSafeInteger(previous.prNumber) || previous.prNumber < 1
+    if (!/^candidate\/[a-f0-9]{64}$/u.test(previous.slot)
+        || matches.length && previous.slot !== release.tag_name
+        || !Number.isSafeInteger(previous.prNumber) || previous.prNumber < 1
         || !/^[a-f0-9]{40}$/u.test(previous.headSha) || !/^[a-f0-9]{64}$/u.test(previous.manifestSha256)
         || !Number.isSafeInteger(previous.runAttempt) || previous.runAttempt < 1) throw new Error('CANDIDATE_RELEASE_CHANGED');
     id(previous.runId);
@@ -81,7 +83,8 @@ export async function prepareCandidateDraft(sdk, candidate, directory, current, 
         const packageStem = `pixivdownload-plugin-${candidate.owner.publisherId}-${candidate.submission.pluginId}-${candidate.submission.version}`;
         const allowed = new Set(['candidate.json', 'archive-attestation.json', 'source.zip', 'review-evidence.zip', `${packageStem}.jar`, `${packageStem}.zip`]);
         if (assets.some(asset => !allowed.has(asset.name))) throw new Error('CANDIDATE_ASSETS_CONFLICT');
-        const previous = await previousReservation(release, assets, candidate, sdk, download);
+        const previous = await candidateReservation(release, assets, sdk.workspace, download);
+        if (previous.slot !== candidateSlot(candidate)) throw new Error('CANDIDATE_RELEASE_CHANGED');
         const pr = pull(previous.prNumber, call);
         if (pr.merged || previous.prNumber !== next.prNumber && pr.state !== 'closed') throw new Error('CANDIDATE_SLOT_IN_USE');
         if (previous.prNumber === next.prNumber && (BigInt(previous.runId) > BigInt(next.runId)

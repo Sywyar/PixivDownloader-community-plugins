@@ -1,0 +1,33 @@
+name: Community candidate cleanup
+on:
+  pull_request_target:
+    branches: [master]
+    types: [closed]
+permissions:
+  contents: read
+concurrency:
+  group: community-publication
+  queue: max
+jobs:
+  cleanup:
+    if: >-
+      github.repository == 'Sywyar/PixivDownloader-community-plugins' &&
+      github.ref == 'refs/heads/master' && github.event.pull_request.merged == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - run: node scripts/candidate-cleanup.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
