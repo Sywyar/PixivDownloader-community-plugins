@@ -58,6 +58,51 @@ function consoleStreams() {
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
 
+test('公共终端会话在问题和加载切换时保持逐键模式，退出恢复原状态', { timeout: 10000 }, async () => {
+    const tty = consoleStreams();
+    const originalRawMode = tty.input.setRawMode;
+    const resume = tty.input.resume;
+    const reads = [];
+    tty.input.resume = function () { reads.push(this.isRaw); return resume.call(this); };
+    tty.key('\x1b[B\r');
+    const ui = await terminal(tty.input, tty.output);
+    try {
+        for (const key of ['license', 'risk']) {
+            reads.length = 0;
+            const confirmation = ui.confirm(key, { executionMode: 'host-process-full-trust' });
+            await tty.key('\x1b[B');
+            assert(reads.length > 0); assert(reads.every(Boolean));
+            await tty.key('\r'); assert.equal(await confirmation, true);
+        }
+        reads.length = 0;
+        const selection = ui.select('keyAction', ['existingKey', 'generateKey'], value => ui.text(value));
+        await tty.key('\x1b[B');
+        assert(reads.length > 0); assert(reads.every(Boolean));
+        await tty.key('\r'); assert.equal(await selection, 'generateKey');
+        await ui.task('prepare', async () => {});
+        const fields = [
+            [() => ui.ask('name'), 'example\r', 'example'],
+            [() => ui.password(), 'example\r', 'example'],
+            [() => ui.multiselect('tags', ['a', 'b']), '\x1b[B \r', ['b']],
+        ];
+        for (const [ask, keys, expected] of fields) {
+            reads.length = 0;
+            const answer = ask();
+            await tty.key(keys);
+            assert.deepEqual(await answer, expected);
+            assert(reads.length > 0); assert(reads.every(Boolean));
+        }
+    } finally { ui.close(); }
+    assert.equal(tty.input.isRaw, false);
+    assert.equal(tty.input.setRawMode, originalRawMode);
+    ui.close();
+    tty.input.setRawMode(true);
+    tty.key('\r');
+    const resumed = await terminal(tty.input, tty.output, { resumeLocale: 'en-US' });
+    resumed.close();
+    assert.equal(tty.input.isRaw, true);
+});
+
 test('密钥格式和算法错误在各语言保留独立提示，不误报为密码错误', async () => {
     const codes = ['KEY_FORMAT_INVALID', 'KEY_ENCRYPTION_UNSUPPORTED', 'KEY_ENCRYPTION_PARAMETERS_INVALID'];
     for (const [index, locale] of locales.entries()) {

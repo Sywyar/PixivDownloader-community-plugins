@@ -323,8 +323,8 @@
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 29941,
-      "sha256": "f5319448bc8300d896939291e4ba49a3114545ca1a2a16dc54b2d9ab9c68c192"
+      "size": 30385,
+      "sha256": "41c719758386c4bc3f3f58ceaf90f297f5048bae312b03a409b8137c271f458d"
     },
     {
       "path": "scripts/submission-withdraw.mjs",
