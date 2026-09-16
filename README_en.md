@@ -4,14 +4,14 @@
 
 Submit a PixivDownloader plugin for review here. Push your public source to GitHub, wait for the candidate CI to pass, then run the wizard from your source project. You do not need to clone this repository or write submission files by hand.
 
-After review, a maintainer runs publication and merges its result PR before the plugin enters the community catalog. A source candidate Release or a community Draft under review does not grant community admission.
+After review, a maintainer generates publication data in the original request PR. Merging it triggers the community Release update. A source candidate Release or a community Draft under review does not grant community admission.
 
 ## Submissions and version management
 
 ### 1. Push the source and wait for CI
 
 - Develop with the [Plugin SDK](https://github.com/Sywyar/PixivDownloader-Plugin-SDK), commit your license, and retain the SDK project marker and candidate workflow.
-- Push to the public repository's default branch and wait for every **Plugin candidate** job to pass. CI tests the plugin, checks offline reproduction, and archives the package in a source repository Draft Release.
+- Push to the public repository's default branch and wait for every **Plugin candidate** job to pass. CI tests the plugin, checks offline reproduction, and reuses one Draft Release per plugin, replacing its previous candidate assets.
 - Keep your working tree clean and run the wizard from that same commit. You do not need to download CI artifacts or create a Release yourself. Older SDK projects need updated tools and the candidate workflow first.
 
 The community rebuilds from the submitted source and compares package bytes. Pin build tools, dependencies and packaging timestamps to avoid differences between local and community builds.
@@ -43,7 +43,7 @@ Follow the prompts:
 1. Choose version submission. A single project and build tool are detected automatically; choose when there are multiple options. The wizard retrieves this commit's CI candidate and verifies its bytes.
 2. Check the plugin version, behavior declarations and license. Choose your GitHub publisher identity and enter the plugin description and other display information.
 3. Select an existing signing key or generate one. To generate a key, select an existing parent folder; the tool creates its own subfolder. You can protect the private key with a password.
-4. Confirm the submission summary, then review the full preview and metadata changes. After confirmation, the wizard publishes the source candidate as a pre-release awaiting review, creates a fork if needed, and commits and submits the review PR.
+4. Confirm the submission summary, then review the full preview and metadata changes. After confirmation, the wizard saves the verified candidate in a pre-release tied to the source commit, creates a fork if needed, and commits and submits the review PR. Later CI builds reuse the Draft without overwriting submitted packages.
 
 Store private keys outside Git repositories and temporary directories, and keep a backup. Encrypted keys require a password when signing is needed; the wizard does not save passwords. After changing a version, behavior declaration or source license, commit and push the changes, then wait for the new CI run before continuing.
 
@@ -53,7 +53,7 @@ Saved answers and verified packages stay in your user folder, separated by sourc
 
 Long operations show temporary substeps that disappear when complete. Temporary GitHub read failures retry automatically; if a request still fails, you can retry or save and exit. When a write response is lost, the wizard checks the remote result before continuing.
 
-Draft Releases remain available after Actions artifacts expire. If an archive is missing, the wizard can rerun the original CI for this commit after confirmation.
+Draft Releases remain available after Actions artifacts expire. The Draft holds only the latest candidate; if its archive is missing, the wizard can rerun CI for the current default-branch commit after confirmation. Fixed candidates from confirmed submissions remain available.
 
 The license step accepts existing files or creates a new file from a bundled template. Existing files are preserved. A recognized complete template preselects its SPDX identifier; combined licenses still require confirmation. After creating or changing a license, commit, push and wait for new CI.
 

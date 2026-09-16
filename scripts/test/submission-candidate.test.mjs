@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { sourceCandidate, candidateTag } from '../submission-candidate.mjs';
+import { sourceCandidate, candidateTag, rollingCandidateTag } from '../submission-candidate.mjs';
 import { openProject, projectIdentity } from '../submission-state.mjs';
 import { hash } from '../sdk.mjs';
 
@@ -43,6 +43,7 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
             writes.push(endpoint); listed = true; attempts++; return null;
         }
         if (endpoint === 'repos/' + source.name) return repository;
+        if (endpoint.endsWith('/git/ref/heads/main')) return { object: { sha: source.commit } };
         if (endpoint.endsWith('/releases?per_page=100')) return [listed ? [{ ...release }] : []];
         if (endpoint.endsWith('/releases/401/assets?per_page=100')) return [structuredClone(assets)];
         if (endpoint.endsWith('/releases/401')) return { ...release };
@@ -122,4 +123,92 @@ test('源码草稿以固定提交和原始附件恢复，发布前重新核验 C
     total = 2; await assert.rejects(prepare(), /GITHUB_PAGINATION_INVALID/u); assert.equal(writes.length, 1); total = 1;
     await prepare(); assert.equal(writes.length, 2); assert.equal(attempts, 2);
     listed = false; await assert.rejects(prepare(), /CANDIDATE_ARCHIVE_FAILED/u); assert.equal(writes.length, 2);
+});
+
+test('滚动草稿只在确认投稿时复制固定候选，中断恢复不覆写，后续 CI 不改变审核字节', async t => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-rolling-'));
+    t.after(() => fs.rmSync(workspace, { recursive: true }));
+    const bytes = Buffer.from('verified rolling package');
+    const source = { name: 'owner/source', commit: 'a'.repeat(40) };
+    const repository = { id: 101, full_name: source.name, default_branch: 'main', owner: { id: 201 } };
+    const candidate = { schemaVersion: 1, repositoryId: '101', repository: source.name, sourceCommit: source.commit,
+        runId: '301', runAttempt: 1, pluginId: 'example', version: '3.4.5',
+        buildProfile: { id: 'maven-java17-v1', projectDir: '.', artifactPath: 'target/plugin.jar' },
+        artifact: { file: 'pixivdownload-plugin-example-3.4.5.jar', size: bytes.length, sha256: hash(bytes) } };
+    const rolling = { id: 401, tag_name: rollingCandidateTag(candidate), target_commitish: source.commit, prerelease: true, draft: true };
+    const releases = [rolling]; const assets = new Map(); const contents = new Map();
+    let nextId = 501; let allowed = false; let interrupt = true; let writes = 0;
+    const add = (release, name, data) => {
+        const asset = { id: nextId++, name, size: data.length, digest: 'sha256:' + hash(data), state: 'uploaded',
+            browser_download_url: `https://github.com/${source.name}/releases/download/${release.tag_name}/${name}` };
+        assets.set(asset.id, { ...asset, releaseId: release.id }); contents.set(asset.id, data); return asset;
+    };
+    add(rolling, candidate.artifact.file, bytes); add(rolling, 'source-candidate.json', Buffer.from(JSON.stringify(candidate)));
+    const call = (endpoint, { method = 'GET', body } = {}) => {
+        if (method !== 'GET') { assert(allowed); writes++; }
+        if (method === 'POST') {
+            assert.equal(endpoint, `repos/${source.name}/releases`); releases.push({ ...body, id: 402 });
+            throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true });
+        }
+        if (method === 'PATCH') { releases[1].draft = false; return { ...releases[1] }; }
+        if (endpoint === `repos/${source.name}`) return repository;
+        if (endpoint.endsWith('/releases?per_page=100')) return [structuredClone(releases)];
+        if (/\/releases\/[0-9]+\/assets\?/u.test(endpoint)) {
+            const releaseId = Number(/\/releases\/([0-9]+)/u.exec(endpoint)[1]);
+            return [structuredClone([...assets.values()].filter(a => a.releaseId === releaseId))];
+        }
+        if (/\/releases\/assets\/[0-9]+$/u.test(endpoint)) return { ...assets.get(Number(endpoint.split('/').at(-1))) };
+        if (/\/releases\/[0-9]+$/u.test(endpoint)) return { ...releases.find(r => r.id === Number(endpoint.split('/').at(-1))) };
+        if (endpoint.includes('/git/ref/tags/')) {
+            const release = releases.find(r => endpoint.endsWith('/' + r.tag_name));
+            if (!release || release.draft) throw new Error('GITHUB_NOT_FOUND');
+            return { ref: 'refs/tags/' + release.tag_name };
+        }
+        if (endpoint.includes('/commits/')) return { sha: source.commit };
+        if (endpoint.endsWith('/actions/runs/301/attempts/1')) return { repository, path: '.github/workflows/candidate.yml', status: 'completed',
+            conclusion: 'success', event: 'push', head_sha: source.commit, head_branch: 'main', run_attempt: 1 };
+        throw new Error(endpoint);
+    };
+    const transfer = (endpoint, file, maximum, expected) => {
+        const data = contents.get(Number(endpoint.split('/').at(-1)));
+        assert(data.length <= maximum); assert.deepEqual(expected, { size: data.length, sha256: hash(data) });
+        fs.writeFileSync(file, data, { flag: 'wx' });
+    };
+    const upload = (prefix, releaseId, file, name) => {
+        assert(allowed); assert.equal(prefix, 'repos/' + source.name); assert.equal(releaseId, '402'); writes++;
+        if (interrupt && name === 'source-candidate.json') throw Object.assign(new Error('GITHUB_TIMEOUT'), { github: true });
+        add(releases[1], name, fs.readFileSync(file));
+        throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true });
+    };
+    const publicDownload = async (url, _file, _maximum, expected) => {
+        assert.equal(url, `https://github.com/${source.name}/releases/download/${candidateTag(candidate)}/${candidate.artifact.file}`);
+        assert.equal(releases[1].draft, false); assert.equal(expected.sha256, hash(bytes));
+    };
+    const context = { call, ui: { select() { throw new Error('NO_DUPLICATE_CHOICE'); } }, sdk: { workspace,
+        invoke(input) {
+            if (input.command === 'candidate') return JSON.parse(fs.readFileSync(input.file, 'utf8'));
+            if (input.command === 'limits') return { maxArchiveBytes: 192 * 1024 * 1024 };
+            return { pluginId: candidate.pluginId, version: candidate.version, size: bytes.length, sha256: hash(bytes) };
+        } } };
+    const prepare = extra => sourceCandidate({ ...context, ...extra }, source, { projectDir: '.' }, candidate.buildProfile.id, transfer, publicDownload, upload);
+    const first = await prepare(); assert.equal(writes, 0); assert.equal(first.sourceRelease.tag, candidateTag(candidate));
+    const original = structuredClone(rolling);
+    rolling.target_commitish = 'b'.repeat(40); await assert.rejects(first.recheck(), /CANDIDATE_RELEASE_CHANGED/u);
+    rolling.target_commitish = source.commit;
+    allowed = true; await assert.rejects(first.beforeWrite(), /GITHUB_TIMEOUT/u);
+    assert.equal(releases.length, 2); assert.equal([...assets.values()].filter(a => a.releaseId === 402).length, 1);
+    interrupt = false;
+    const second = await prepare(); await second.beforeWrite(); await second.beforeWrite();
+    assert.deepEqual(rolling, original); assert.equal(releases.length, 2);
+    assert.equal([...assets.values()].filter(a => a.releaseId === 402).length, 2);
+    rolling.target_commitish = 'b'.repeat(40);
+    for (const asset of [...assets.values()].filter(a => a.releaseId === 401)) { assets.delete(asset.id); contents.delete(asset.id); }
+    const resumed = await prepare({ resumeCandidateId: '401', resumeCandidateTag: first.sourceRelease.tag });
+    assert.equal(resumed.sourceRelease.id, '402'); assert.equal(resumed.packageUrl, first.packageUrl);
+    assert.deepEqual(resumed.actions, []); await resumed.recheck();
+    const frozenPackage = [...assets.values()].find(a => a.releaseId === 402 && a.name === candidate.artifact.file);
+    assert.deepEqual(contents.get(frozenPackage.id), bytes);
+    const frozenMetadata = [...assets.values()].find(a => a.releaseId === 402 && a.name === 'source-candidate.json');
+    frozenMetadata.digest = 'sha256:' + '0'.repeat(64);
+    await assert.rejects(resumed.recheck(), /CANDIDATE_ASSET_CHANGED/u);
 });

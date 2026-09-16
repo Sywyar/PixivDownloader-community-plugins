@@ -92,9 +92,10 @@ export async function restorePrepared(context) {
     const files = [...prepared.changes.keys()].filter(file => file.startsWith('submissions/'));
     if (files.length !== 1) throw new Error('PROJECT_SESSION_INVALID');
     const submission = context.sdk.document('SUBMISSION', prepared.changes.get(files[0]), files[0]).value;
-    const candidate = await sourceCandidate({ ...context, resumeCandidateId: prepared.sourceRelease.id }, source,
+    const candidate = await sourceCandidate({ ...context, resumeCandidateId: prepared.sourceRelease.id, resumeCandidateTag: prepared.sourceRelease.tag }, source,
         { projectDir: submission.buildProfile.projectDir }, submission.buildProfile.id);
-    if (!isDeepStrictEqual(candidate.sourceRelease, prepared.sourceRelease) || candidate.packageUrl !== submission.package.url
+    if (candidate.sourceRelease.repository !== prepared.sourceRelease.repository || candidate.sourceRelease.tag !== prepared.sourceRelease.tag
+        || candidate.packageUrl !== submission.package.url
         || candidate.facts.sha256 !== submission.package.sha256 || candidate.facts.size !== submission.package.expectedSize) throw new Error('CANDIDATE_PREVIEW_CHANGED');
     return { ...prepared, submission, fetch: candidate.fetch, beforeWrite: candidate.beforeWrite, actions: candidate.actions,
         recheck: async () => {

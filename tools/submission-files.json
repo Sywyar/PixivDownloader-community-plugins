@@ -213,8 +213,8 @@
     },
     {
       "path": "scripts/candidate-transfer.mjs",
-      "size": 3752,
-      "sha256": "8879cd1b6d71b8ac41e6fcd84eb10ee2f14f1227a18326a86c382fbe6a82165b"
+      "size": 4247,
+      "sha256": "8decc500db655cb52f46edb439ff412785570eeb45818b117ecc1fbb15d09d79"
     },
     {
       "path": "scripts/download-proxy.mjs",
@@ -248,8 +248,8 @@
     },
     {
       "path": "scripts/submission-candidate.mjs",
-      "size": 13923,
-      "sha256": "635d8bd4d5ca5e6844c103334944b30db721ad1035b1eaaaaceee255dcfe3d15"
+      "size": 18642,
+      "sha256": "c3844fd6a963ff5133650d08f59e9693edeff52de9307dea961d152241a00ed6"
     },
     {
       "path": "scripts/submission-check.mjs",
@@ -303,8 +303,8 @@
     },
     {
       "path": "scripts/submission-session.mjs",
-      "size": 6698,
-      "sha256": "40532f367f7d5d55b679f3da3e83581cfbb5a6ddbfd3a486a5a7a5f4bac24f5d"
+      "size": 6821,
+      "sha256": "565bcaf597efc1f6398f07ccc0d92721cc7121aa099127da56ed1a9b9e53e040"
     },
     {
       "path": "scripts/submission-signing.mjs",
