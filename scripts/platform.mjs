@@ -175,7 +175,7 @@ export function facts(number, prepared, current, call = api, versionContext = nu
 
 export function fingerprint(input) {
     return hash(Buffer.from(JSON.stringify({ snapshot: input.after, policy: input.policy,
-        reviews: input.reviews, decisions: input.decisions })));
+        reviews: input.reviews, decisions: input.decisions, statusAudit: input.statusAudit })));
 }
 
 export function event() {

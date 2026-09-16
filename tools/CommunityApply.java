@@ -110,17 +110,29 @@ public final class CommunityApply {
         return Map.of("ready", true);
     }
 
+    private Object confirmOperation() throws Exception {
+        var record = evidence(input.get("audit"));
+        var document = CommunityJson.parse(CommunityJson.Kind.AUDIT, record.bytes());
+        var audit = OperationAudit.read(document);
+        audit.confirmPreparedMerge(document, JSON.treeToValue(input.get("pr"), CommunityPr.class), record.reference(),
+                JSON.convertValue(input.get("generatedParents"), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() { }),
+                JSON.convertValue(input.get("mergeParents"), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() { }));
+        return Map.of("verified", true);
+    }
+
     private OperationAuthority authority() throws Exception {
         var value = input.get("authority");
         var representations = new ArrayList<OperationAuthority.Representation>();
         for (var row : value.withArray("representations")) representations.add(new OperationAuthority.Representation(
                 JSON.treeToValue(row.get("subject"), Owner.class), row.get("personAccountId").textValue(), evidence(row.get("evidence"))));
         var approval = value.get("approval");
+        var signed = value.get("signedStatus");
         return new OperationAuthority(JSON.treeToValue(value.get("proposalPr"), CommunityPr.class),
                 JSON.treeToValue(value.get("actualAuthor"), Account.class), representations,
-                new OperationAuthority.Approval(approval.get("requestId").textValue(), approval.get("headSha").textValue(),
+                approval == null || approval.isNull() ? null : new OperationAuthority.Approval(approval.get("requestId").textValue(), approval.get("headSha").textValue(),
                         strings(approval.get("reviewerAccountIds")), approval.get("recoveryApproved").booleanValue(), evidence(approval.get("evidence"))),
-                strings(value.get("authorizedReviewers")));
+                strings(value.get("authorizedReviewers")), signed == null || signed.isNull() ? null
+                    : new OperationAuthority.SignedStatus(signed.get("requestId").textValue(), signed.get("headSha").textValue(), evidence(signed.get("evidence"))));
     }
 
     private static java.util.Set<String> strings(JsonNode value) {
@@ -240,6 +252,7 @@ public final class CommunityApply {
             case "transfer-ready" -> tool.transferReady();
             case "publication" -> tool.publication();
             case "confirm-publication" -> tool.confirmPublication();
+            case "confirm-operation" -> tool.confirmOperation();
             case "sign" -> tool.sign();
             case "directory" -> tool.directory();
             case "revocations" -> tool.revocations();

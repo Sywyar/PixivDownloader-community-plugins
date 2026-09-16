@@ -1,0 +1,96 @@
+name: Apply signed version status
+run-name: 'Signed status ${{ github.event.workflow_run.display_title || format(''PR #{0} head {1}'', inputs.prNumber, inputs.expectedHeadSha) }}'
+on:
+  workflow_run:
+    workflows: [Submission static check]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      prNumber:
+        description: Signed version status PR number
+        required: true
+        type: string
+      expectedHeadSha:
+        description: Exact current PR head
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: community-publication
+  queue: max
+jobs:
+  apply:
+    if: >-
+      github.repository_id == '1347624983' && github.repository_owner_id == '83223374' &&
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: community-status
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          verify-signature: true
+      - id: preflight
+        run: node scripts/community-status.mjs preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - id: prepare
+        if: steps.preflight.outputs.ready == 'true'
+        run: node scripts/community-status.mjs prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_STATUS_INPUTS: ${{ steps.preflight.outputs.inputs }}
+          HAS_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN != '' }}
+          COMMUNITY_RELEASE_KEY_ID: ${{ vars.COMMUNITY_RELEASE_KEY_ID }}
+          COMMUNITY_RELEASE_PUBLIC_KEY_BASE64: ${{ vars.COMMUNITY_RELEASE_PUBLIC_KEY_BASE64 }}
+          COMMUNITY_RELEASE_PRIVATE_KEY_BASE64: ${{ secrets.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64 }}
+      - id: proof
+        if: steps.prepare.outputs.manifest != ''
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ steps.prepare.outputs.manifest }}
+          create-storage-record: false
+      - id: store
+        if: steps.prepare.outputs.manifest != ''
+        run: node scripts/community-status.mjs store
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_STATUS_INPUTS: ${{ steps.preflight.outputs.inputs }}
+          COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
+          COMMUNITY_PUBLICATION_FILE: ${{ steps.prepare.outputs.manifest }}
+          COMMUNITY_ATTESTATION_BUNDLE: ${{ steps.proof.outputs.bundle-path }}
+      - id: merge
+        if: steps.store.outputs.head != '' || steps.prepare.outputs.head != ''
+        run: node scripts/community-status.mjs merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_STATUS_INPUTS: ${{ steps.preflight.outputs.inputs }}
+          COMMUNITY_STATUS_HEAD: ${{ steps.store.outputs.head || steps.prepare.outputs.head }}
+          COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
+      - if: >-
+          always() && steps.merge.outputs.merged != 'true' &&
+          (steps.preflight.outputs.projections != '' || steps.prepare.outputs.projections != '' ||
+          steps.store.outputs.projections != '' || steps.merge.outputs.projections != '')
+        run: node scripts/community-status.mjs notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_PROJECTIONS: ${{ steps.merge.outputs.projections || steps.store.outputs.projections || steps.prepare.outputs.projections || steps.preflight.outputs.projections }}

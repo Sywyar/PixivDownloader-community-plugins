@@ -1,4 +1,16 @@
 export const additions = {
+    revokeWarning: ['撤销不可恢复，将阻止安装和启动此包。请核对目标。', 'Revocation is irreversible and blocks installation and startup of this package. Check the target.', '撤銷無法恢復，將阻止安裝和啟動此套件。請核對目標。', '失効は元に戻せません。このパッケージのインストールと起動を禁止します。対象を確認してください。', '철회는 되돌릴 수 없으며 이 패키지의 설치와 실행을 차단합니다. 대상을 확인하세요.'],
+    revokeIdentity: ['输入 插件ID@版本 确认撤销', 'Type pluginId@version to confirm revocation', '輸入 插件ID@版本 確認撤銷', '失効を確認するには pluginId@version を入力', '철회를 확인하려면 pluginId@version 입력'],
+    statusSigned: ['将由受保护流程核验签名并自动处理；存在人工拒绝或社区限制时需人工复核。', 'The protected workflow will verify the signature and process this request automatically. Human objections or community restrictions require review.', '受保護流程將核驗簽章並自動處理；存在人工拒絕或社群限制時需人工複核。', '保護されたワークフローが署名を検証して自動処理します。審査の拒否やコミュニティの制限がある場合は再審査が必要です。', '보호된 워크플로가 서명을 검증하고 자동 처리합니다. 검토자의 거부 또는 커뮤니티 제한이 있으면 검토가 필요합니다.'],
+    statusManual: ['此请求将等待人工审核，以核对恢复证据或组织代表权。', 'This request will wait for human review of recovery evidence or organization authority.', '此請求將等待人工審核，以核對復原證據或組織代表權。', '復旧の証拠または組織の代表権を確認するため、人による審査を待ちます。', '복구 증거 또는 조직 대표 권한을 확인하기 위한 검토를 기다립니다.'],
+    deleteRequestBranch: ['请求已取消。是否删除以下远端请求分支？整个仓库和 Release 会保留。', 'The request is withdrawn. Delete this remote request branch? The repository and Releases will be kept.', '請求已取消。是否刪除下列遠端請求分支？整個儲存庫和 Release 將保留。', '申請は取り下げ済みです。このリモートブランチを削除しますか？リポジトリと Release は保持します。', '요청이 취소되었습니다. 이 원격 요청 브랜치를 삭제할까요? 저장소와 Release는 유지됩니다.'],
+    keepBranch: ['保留分支', 'Keep the branch', '保留分支', 'ブランチを保持', '브랜치 유지'],
+    branchRemoved: ['请求分支已删除或已不存在。', 'The request branch has been deleted or no longer exists.', '請求分支已刪除或已不存在。', '申請ブランチは削除済み、または既に存在しません。', '요청 브랜치가 삭제되었거나 이미 존재하지 않습니다.'],
+    branchRetained: ['请求已取消；分支未清理，请查看原因。', 'The request is withdrawn; branch cleanup did not complete. See the reason below.', '請求已取消；分支未清理，請查看原因。', '申請は取り下げ済みですが、ブランチを削除できませんでした。理由を確認してください。', '요청은 취소되었으나 브랜치를 정리하지 못했습니다. 아래 사유를 확인하세요.'],
+    retryBranchCleanup: ['是否重新核对并重试清理？删除前会再次确认。', 'Recheck and retry cleanup? Deletion will require confirmation again.', '是否重新核對並重試清理？刪除前會再次確認。', '再確認して削除を再試行しますか？削除前にもう一度確認します。', '다시 확인하고 정리를 재시도할까요? 삭제 전에 다시 확인합니다.'],
+    branchCleanup: ['分支清理结果', 'Branch cleanup result', '分支清理結果', 'ブランチ削除結果', '브랜치 정리 결과'],
+    retained: ['已保留', 'Kept', '已保留', '保持しました', '유지됨'],
+    removed: ['已清理', 'Removed', '已清理', '削除済み', '정리됨'],
     yes: ['是', 'Yes', '是', 'はい', '예'],
     no: ['否', 'No', '否', 'いいえ', '아니요'],
     operationUnavailable: ['当前没有可执行的对象，已返回社区操作菜单。', 'No eligible items are available. Returning to the operation menu.', '目前沒有可操作的項目，已返回操作選單。', '操作できる対象がありません。操作メニューに戻ります。', '작업 가능한 항목이 없습니다. 작업 메뉴로 돌아갑니다.'],
@@ -89,6 +101,10 @@ export const additions = {
 };
 
 export const errors = {
+    REVOKE_CONFIRMATION_MISMATCH: ['输入必须与所选的 插件ID@版本 完全一致。', 'Enter the exact pluginId@version shown for the selected package.', '輸入必須與所選的 插件ID@版本 完全一致。', '選択したパッケージの pluginId@version と完全に一致する値を入力してください。', '선택한 패키지의 pluginId@version을 정확히 입력하세요.'],
+    BRANCH_CLEANUP_UNSAFE: ['分支身份或提交已改变，或它是受保护、默认、非向导分支；已保留。', 'The branch identity or commit changed, or it is protected, a default branch, or not a wizard branch. It was kept.', '分支身分或提交已改變，或它是受保護、預設、非精靈分支；已保留。', 'ブランチの識別情報やコミットが変わったか、保護・既定・ウィザード以外のブランチのため保持しました。', '브랜치 정보나 커밋이 변경되었거나 보호·기본·마법사 외부 브랜치여서 유지했습니다.'],
+    BRANCH_CLEANUP_IN_USE: ['其他开放 PR 仍在使用此分支，已保留。', 'Another open PR uses this branch. It was kept.', '其他開放 PR 仍使用此分支，已保留。', '別の未完了 PR が使用しているため、ブランチを保持しました。', '다른 열린 PR이 사용 중이므로 브랜치를 유지했습니다.'],
+    BRANCH_CLEANUP_FAILED: ['未能确认远端分支已删除；请求取消仍然有效。', 'Remote branch deletion could not be confirmed. The request remains withdrawn.', '未能確認遠端分支已刪除；請求取消仍然有效。', 'リモートブランチの削除を確認できませんでした。申請の取り下げは有効です。', '원격 브랜치 삭제를 확인하지 못했습니다. 요청 취소는 유효합니다.'],
     NO_OWNED_PUBLISHERS: ['当前账号没有已登记的发布者，首次投稿时可登记。', 'This account has no registered publishers. Register one with a first submission.', '目前帳號沒有已登記的發布者，可在首次投稿時登記。', 'このアカウントには登録済みの発行者がありません。初回投稿で登録できます。', '이 계정에 등록된 게시자가 없습니다. 첫 제출 시 등록할 수 있습니다.'],
     NO_OWNED_PLUGINS: ['当前账号没有可管理的已发布插件。待审核请求请使用取消请求操作。', 'This account has no published plugins to manage. Use withdrawal for pending requests.', '目前帳號沒有可管理的已發布外掛。待審核請求請使用取消請求操作。', '管理できる公開済みプラグインがありません。審査待ちの申請は取り下げ操作を使ってください。', '관리할 수 있는 게시된 플러그인이 없습니다. 검토 중인 요청에는 요청 취소를 사용하세요.'],
     NO_REGISTERED_PLUGINS: ['社区尚无已登记插件可供转移。', 'There are no registered community plugins to transfer.', '社群尚無已登記外掛可供轉移。', '移管できる登録済みプラグインがありません。', '이전할 수 있는 등록된 커뮤니티 플러그인이 없습니다.'],

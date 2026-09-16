@@ -27,6 +27,8 @@ export function desiredSettings() {
                 deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } },
             'community-gate': { wait_timer: 0, prevent_self_review: false, can_admins_bypass: false, reviewers: [],
                 deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } },
+            'community-status': { wait_timer: 0, prevent_self_review: false, can_admins_bypass: false, reviewers: [],
+                deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } },
         },
         deploymentBranch: { name: policy.defaultBranch, type: 'branch' },
     };

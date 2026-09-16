@@ -26,7 +26,7 @@ public final class CommunityReview {
     public record Decision(Reference evidence, ReviewDecision.Execution execution) { }
     public record Input(ReviewAdmission.Snapshot before, ReviewAdmission.Snapshot after, ReviewAdmission.Validation validation,
                         String publisherId, ReviewPolicy policy, List<Review> reviews, List<Decision> decisions,
-                        Reference report, PluginRiskDeclaration declaration, List<Reference> evidence) { }
+                        Reference report, PluginRiskDeclaration declaration, List<Reference> evidence, Reference statusAudit) { }
 
     public static void main(String[] args) throws Exception {
         Utf8ConsoleStreams.install();
@@ -86,6 +86,8 @@ public final class CommunityReview {
         var result = ReviewAdmission.evaluate(input.before, input.after, input.validation, input.publisherId, input.policy,
                 reviews, decisions, input.report == null ? null : CommunityValues.requireEvidence(input.report, evidence),
                 MAX_BYTES, input.declaration, evidence);
+        if (input.statusAudit != null) result = ReviewAdmission.authorizeStatus(result,
+                CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityValues.requireEvidence(input.statusAudit, evidence).bytes()));
         System.out.println(new String(CommunityJson.encode(result), java.nio.charset.StandardCharsets.UTF_8));
     }
 }

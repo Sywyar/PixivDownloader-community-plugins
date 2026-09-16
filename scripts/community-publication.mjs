@@ -15,6 +15,7 @@ import { makeReceipt, receiptPath, receiptExpired, readReceipt, immutableAsset, 
 import { verifyPublicationProof } from './archive-proof.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 import { notify, appliedProjection } from './community-gate.mjs';
+import { signedStatusEligible, statusState } from './status-authorization.mjs';
 
 const output = value => {
     for (const [key, item] of Object.entries(value)) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${item}\n`, 'utf8');
@@ -29,21 +30,27 @@ export const inputsFrom = payload => {
 };
 
 export async function preparePublication(context, inputs, sdk, { call = api, checkCall = github, readGit } = {}) {
-    if (context.run.event !== 'workflow_dispatch') throw new Error('PUBLICATION_DISPATCH_REQUIRED');
-    if (!reviewers(call).includes(id(context.run.triggering_actor.id))) throw new Error('PUBLICATION_REVIEWER_REQUIRED');
+    if (!context.automatic && context.run.event !== 'workflow_dispatch') throw new Error('PUBLICATION_DISPATCH_REQUIRED');
+    if (!context.automatic && !reviewers(call).includes(id(context.run.triggering_actor.id))) throw new Error('PUBLICATION_REVIEWER_REQUIRED');
     const pr = pull(inputs.prNumber, call);
+    if (context.automatic && (pr.state !== 'open' || pr.merged || pr.draft)) return { selected: { pr }, pending: 'REVIEW_OPEN_READY_PR_REQUIRED' };
     const pending = reviewPrerequisite(pr, inputs.expectedHeadSha, context.current);
     if (pending) return { selected: { pr }, pending };
     const files = list(`${prefix}/pulls/${pr.number}/files`, null, call);
     if (files.some(file => /^generated\/receipts\//u.test(file.filename))) {
         const completion = await checkResult(pr.number, sdk, context.current, { call, readGit });
+        if (context.automatic && completion.receipt.authorization !== 'SIGNED_OWNER') {
+            return { selected: { pr }, pending: 'STATUS_MANUAL_REVIEW_REQUIRED' };
+        }
         const frozen = { ...restoreReview(sdk, stateReader(sdk, context.current, checkCall), completion.receipt), completion };
         currentAdmission(pr.number, sdk, context, frozen, call, readGit);
         return { selected: { pr }, replayed: true, receipt: completion.receipt };
     }
     const version = await versionContext(pr.number, sdk, context.current, call, readGit, { checkCall });
     if (!version) return { selected: { pr }, pending: 'REVIEW_OPERATION_REQUIRED' };
-    const state = stateReader(sdk, pr.head.sha, checkCall, pr.head.repo.full_name);
+    if (context.automatic && !signedStatusEligible(version.checked)) return { selected: { pr }, pending: 'STATUS_MANUAL_REVIEW_REQUIRED' };
+    const state = signedStatusEligible(version.checked) ? statusState(sdk, context.current, version.checked, pr, checkCall)
+        : stateReader(sdk, pr.head.sha, checkCall, pr.head.repo.full_name);
     const appliedAt = new Date().toISOString().replace(/\.\d{3}Z$/u, 'Z');
     const identity = version.checked.submissionSha256 ?? (version.checked.operation === 'OWNERSHIP_TRANSFER'
         ? hash(encoded({ requestId: version.checked.requestId, prNumber: pr.number })) : version.checked.requestSha256);
@@ -56,13 +63,16 @@ export async function preparePublication(context, inputs, sdk, { call = api, che
     }
     let admission;
     try { admission = currentAdmission(pr.number, sdk, context, version, call, readGit); }
-    catch (error) { if (error.message === 'PUBLICATION_REVIEW_REQUIRED') return { selected: { pr }, pending: error.message }; throw error; }
+    catch (error) { if (['PUBLICATION_REVIEW_REQUIRED', 'STATUS_MANUAL_REVIEW_REQUIRED'].includes(error.message)) return { selected: { pr }, pending: error.message }; throw error; }
     return { selected: { pr }, state, requestId: identity, inputFiles: files, version, admission, appliedAt };
 }
 export async function prepareResult(context, inputs, sdk, prepared, credentials, { call = api, checkCall = github, readGit } = {}) {
     publicationEnvironment(context, inputs, call);
     if (prepared.replayed) return { replayed: true, receipt: prepared.receipt };
     const { selected, state, requestId, version, admission, appliedAt } = prepared;
+    if (context.automatic && (!signedStatusEligible(version.checked) || admission.result.authorization !== 'SIGNED_OWNER')) {
+        throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
+    }
     const adapter = applySdk(sdk);
     if (admission) archiveAdmission(adapter, sdk, admission.input);
     const communityKey = credentials.communityKey;
@@ -104,7 +114,8 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
     if (!applied.recordOnly) generateState({ sdk, adapter, state, writes: applied.writes, communityKey, privateBytes: credentials.privateBytes,
         appliedAt, nextUpdate, decision: applied.decision });
     const result = makeReceipt({ requestId, operation: version.checked.operation, pr: selected?.pr, current: context.current, run: context.run,
-        writes: applied.writes, state, appliedAt, recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
+        writes: applied.writes, state, appliedAt, authorization: context.automatic ? 'SIGNED_OWNER' : undefined,
+        recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
         reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
             'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'requestPath', 'requestId', 'requestSha256', 'recoveryRequired', 'organizationRepresentationRequired']
             .filter(key => version.checked[key] !== undefined).map(key => [key, version.checked[key]])), publicationBindingSha256: version.publicationBindingSha256,
@@ -148,12 +159,16 @@ export async function storeResult(context, file, bundle, sdk, inputs, { call = a
 
 export function waitingProjection(pr, code) {
     const messages = {
-        MAINTAINER_EDITS_REQUIRED: 'Please enable **Allow edits from maintainers** on this pull request, then ask a maintainer to run Complete community review again. No files or releases were published.',
+        MAINTAINER_EDITS_REQUIRED: 'Please enable **Allow edits from maintainers** on this pull request, then retry Apply signed version status for an eligible signed status request, or Complete community review for a human-reviewed request. No files or releases were published.',
         REVIEW_OPEN_READY_PR_REQUIRED: 'Mark this pull request ready for review before completing the review.',
         REVIEW_OPERATION_REQUIRED: 'This form completes community submissions and management requests. Maintenance PRs use the existing review checks.',
-        REVIEW_BRANCH_CREDENTIAL_REQUIRED: 'The protected workflow needs a credential that can update this exact fork branch. Allow edits from maintainers alone does not grant the workflow token access. Configure COMMUNITY_REVIEW_BRANCH_TOKEN in the release environment, then retry.',
+        REVIEW_BRANCH_CREDENTIAL_REQUIRED: 'The protected workflow needs a credential that can update this exact fork branch. Allow edits from maintainers alone does not grant the workflow token access. Configure COMMUNITY_REVIEW_BRANCH_TOKEN in the workflow environment (release for human review, community-status for automatic status), then retry.',
         REVIEW_BRANCH_WRITE_DENIED: 'GitHub denied the update to this fork branch. Check COMMUNITY_REVIEW_BRANCH_TOKEN access, Allow edits from maintainers, branch protection and API limits, then retry. The prepared archive is retained; the request has not been approved for merge.',
-        PUBLICATION_REVIEW_REQUIRED: 'Complete the human review and resolve validation or scan findings for this exact head, then run Complete community review again.',
+        PUBLICATION_REVIEW_REQUIRED: 'Resolve validation, scan findings and review objections for this exact head, then retry the selected workflow. Requests requiring human approval must complete that review first.',
+        STATUS_MANUAL_REVIEW_REQUIRED: 'This request requires human review: provide a valid active-key proof as the current personal owner, or use Complete community review for recovery, organization authority or community restrictions.',
+        STATUS_CHECKS_PENDING: 'The signed request is prepared. Exact-head checks have not all passed; no merge was attempted. Resolve the checks, then retry Apply signed version status with the current head.',
+        STATUS_MERGE_BLOCKED: 'GitHub branch protection prevented the merge. The prepared request is retained. Resolve the blocking rule, then retry Apply signed version status with the current head.',
+        STATUS_MERGE_CREDENTIAL_REQUIRED: 'Automatic merging requires COMMUNITY_REVIEW_BRANCH_TOKEN in the community-status environment to represent the repository owner. The existing owner-only merge rule remains enforced.',
         CANDIDATE_ARCHIVE_PENDING: 'The verified candidate archive is still being prepared. Complete the review after the build, scan and archive finish.',
     };
     if (!messages[code]) throw new Error(code);

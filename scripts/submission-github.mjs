@@ -155,7 +155,7 @@ export function stateReader(sdk, base, call = github, repositoryName = policy.re
             const p = request.payload;
             const originalPath = `version-status-requests/${p.owner.accountId}/${p.pluginId}/${p.version}/${request.requestId}.json`;
             sdk.document('STATUS_REQUEST', bytes, originalPath);
-            if (request.requestId !== audit.requestId || p.action !== audit.action || audit.result !== 'APPLIED') throw new Error('AUDIT_REQUEST_MISMATCH');
+            if (request.requestId !== audit.requestId || p.action !== audit.action || !['APPLIED', 'PREPARED'].includes(audit.result)) throw new Error('AUDIT_REQUEST_MISMATCH');
             if (p.pluginId !== pluginId || p.version !== version || p.packageSha256 !== packageSha256) continue;
             for (const ref of [audit.beforeRef, audit.afterRef, audit.decisionRef, ...(audit.recoveryEvidence ?? []), ...audit.relatedRecords]) reference(ref);
             history.push({ file: sdk.save(bytes), decisionSha256: audit.decisionRef.sha256 });

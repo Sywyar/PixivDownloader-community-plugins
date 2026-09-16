@@ -8,7 +8,7 @@ export function applyOperation({ sdk, adapter, state, checked, authority, approv
     if (!request || request.sha256 !== checked.requestSha256) throw new Error('APPLY_REQUEST_CHANGED');
     const existing = state.read(`audits/${request.value.requestId}.json`, 'AUDIT');
     if (existing) {
-        if (existing.value.result !== 'APPLIED' || hash(state.reference(existing.value.requestRef)) !== request.sha256) throw new Error('APPLY_REPLAY_CONFLICT');
+        if (!['APPLIED', 'PREPARED'].includes(existing.value.result) || hash(state.reference(existing.value.requestRef)) !== request.sha256) throw new Error('APPLY_REPLAY_CONFLICT');
         for (const ref of [existing.value.beforeRef, existing.value.afterRef, existing.value.decisionRef, ...existing.value.relatedRecords,
             ...(existing.value.recoveryEvidence ?? [])]) state.reference(ref);
         return { replayed: true, audit: existing.value, writes: new Map() };

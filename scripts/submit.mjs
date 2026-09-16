@@ -8,7 +8,7 @@ import { terminal, failureCode } from './submission-ui.mjs';
 import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
-import { prepareRotation, prepareStatus, prepareTransfer } from './submission-operations.mjs';
+import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from './submission-operations.mjs';
 import { withdrawRequest } from './submission-withdraw.mjs';
 import { validateChanges } from './submission-check.mjs';
 import { submitPreview } from './submission-write.mjs';
@@ -128,7 +128,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             changes: metadataChanges(prepared.previousMarket, prepared.submission?.market) } : {}) };
         return submitPreview({ sdk, snapshot, changes: prepared.changes, title: prepared.title, result, call,
             actions: prepared.actions, beforeWrite: async () => { navigator.seal(); await prepared.beforeWrite?.(); },
-            confirm: preview => ui.confirm('preview', preview),
+            confirm: async preview => {
+                await confirmRevocation(ui, result, prepared.changes);
+                return ui.confirm('preview', preview);
+            },
             recheck: async () => {
                 await ui.task('rechecking', async () => {
                     unchanged(snapshot, call);

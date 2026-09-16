@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prepareRotation, prepareStatus, prepareTransfer } from '../submission-operations.mjs';
+import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from '../submission-operations.mjs';
+import { navigation } from '../submission-navigation.mjs';
 import { errors } from '../submission-messages.mjs';
 import { locales } from '../submission-ui.mjs';
 
@@ -16,6 +17,21 @@ function context() {
         sdk: { invoke: () => ({ valid: true }) }, call: () => ({ id: 202, type: 'User', login: 'recipient' }) };
     return { result, values, binding, notices, choices };
 }
+
+test('撤销最终确认校验完整插件版本，保存恢复不复用或预填该许可', async () => {
+    const changes = new Map([['request.json', Buffer.from(JSON.stringify({ payload: { pluginId: 'demo', version: '1.0.0', packageSha256: 'a'.repeat(64) } }))]]);
+    let history = [], asked = 0, remembered = 0;
+    const ui = { say() {}, ask: async (key, initial, validate) => {
+        assert.equal(key, 'revokeIdentity'); assert.equal(initial, '');
+        assert.throws(() => validate('demo'), /REVOKE_CONFIRMATION_MISMATCH/);
+        validate('demo@1.0.0'); asked++; return 'demo@1.0.0';
+    } };
+    for (let run = 0; run < 2; run++) {
+        const form = navigation(ui, () => ({ folder: 'project', remember() { remembered++; } }), { history, onChange: value => { history = value; } });
+        await confirmRevocation(form.ui, { operation: 'REVOKE', requestPath: 'request.json' }, changes);
+    }
+    assert.equal(asked, 2); assert.equal(remembered, 0); assert.deepEqual(history, []);
+});
 
 test('无发布者、无插件及无适用版本分别给出原因并返回菜单', async () => {
     for (const action of ['YANK', 'UNYANK', 'REVOKE']) {
