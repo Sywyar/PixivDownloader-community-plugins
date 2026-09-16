@@ -86,6 +86,7 @@ test('配置可重复应用，所有者不能借 PR bypass 跳过四个 App 检�
         snapshot => { snapshot.environments.release.protection_rules[0].prevent_self_review = true; },
         snapshot => { snapshot.branches.release.push({ name: '*', type: 'tag' }); },
         snapshot => { snapshot.token.default_workflow_permissions = 'write'; },
+        snapshot => { snapshot.token.can_approve_pull_request_reviews = false; },
     ]) {
         const snapshot = readSettings(server.call);
         mutate(snapshot);

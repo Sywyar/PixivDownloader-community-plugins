@@ -111,15 +111,15 @@ export function readBlob(name, entry, call = github) {
     return bytes;
 }
 
-export function stateReader(sdk, base, call = github) {
-    const tree = repositoryTree(policy.repository, base, call);
+export function stateReader(sdk, base, call = github, repositoryName = policy.repository) {
+    const tree = repositoryTree(repositoryName, base, call);
     const cached = new Map();
     const documents = new Map();
     let total = 0;
     const raw = file => {
         if (!tree.has(file)) return null;
         if (!cached.has(file)) {
-            const bytes = readBlob(policy.repository, tree.get(file), call);
+            const bytes = readBlob(repositoryName, tree.get(file), call);
             total += bytes.length;
             if (total > API_BYTES) throw new Error('STATE_SIZE_EXCEEDED');
             cached.set(file, bytes);

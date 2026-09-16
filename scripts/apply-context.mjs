@@ -84,13 +84,14 @@ export function operationAuthority({ request, proposal, approvals, context, inpu
 }
 
 export function currentAdmission(number, sdk, context, version, call = api, readGit = git) {
+    const reviewCall = version.completion?.reviewCall ?? call;
     const collect = () => {
-        const input = facts(number, sdk, context.current, call, version);
+        const input = facts(number, sdk, context.current, reviewCall, version);
         if (version.publicationBindingSha256) {
             input.before.bindingSha256 = input.after.bindingSha256 = version.publicationBindingSha256;
             input.validation.bindingSha256 = version.publicationBindingSha256;
         }
-        return attachDecisions(input, loadDecisions(number, sdk, context.current, call, readGit, undefined, input.after.version));
+        return attachDecisions(input, loadDecisions(number, sdk, context.current, reviewCall, readGit, undefined, input.after.version));
     };
     const input = collect(), result = evaluate(sdk, input);
     if (!result.validationPassed || !result.riskPassed || !['APPROVED', 'SELF_APPROVED'].includes(result.human.status)) throw new Error('PUBLICATION_REVIEW_REQUIRED');
@@ -119,8 +120,8 @@ export function restoreReview(sdk, state, receipt) {
     return frozen;
 }
 
-export const publicationExecution = (env, call, readGit) => {
-    const context = execution(publicationPath, env, call, readGit);
+export const publicationExecution = (mode, env, call, readGit) => {
+    const context = execution(mode === 'finalize' ? '.github/workflows/community-publication.yml' : publicationPath, env, call, readGit);
     if (!['workflow_dispatch', 'push'].includes(context.run.event)) throw new Error('PUBLICATION_EXECUTION_INVALID');
     return context;
 };

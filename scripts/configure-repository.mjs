@@ -6,7 +6,7 @@ export function desiredSettings() {
         conditions: { ref_name: { include: [`refs/heads/${policy.defaultBranch}`], exclude: [] } }, bypass_actors, rules });
     return {
         repository: { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false, allow_auto_merge: false },
-        token: { default_workflow_permissions: 'read', can_approve_pull_request_reviews: false },
+        token: { default_workflow_permissions: 'read', can_approve_pull_request_reviews: true },
         rulesets: [
             ruleset('community-owner-updates', [{ type: 'update', parameters: { update_allows_fetch_and_merge: false } }],
                 [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }]),

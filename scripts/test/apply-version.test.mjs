@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { signingTool } from '../submission-signing.mjs';
 import { applySdk } from '../apply-sdk.mjs';
-import { publishVersion, rebasePublication } from '../apply-version.mjs';
-import { makeReceipt } from '../apply-result.mjs';
+import { publishVersion } from '../apply-version.mjs';
 import { currentAdmission } from '../apply-context.mjs';
+import { confirmPublication } from '../publication-releases.mjs';
 import { scanBuild } from '../build-evidence.mjs';
 import { encoded } from '../apply-generation.mjs';
 import { hash, root } from '../sdk.mjs';
@@ -18,6 +18,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
     const sdk = prepareSubmission(), sign = signingTool(sdk), adapter = applySdk(sdk);
     const records = new Map();
     const state = { tree: records, raw: file => records.get(file) ?? null,
+        reference(ref) { const bytes = records.get(ref.path); assert.equal(bytes.length, ref.size); assert.equal(hash(bytes), ref.sha256); return bytes; },
         read(file, kind) { const bytes = records.get(file); return bytes ? { ...sdk.document(kind, bytes, file), bytes, path: file } : null; },
         published(plugin) { return [...records.keys()].filter(file => file.startsWith(`published/${plugin}/`)).map(file => this.read(file, 'PUBLISHED')); } };
     const pair = crypto.generateKeyPairSync('ed25519'), privateFile = path.join(sdk.workspace, 'publisher.pem');
@@ -42,7 +43,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
     records.set('publishers/101/example.json', encoded({ schemaVersion: 1, publisherId: 'example', displayName: 'Example',
         githubAccount: { id: '101', type: 'User', loginAtRegistration: 'example' }, signingKeys: [key] }));
     const current = 'b'.repeat(40), appliedAt = '2026-01-02T00:00:00Z';
-    const pr = { number: 7, state: 'closed', merged: true, draft: false, merge_commit_sha: current, user: { id: 101, type: 'User' }, changed_files: 1,
+    const pr = { number: 7, state: 'open', merged: false, draft: false, merge_commit_sha: null, user: { id: 101, type: 'User' }, changed_files: 1,
         head: { sha: 'a'.repeat(40), repo: { id: 401 } }, base: { sha: current, ref: policy.defaultBranch, repo: { id: policy.repositoryId } } };
     const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };
     const context = { current, run: { id: 91, run_attempt: 1, event: 'workflow_dispatch', triggering_actor: reviewer } };
@@ -79,17 +80,20 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
     assert.equal(result.published.sourceCommit, submission.source.commit);
     assert.equal(result.release.id, '501'); assert.equal(result.release.packageSha256, hash(bytes));
     result.writes.set('generated/community-key.json', encoded(communityKey));
-    const receipt = makeReceipt({ requestId: hash(records.get(submissionPath)), operation: 'FIRST_RELEASE', pr, current,
-        run: context.run, writes: result.writes, state, appliedAt, releases: [result.release], reviewContext: version }).value;
-    const restored = rebasePublication(state, applySdk(sdk), receipt, result.decision, communityKey);
-    assert.deepEqual(restored.release, result.release);
-    assert.ok(restored.writes.get(`published/${submission.pluginId}/${submission.version}.json`).equals(result.writes.get(`published/${submission.pluginId}/${submission.version}.json`)));
-    assert.ok(!restored.writes.has('generated/community-key.json'));
-    assert.throws(() => rebasePublication(state, applySdk(sdk), receipt, result.decision, { ...communityKey, publicKeySpkiBase64: key.publicKeySpkiBase64 }), /COMMUNITY_KEY_CHANGED/);
-    records.set('plugin-bindings/example-minimal.json', binding);
-    assert.throws(() => rebasePublication(state, applySdk(sdk), receipt, result.decision, communityKey), /BINDING_CHANGED/);
-    records.delete('plugin-bindings/example-minimal.json');
+    const publication = adapter.archive(result.writes.get(`published/${submission.pluginId}/${submission.version}.json`));
+    const publisher = adapter.archive(records.get('publishers/101/example.json'));
+    const generated = 'd'.repeat(40), merged = 'e'.repeat(40);
+    const confirm = { command: 'confirm-publication', communityKey, repositoryId: 'pixivdownloader-community',
+        published: publication, publisher, packageFile: 'plugin.jar', merge: {
+            pr: { githubRepositoryId: policy.repositoryId, number: pr.number, authorAccountId: '101', headRepositoryId: '401',
+                headSha: generated, baseSha: current, mergeSha: merged }, generatedHead: generated,
+            generatedParents: [pr.head.sha], mergeParents: [current, generated], preparedRecord: publication } };
+    assert.equal(adapter.invoke(confirm).verified, true);
+    assert.throws(() => adapter.invoke({ ...confirm, merge: { ...confirm.merge, generatedParents: ['f'.repeat(40)] } }), /PREPARED_MERGE_MISMATCH/);
     result.writes.forEach((bytes, file) => records.set(file, bytes));
+    const completion = { receipt: { baseSha: current }, pr: { ...pr, state: 'closed', merged: true, head: { ...pr.head, sha: generated }, merge_commit_sha: merged },
+        commit: { sha: generated, parents: [{ sha: pr.head.sha }] }, merge: { parents: [{ sha: current }, { sha: generated }] } };
+    assert.equal(confirmPublication(sdk, state, result.published, artifact, completion).verified, true);
     assert.equal(publishVersion(options).writes.size, 0);
     assert.throws(() => publishVersion({ ...options, version: { ...version, checked: { ...version.checked, package: { ...version.checked.package, sha256: 'f'.repeat(64) } } } }), /VERSION_DIGEST_CONFLICT/);
     sign.close(); privateBytes.fill(0);

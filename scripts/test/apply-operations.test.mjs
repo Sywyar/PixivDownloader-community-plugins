@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { signingTool, signOperation } from '../submission-signing.mjs';
 import { applySdk } from '../apply-sdk.mjs';
 import { applyOperation } from '../apply-operations.mjs';

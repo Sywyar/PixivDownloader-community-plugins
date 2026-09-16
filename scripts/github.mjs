@@ -7,8 +7,11 @@ export const prefix = `repos/${policy.repository}`;
 export const API_TIMEOUT = 60_000;
 export const API_BYTES = 32 * 1024 * 1024;
 
-export function api(endpoint, { method = 'GET', body, token, pages = false, raw = false } = {}, execute = execFileSync) {
-    if (!endpoint.startsWith(`${prefix}/`) && endpoint !== prefix && endpoint !== 'user') {
+export function api(endpoint, { method = 'GET', body, token, pages = false, raw = false, repositoryName = policy.repository } = {}, execute = execFileSync) {
+    if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repositoryName)
+        || repositoryName.split('/').some(part => part === '.' || part === '..')) throw new Error('GITHUB_TARGET_MISMATCH');
+    const target = `repos/${repositoryName}`;
+    if (!endpoint.startsWith(`${target}/`) && endpoint !== target && endpoint !== 'user') {
         throw new Error('GITHUB_TARGET_MISMATCH');
     }
     const args = ['api', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint];

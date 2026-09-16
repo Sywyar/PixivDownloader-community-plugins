@@ -150,8 +150,10 @@ export async function dispatch() {
     const inputs = event().inputs;
     const number = Number(id(inputs.prNumber));
     const version = await versionContext(number, prepared, context.current);
-    const before = facts(number, prepared, context.current, api, version);
-    const previous = loadDecisions(number, prepared, context.current, api, undefined, id(context.run.id), before.after.version);
+    const actual = pull(number);
+    const reviewCall = version?.completion?.reviewCall ?? api;
+    const before = facts(number, prepared, context.current, reviewCall, version);
+    const previous = loadDecisions(number, prepared, context.current, reviewCall, undefined, id(context.run.id), before.after.version);
     const value = createDecision(inputs, context, before, previous);
     value.evidence = evidence(prepared.workspace, value.bytes);
     value.execution = { pr: { ...before.after.pr, baseSha: value.document.baseSha }, repositoryId: before.after.repositoryId,
@@ -159,8 +161,10 @@ export async function dispatch() {
         runAttempt: context.run.run_attempt, originalActor: { id: id(context.run.actor.id), type: context.run.actor.type },
         triggeringActor: { id: id(context.run.triggering_actor.id), type: context.run.triggering_actor.type },
         decisionAt: value.document.decisionAt };
-    const after = facts(number, prepared, context.current, api, version);
-    if (fingerprint(before) !== fingerprint(after)) throw new Error('DECISION_FACTS_CHANGED');
+    const after = facts(number, prepared, context.current, reviewCall, version);
+    const current = pull(number);
+    if (fingerprint(before) !== fingerprint(after) || current.head.sha !== actual.head.sha
+        || current.base.sha !== actual.base.sha || current.state !== actual.state || current.merged !== actual.merged) throw new Error('DECISION_FACTS_CHANGED');
     evaluate(prepared, attachDecisions(after, [...previous, value]));
     const directory = path.join(root, 'target/decision');
     fs.mkdirSync(directory, { recursive: true });

@@ -56,26 +56,36 @@ test('候选提升为正式 Release 后响应丢失可恢复，原资产和签�
         packageName: 'package.jar', packageSize: packageBytes.length, packageSha256: hash(packageBytes), originalAssets: structuredClone(f.assets),
         reviewBytes: encoded({ reviewed: true }).toString('base64'), signature: { value: 'community signature' }, name: 'original / demo-v2.3.4-rc.9',
         owner: { publisherId: 'original', accountId: '101', accountType: 'User' }, sourceCommit: 'c'.repeat(40), version: '2.3.4-rc.9' }] };
+    receipt.headSha = 'a'.repeat(40); receipt.baseSha = 'c'.repeat(40);
+    const completion = { receipt, pr: { merged: true, state: 'closed', head: { sha: 'd'.repeat(40) }, merge_commit_sha: 'b'.repeat(40) },
+        commit: { sha: 'd'.repeat(40), parents: [{ sha: receipt.headSha }] },
+        merge: { sha: 'b'.repeat(40), parents: [{ sha: receipt.baseSha }, { sha: 'd'.repeat(40) }] } };
+    let confirmations = 0;
+    const transport = { ...f, confirm: (_expected, file) => { assert.deepEqual(fs.readFileSync(file), packageBytes); confirmations++; } };
+    await assert.rejects(promoteReleases({ ...completion, pr: { ...completion.pr, merged: false } }, f.workspace, transport), /REVIEW_MERGE_CHANGED/);
+    assert.equal(f.release.draft, true);
     f.loseResponse();
-    await promoteReleases(receipt, f.workspace, f);
+    await promoteReleases(completion, f.workspace, transport);
+    assert.equal(confirmations, 1);
     assert.equal(f.release.draft, false); assert.equal(f.release.prerelease, true);
     assert.equal(f.release.tag_name, receipt.releases[0].tag); assert.deepEqual(f.bodies.get('701'), packageBytes);
-    const count = f.writes(); await promoteReleases(receipt, f.workspace, f); assert.equal(f.writes(), count);
+    const count = f.writes(); await promoteReleases(completion, f.workspace, transport); assert.equal(f.writes(), count);
     f.assets[0].id = 999;
-    await assert.rejects(promoteReleases(receipt, f.workspace, f), /PUBLICATION_ASSET_CHANGED/);
+    await assert.rejects(promoteReleases(completion, f.workspace, transport), /PUBLICATION_ASSET_CHANGED/);
     assert.equal(f.writes(), count);
 });
 
 test('已合并整代状态驱动 Release 更新，响应丢失回读且只读检查不写入', async t => {
     const f = archiveFixture(t), sdk = prepareSubmission(), current = 'b'.repeat(40), records = new Map();
+    const source = 'a'.repeat(40), head = 'c'.repeat(40), generated = 'd'.repeat(40);
     const vector = name => JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/structure', name + '.json')));
     const put = (file, value) => { const bytes = encoded(value); records.set(file, bytes); return { path: file, size: bytes.length, sha256: hash(bytes) }; };
     const record = vector('published'), review = vector('review');
-    record.reviewRef = put('records/review.json', review);
+    record.reviewRef = put('records/' + 'a'.repeat(64) + '.json', review);
     put('published/demo/2.3.4.json', record);
     const manager = { accountId: '202', accountType: 'User', publisherId: 'next' };
     put('plugin-bindings/demo.json', { schemaVersion: 1, pluginId: 'demo', owner: manager, effectiveRequestId: null, updatedAt: '2026-01-01T00:00:00Z' });
-    const data = put('generated/data.json', {}), revocations = { entries: [] };
+    const data = put('generated/generations/1/catalog.json', {}), revocations = { entries: [] };
     const snapshot = () => put('generated/current.json', { sequence: 2, descriptor: data, directory: data, catalog: data,
         revocations: put('revocations.json', revocations) });
     snapshot();
@@ -83,21 +93,43 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
     const assets = [...originalAssets, ...[['review.json', encoded(review)], ['community-signature.json', encoded(record.communitySignature)]]
         .map(([name, bytes], index) => ({ id: 803 + index, name, size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' }))];
     const formal = { id: 801, tag_name: formalTag(record), draft: false, name: 'Old name', body: 'Manual notes', target_commitish: current };
-    const made = makeReceipt({ requestId: 'd'.repeat(64), operation: 'FIRST_RELEASE', pr: { number: 3, head: { sha: current }, merge_commit_sha: current },
-        current, run: { id: 7, run_attempt: 1 }, writes: new Map(), state: { raw: () => null }, appliedAt: '2026-01-01T00:00:00Z',
+    const repo = { id: policy.repositoryId, full_name: policy.repository };
+    const originalPr = { number: 3, state: 'open', merged: false, draft: false, changed_files: 1, user: { id: 101, type: 'User' },
+        head: { sha: head, ref: 'community/request', repo }, base: { sha: source, ref: 'master', repo } };
+    const inputFiles = [{ filename: 'submissions/101/demo/2.3.4.json', status: 'added' }];
+    const made = makeReceipt({ requestId: 'd'.repeat(64), operation: 'FIRST_RELEASE', pr: originalPr,
+        current: source, inputFiles, run: { id: 7, run_attempt: 1 }, writes: new Map(records), state: { raw: () => null }, appliedAt: '2026-01-01T00:00:00Z',
         releases: [{ id: 801, tag: formal.tag_name, targetCommit: current, originalAssets }] });
+    const parentRecords = new Map([[inputFiles[0].filename, encoded({ request: true })]]);
+    for (const [file, bytes] of parentRecords) records.set(file, bytes);
     f.release.tag_name = `operation/${made.value.requestId}/7-1`;
     for (const [name, bytes] of [['publication.json', made.bytes], ['publication-attestation.json', Buffer.from('{}')]]) {
         const file = path.join(f.workspace, name); fs.writeFileSync(file, bytes); f.upload(501, file, name);
     }
     put(`generated/receipts/${made.value.requestId}.json`, { schemaVersion: 1, releaseId: '501', size: made.bytes.length, sha256: hash(made.bytes) });
+    const generatedRecords = new Map(records);
+    const pr = { ...originalPr, state: 'closed', merged: true, changed_files: made.value.files.length + 2,
+        head: { ...originalPr.head, sha: generated }, merge_commit_sha: current };
     let patches = 0, tip = current;
     const blobId = bytes => crypto.createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`)).update(bytes).digest('hex');
     const call = (endpoint, options = {}) => {
         const route = endpoint.split('?')[0];
-        if (route === `${prefix}/git/trees/${current}`) return { truncated: false, tree: [...records].map(([path, bytes]) => ({ path, type: 'blob', mode: '100644', size: bytes.length, sha: blobId(bytes) })) };
+        if (route.startsWith(`${prefix}/git/trees/`)) {
+            const commit = route.split('/').at(-1), tree = commit === current ? records : commit === generated ? generatedRecords : parentRecords;
+            return { truncated: false, tree: [...tree].map(([path, bytes]) => ({ path, type: 'blob', mode: '100644', size: bytes.length, sha: blobId(bytes) })) };
+        }
+        if (route === `${prefix}/pulls/3`) return structuredClone(pr);
+        if (route === `${prefix}/pulls/3/files`) return [[...inputFiles,
+            ...made.value.files.map(file => ({ filename: file.path, status: 'added' })),
+            { filename: `generated/receipts/${made.value.requestId}.json`, status: 'added' }]];
+        if (route.endsWith('/check-runs')) return [{ total_count: 4, check_runs: policy.requiredContexts.map((name, i) => ({
+            id: i + 1, name, app: policy.gateApp, head_sha: generated, external_id: '17:1:3', status: 'completed', conclusion: 'success' })) }];
+        if (route.startsWith(`${prefix}/git/commits/`)) {
+            const sha = route.split('/').at(-1);
+            return { sha, parents: (sha === generated ? [head] : [source, generated]).map(sha => ({ sha })) };
+        }
         if (route.startsWith(`${prefix}/git/blobs/`)) {
-            const sha = route.split('/').at(-1), bytes = [...records.values()].find(bytes => blobId(bytes) === sha);
+            const sha = route.split('/').at(-1), bytes = [...records.values(), ...generatedRecords.values(), ...parentRecords.values()].find(bytes => blobId(bytes) === sha);
             return { sha, size: bytes.length, encoding: 'base64', content: bytes.toString('base64') };
         }
         if (route === `${prefix}/branches/master`) return { commit: { sha: tip } };
@@ -110,7 +142,7 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
         }
         return f.call(endpoint, options);
     };
-    const options = { call, download: f.download, verify: () => ({ sourceRepositoryDigest: current }) };
+    const options = { call, readGit: () => '', download: f.download, verify: () => ({ sourceRepositoryDigest: source }) };
     assert.equal((await finalizeReleases({ current }, sdk, { ...options, write: false })).applied, false);
     assert.equal(patches, 0);
     for (const state of ['ACTIVE', 'YANKED', 'REVOKED']) {
@@ -125,7 +157,7 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
     assets[0] = { ...assets[0], id: 900 };
     await assert.rejects(finalizeReleases({ current }, sdk, options), /PUBLICATION_ASSET_CHANGED/);
     assets[0] = originalAssets[0]; tip = 'e'.repeat(40);
-    await assert.rejects(finalizeReleases({ current }, sdk, options), /APPLY_BASE_CHANGED/);
+    await assert.rejects(finalizeReleases({ current }, sdk, options), /PR_OR_BASE_CHANGED/);
 });
 
 test('正式发布状态保留原作者及人工说明，撤销优先于下架', () => {
@@ -145,9 +177,9 @@ test('正式发布状态保留原作者及人工说明，撤销优先于下架',
 
 test('结果归档绑定受保护签发来源及原始字节，工具升级不破坏历史证明', async t => {
     const f = archiveFixture(t), current = 'b'.repeat(40), source = 'a'.repeat(40);
-    const result = makeReceipt({ requestId: 'd'.repeat(64), operation: 'YANK', pr: { number: 3, head: { sha: 'c'.repeat(40) }, merge_commit_sha: source },
+    const result = makeReceipt({ requestId: 'd'.repeat(64), operation: 'YANK', pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } },
         current: source, run: { id: 7, run_attempt: 1 }, writes: new Map([['generated/current.json', encoded({ sequence: 1 })]]),
-        state: { raw: () => null }, releases: [], appliedAt: '2026-01-01T00:00:00Z', reviewContext: { checked: { operation: 'YANK' } } });
+        state: { raw: () => null }, inputFiles: [], releases: [], appliedAt: '2026-01-01T00:00:00Z', reviewContext: { checked: { operation: 'YANK' } } });
     f.release.tag_name = `operation/${result.value.requestId}/7-1`;
     const file = path.join(f.workspace, 'publication.json'), bundle = path.join(f.workspace, 'publication-attestation.json');
     fs.writeFileSync(file, result.bytes); fs.writeFileSync(bundle, '{}');
@@ -170,6 +202,6 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
     assert.throws(() => publicationCertificate(verified, current, readGit), /ARCHIVE_ATTESTATION_SOURCE_INVALID/);
     certificate.buildTrigger = 'workflow_dispatch';
     await assert.rejects(readReceipt({ workspace: f.workspace }, { ...pointer, sha256: 'e'.repeat(64) }, current, { ...f, readGit, verify }), /APPLY_RECEIPT_CHANGED/);
-    assert.throws(() => makeReceipt({ ...result.value, current: source, pr: { number: 3, head: { sha: 'c'.repeat(40) }, merge_commit_sha: source }, run: { id: 7, run_attempt: 1 },
+    assert.throws(() => makeReceipt({ ...result.value, current: source, pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } }, run: { id: 7, run_attempt: 1 },
         writes: new Map([['tools/sdk-tools.jar', Buffer.from('replacement')]]), state: { raw: () => null } }), /APPLY_WRITE_FORBIDDEN/);
 });

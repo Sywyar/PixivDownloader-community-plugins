@@ -12,7 +12,7 @@ export function archiveCertificate(results, current, readGit = git) {
     return workflowCertificate(results, current, archivePath, 'workflow_run', readGit);
 }
 
-export const publicationPath = '.github/workflows/community-publication.yml';
+export const publicationPath = '.github/workflows/community-review-complete.yml';
 export function publicationCertificate(results, current, readGit = git) {
     return workflowCertificate(results, current, publicationPath, 'workflow_dispatch', readGit);
 }

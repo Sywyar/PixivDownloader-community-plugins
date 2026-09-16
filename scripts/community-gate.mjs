@@ -8,6 +8,11 @@ import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 
 export function appliedProjection(pr, files, result) {
+    const recorded = result.receipts?.find(receipt => receipt.prNumber === pr.number && receipt.recordOnly);
+    const transferred = recorded && result.receipts.some(receipt => receipt.files.some(file =>
+        file.path === `audits/${recorded.reviewContext.checked.requestId}.json`));
+    if (recorded && !transferred) return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged,
+        labels: ['state:awaiting-apply'], summary: 'This approval is recorded. Ownership remains unchanged until the other required party submits an approval and that request completes review.' };
     const applied = result.applied && result.receipts.some(receipt => receipt.prNumber === pr.number
         || files.some(file => file.filename.endsWith(`/${receipt.requestId}.json`) || file.filename.includes(`/${receipt.requestId}/`)));
     return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged,
@@ -29,7 +34,7 @@ export async function publish(number, context, prepared, call = api, write = api
     const checks = [];
     const patch = (checkId, conclusion, summary) => write(prefix + '/check-runs/' + id(checkId), {
         method: 'PATCH', token: process.env.GATE_TOKEN,
-        body: { status: 'completed', conclusion, output: { title: 'Community admission', summary } },
+        body: { status: conclusion === 'pending' ? 'queued' : 'completed', ...(conclusion === 'pending' ? {} : { conclusion }), output: { title: 'Community admission', summary } },
     });
     try {
         // 关闭后的通知只表达终态，不按更新后的默认分支重新签发合并准入检查。
@@ -56,16 +61,20 @@ export async function publish(number, context, prepared, call = api, write = api
         }
         if (prepared instanceof Error) throw prepared;
         const version = await resolveVersion(number, prepared, context.current, call, readGit);
+        const reviewCall = version?.completion?.reviewCall ?? call;
         const collect = () => {
-            const input = facts(number, prepared, context.current, call, version);
-            return attachDecisions(input, loadDecisions(number, prepared, context.current, call, readGit, undefined, input.after.version));
+            const input = facts(number, prepared, context.current, reviewCall, version);
+            return attachDecisions(input, loadDecisions(number, prepared, context.current, reviewCall, readGit, undefined, input.after.version));
         };
         const before = collect();
-        if (before.after.pr.headSha !== head) throw new Error('PR_HEAD_CHANGED');
+        if (before.after.pr.headSha !== (version?.completion?.receipt.headSha ?? head)) throw new Error('PR_HEAD_CHANGED');
         const result = evaluate(prepared, before);
         const after = collect();
         if (fingerprint(before) !== fingerprint(after)) throw new Error('REVIEW_FACTS_CHANGED');
-        const states = conclusions(result);
+        const states = conclusions(result).map(value => value ? 'success' : 'failure');
+        if (result.human.status === 'PENDING') states[2] = 'pending';
+        if (!pr.draft && (version && !version.completion || states[2] === 'pending') && states[0] === 'success' && states[1] === 'success'
+            && states[2] !== 'failure') states[3] = 'pending';
         const summary = 'Operation: ' + (version ? version.checked.operation : 'maintenance') + '\n\nInput: ' + result.snapshot.inputSha256
             + '\n\nHuman review: ' + result.human.status + '\n\nFlow: ' + result.flow
             + (version?.report ? '\n\nPlugin scan: ' + version.report.status + '; blocking findings: ' + result.blockingFindingIds.length
@@ -75,30 +84,44 @@ export async function publish(number, context, prepared, call = api, write = api
                     ? 'requires human verification for GitHub organization IDs ' + version.checked.organizationRepresentationRequired.join(', ') : 'not applicable')
                 + '\n\nPending archive: ' + version.url + '\n\nThis draft is not publication or SOURCE_REVIEWED.'
                 : '\n\nPlugin scan: not applicable to this operation.')
+            + (version && !version.completion ? '\n\nWaiting for a maintainer to run Complete community review for this exact head.' : '')
+            + (version && !version.completion && id(pr.head.repo.id) !== policy.repositoryId && pr.maintainer_can_modify !== true
+                ? '\n\nPlease enable **Allow edits from maintainers** on this pull request before completing the review.' : '')
             + (version?.checked.recoveryRequired ? '\n\nApplication requires explicit recovery approval in the protected release workflow.' : '')
             + (version && !version.report && version.checked.organizationRepresentationRequired?.length
                 ? '\n\nOrganization representation requires human verification: ' + version.checked.organizationRepresentationRequired.join(', ') : '');
-        for (let i = 0; i < checks.length; i++) patch(checks[i], states[i] ? 'success' : 'failure', summary);
+        for (let i = 0; i < checks.length; i++) patch(checks[i], states[i], summary);
         if (fingerprint(before) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
+        const latest = pull(number, call);
+        if (latest.head.sha !== head || latest.base.sha !== pr.base.sha || latest.state !== pr.state || latest.merged !== pr.merged) throw new Error('PR_OR_BASE_CHANGED');
         for (let i = 0; i < checks.length; i++) {
             const check = call(prefix + '/check-runs/' + checks[i]);
-            if (id(check.app.id) !== id(policy.gateApp.id) || check.head_sha !== head || check.status !== 'completed'
-                || check.conclusion !== (states[i] ? 'success' : 'failure')) throw new Error('CHECK_READBACK_MISMATCH');
+            if (id(check.app.id) !== id(policy.gateApp.id) || check.head_sha !== head
+                || check.status !== (states[i] === 'pending' ? 'queued' : 'completed')
+                || (states[i] === 'pending' ? check.conclusion != null : check.conclusion !== states[i])) throw new Error('CHECK_READBACK_MISMATCH');
         }
         const type = { FIRST_RELEASE: 'new-plugin', UPDATE: 'update', KEY_ROTATION: 'key-rotation',
             YANK: 'yank', UNYANK: 'unyank', REVOKE: 'revoke', OWNERSHIP_TRANSFER: 'ownership-transfer' }[version?.checked.operation] ?? 'maintenance';
         const labels = [...result.labels, 'type:' + type, ...(version?.checked.recoveryRequired ? ['flow:recovery'] : [])];
+        if (states[3] === 'pending') {
+            const ready = labels.indexOf('state:ready');
+            if (ready >= 0) labels.splice(ready, 1);
+            if (!labels.includes('review:pending')) labels.push('review:pending');
+        }
         // 维护合并没有目录应用动作；只有发布执行器能显示 awaiting-apply/completed。
         if (!version && result.snapshot.state === 'MERGED') labels.splice(labels.indexOf('state:awaiting-apply'), 1);
         return { ...identity, labels, summary };
     } catch (error) {
+        const pending = error.message === 'CANDIDATE_ARCHIVE_PENDING';
         const failures = [];
         for (const checkId of checks) {
-            try { patch(checkId, 'failure', 'Admission could not be verified. See the trusted workflow log.'); }
+            try { patch(checkId, pending ? 'pending' : 'failure', pending
+                ? 'Waiting for the verified candidate archive.' : 'Admission could not be verified. See the trusted workflow log.'); }
             catch (failure) { failures.push(failure.message); }
         }
         console.error('PR #' + number + ': ' + error.message);
         if (failures.length) throw new Error('CHECK_REVOCATION_FAILED: ' + failures.join(', '));
+        if (pending) return { ...identity, labels: ['review:pending'], summary: 'Waiting for the verified candidate archive. Admission remains pending.' };
         if (pr.state === 'closed' && pr.merged) return { ...identity, labels: ['state:apply-failed'], error: error.message,
             summary: 'Protected state or release readback failed. Admission checks retain their original results; inspect the publication workflow before retrying.' };
         return { ...identity, labels: ['ci:blocked', 'review:pending'], error: error.message,
@@ -135,12 +158,34 @@ export function notify(projections, call = api) {
     }
 }
 
+// 唤醒只定位本次事件对应的 PR；master 代码检查不扫描开放投稿。
+export function gateRequests(payload, call = api) {
+    if (payload.pull_request) return [Number(id(payload.pull_request.number))];
+    if (payload.inputs?.prNumber) return [Number(id(payload.inputs.prNumber))];
+    if (!payload.workflow_run) return [];
+    const run = call(`${prefix}/actions/runs/${id(payload.workflow_run.id)}`);
+    if (id(run.repository.id) !== policy.repositoryId || run.status !== 'completed') throw new Error('GATE_TRIGGER_INVALID');
+    const patterns = {
+        '.github/workflows/submission-check.yml': /^Submission PR #([1-9][0-9]*)$/u,
+        '.github/workflows/community-archive.yml': /^Archive Submission PR #([1-9][0-9]*)$/u,
+        '.github/workflows/community-review-event.yml': /^Review PR #([1-9][0-9]*)$/u,
+        '.github/workflows/community-review-decision.yml': /^Community decision PR #([1-9][0-9]*) head [a-f0-9]{40}$/u,
+        '.github/workflows/community-review-complete.yml': /^Complete community review PR #([1-9][0-9]*) head [a-f0-9]{40}$/u,
+    };
+    if (!patterns[run.path]) throw new Error('GATE_TRIGGER_INVALID');
+    const named = patterns[run.path].exec(run.display_title ?? '');
+    // 名称只是定位提示，准入仍独立复核当前 PR、执行来源及全部证据。
+    return named ? [Number(id(named[1]))] : [...new Set((run.pull_requests ?? []).map(pr => Number(id(pr.number))))];
+}
+
 export async function gate() {
     const context = execution(gatePath);
     const payload = event();
-    const numbers = payload.pull_request ? [Number(id(payload.pull_request.number))]
-        : payload.inputs?.prNumber ? [Number(id(payload.inputs.prNumber))]
-            : list(prefix + '/pulls?state=open&base=' + policy.defaultBranch, null).map(pr => pr.number);
+    const numbers = gateRequests(payload);
+    if (!numbers.length) {
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, 'projections=[]\n', 'utf8');
+        return;
+    }
     let prepared;
     try { prepared = prepareSubmission(); } catch (error) { prepared = error; }
     const projections = [];

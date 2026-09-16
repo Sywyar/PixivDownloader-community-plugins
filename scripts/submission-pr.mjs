@@ -8,6 +8,7 @@ import { prepareSubmission } from './submission-sdk.mjs';
 import { github, checkedRepository, paged, repositoryTree, readBlob, stateReader } from './submission-github.mjs';
 import { validateChanges } from './submission-check.mjs';
 import { checkResult } from './apply-result.mjs';
+import { checkRenewal, renewalAuthor, renewalFile } from './community-renewal.mjs';
 
 const readOnly = (endpoint, options = {}) => {
     if (options.method && options.method !== 'GET') throw new Error('READ_ONLY_CHECK');
@@ -23,7 +24,7 @@ export async function checkPull(number, sdk, call = readOnly, fetch, { appliedBa
     const snapshot = pr => ({ number: pr.number, state: pr.state, user: { id: id(pr.user.id), type: pr.user.type },
         baseId: id(pr.base.repo.id), baseRef: pr.base.ref, base: sha(pr.base.sha), headId: id(pr.head.repo.id), head: sha(pr.head.sha) });
     const before = snapshot(pull);
-    if (before.baseId !== policy.repositoryId || before.baseRef !== policy.defaultBranch || before.user.type !== 'User'
+    if (before.baseId !== policy.repositoryId || before.baseRef !== policy.defaultBranch || before.user.type !== 'User' && !renewalAuthor(pull)
         || before.number !== Number(number) || (appliedBase ? before.state !== 'closed' || !pull.merged : before.state !== 'open')) throw new Error('PR_TARGET_INVALID');
     const files = paged(`${endpoint}/files`, call);
     if (files.length !== pull.changed_files || !files.length) throw new Error('PR_FILES_INCOMPLETE');
@@ -31,6 +32,7 @@ export async function checkPull(number, sdk, call = readOnly, fetch, { appliedBa
         await checkResult(number, sdk, before.base, { call });
         return { validation: 'PUBLICATION_RESULT_VALIDATED' };
     }
+    if (files.some(file => file.filename === renewalFile)) return checkRenewal(pull, files, before.base, call);
     const submissionPaths = /^(?:submissions|publishers|assets|key-rotations|version-status-requests|ownership-transfers|ownership-transfer-evidence)\//u;
     if (!files.some(file => submissionPaths.test(file.filename))) return { validation: 'NOT_A_SUBMISSION' };
     const state = stateReader(sdk, appliedBase ?? before.base, call);

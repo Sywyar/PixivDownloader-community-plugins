@@ -12,12 +12,6 @@ export const formalTag = record => `${record.owner.publisherId}/${record.pluginI
 export const packageName = record => `pixivdownload-plugin-${record.owner.publisherId}-${record.pluginId}-${record.version}${new URL(record.package.url).pathname.endsWith('.zip') ? '.zip' : '.jar'}`;
 export const packageUrl = record => `https://github.com/${policy.repository}/releases/download/${formalTag(record)}/${packageName(record)}`;
 
-export function refreshIdentity(state) {
-    const bytes = state.raw('generated/current.json');
-    if (!bytes) throw new Error('GENERATION_BASELINE_MISSING');
-    return hash(encoded({ operation: 'REFRESH', currentSha256: hash(bytes) }));
-}
-
 export function releaseStatus(record, revocations) {
     const matches = revocations.entries.filter(entry => (entry.pluginId == null || entry.pluginId === record.pluginId)
         && (entry.version == null || entry.version === record.version)

@@ -8,16 +8,16 @@ import { checkPull } from './submission-pr.mjs';
 import { archivedCandidates, readArchivedCandidate } from './archive-read.mjs';
 import { buildInputs } from './build-reuse.mjs';
 import { checkResult } from './apply-result.mjs';
-import { id } from './github.mjs';
+import { stateReader } from './submission-github.mjs';
+import { restoreReview } from './apply-context.mjs';
 
 export async function versionContext(number, sdk, current, call = api, readGit, { appliedBase, checkCall, fetch } = {}) {
     const pr = pull(number, call);
     const operation = classify(pr, list(`${prefix}/pulls/${number}/files`, null, call));
     if (operation === 'maintenance') return null;
-    if (operation === 'apply-result') {
+    if (operation === 'review-completed') {
         const result = await checkResult(number, sdk, current, { call, readGit });
-        return { checked: { operation: 'APPLY_RESULT', requestSha256: result.pointer.sha256,
-            pr: { head: pr.head.sha, base: pr.base.sha, user: { id: id(pr.user.id), type: 'User' } } }, ...result };
+        return { ...restoreReview(sdk, stateReader(sdk, current, call), result.receipt), completion: result };
     }
     const checked = await checkPull(number, sdk, checkCall, fetch, { appliedBase });
     if (!['FIRST_RELEASE', 'UPDATE'].includes(checked.operation)) return { checked };

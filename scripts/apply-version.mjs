@@ -1,34 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
 import { hash } from './sdk.mjs';
 import { catalogId, prValue } from './platform.mjs';
 import { publisherPath } from './submission-check.mjs';
 import { encoded, formalTag, packageName } from './apply-generation.mjs';
 import { archiveAdmission, publicationEnvironment } from './apply-context.mjs';
 import { list, prefix } from './github.mjs';
-
-// 其它请求推进主线后，已签发包与审核记录继续沿用；重新生成的只有当前整代状态。
-export function rebasePublication(state, adapter, receipt, decision, communityKey) {
-    const checked = receipt.reviewContext.checked, submission = checked.submission;
-    if (!submission || receipt.releases.length !== 1 || state.published(submission.pluginId).some(row => row.value.version === submission.version)) throw new Error('APPLY_RECOVERY_CHANGED');
-    const keyFile = receipt.files.find(file => file.path === 'generated/community-key.json');
-    const keyBytes = keyFile ? Buffer.from(keyFile.bytes, 'base64') : state.raw('generated/community-key.json');
-    if (!keyBytes || !isDeepStrictEqual(JSON.parse(keyBytes.toString('utf8')), communityKey)) throw new Error('COMMUNITY_KEY_CHANGED');
-    if (hash(state.raw(publisherPath(checked.owner))) !== checked.publisherSha256) throw new Error('PUBLISHER_CHANGED');
-    const binding = state.raw(`plugin-bindings/${submission.pluginId}.json`);
-    if ((binding ? hash(binding) : hash(Buffer.from('null'))) !== checked.bindingSha256) throw new Error('BINDING_CHANGED');
-    if ((state.published(submission.pluginId)[0]?.value.sourceCommit ?? null) !== submission.source.previousReviewedCommit) throw new Error('PREVIOUS_SOURCE_CHANGED');
-    const writes = new Map();
-    for (const file of receipt.files.filter(file => /^(?:published|reviews|records|plugin-bindings)\//u.test(file.path))) {
-        const bytes = Buffer.from(file.bytes, 'base64'), current = state.raw(file.path);
-        if (bytes.length !== file.size || hash(bytes) !== file.sha256 || current && !current.equals(bytes)) throw new Error('APPLY_RECOVERY_CHANGED');
-        adapter.archive(bytes, file.path); writes.set(file.path, bytes);
-    }
-    const publication = `published/${submission.pluginId}/${submission.version}.json`;
-    if (!writes.has(publication)) throw new Error('APPLY_RECOVERY_CHANGED');
-    return { writes, release: receipt.releases[0], decision };
-}
 
 export function publishVersion({ sdk, adapter, state, version, pr, context, admission, inputs, communityKey, privateBytes, appliedAt, call }) {
     const checked = version.checked, submission = checked.submission;
@@ -58,7 +35,7 @@ export function publishVersion({ sdk, adapter, state, version, pr, context, admi
             runId: version.report.runId, runAttempt: version.report.runAttempt, reportRef: scan.riskReportRef,
             decisionRefs: admission.result.decisionRefs, gate: 'PASS' },
         sourceDiffRef: scan.sourceDiffRef, sbomRef: scan.sbomRef, dependencyReportRef: scan.dependencyReportRef,
-        licenseReportRef: scan.licenseReportRef, rebuildProofRef: scan.rebuildProofRef, pr: prValue(pr), humanReview: admission.result.human.approval,
+        licenseReportRef: scan.licenseReportRef, rebuildProofRef: scan.rebuildProofRef, pr: { ...prValue(pr), mergeSha: undefined }, humanReview: admission.result.human.approval,
         publicationApprovalRef: approval, reviewedAt: appliedAt, assuranceLevel: 'SOURCE_REVIEWED' };
     const reviewPath = `reviews/${p}/${v}.json`, reviewBytes = encoded(review);
     sdk.document('REVIEW', reviewBytes, reviewPath);
@@ -84,7 +61,7 @@ export function publishVersion({ sdk, adapter, state, version, pr, context, admi
     for (const [file] of adapter.records) writes.set(file, fs.readFileSync(path.join(adapter.workspace, file)));
     return { replayed: false, writes, published, decision: approval, release: { id: version.releaseId, tag: formalTag(published),
         name: `${published.owner.publisherId} / ${p}-v${v}`, originalTag: `candidate/pr-${pr.number}/${pr.head.sha}/${version.candidate.inputSha256}`,
-        targetCommit: context.current, packageName: packageName(published), packageSize: published.package.expectedSize,
+        packageName: packageName(published), packageSize: published.package.expectedSize,
         packageSha256: published.package.sha256, reviewBytes: reviewBytes.toString('base64'), signature,
         owner: published.owner, pluginId: p, version: v, sourceCommit: published.sourceCommit,
         originalAssets: list(`${prefix}/releases/${version.releaseId}/assets`, null, call).map(({ id, name, size, digest, state }) => ({ id, name, size, digest, state })) } };

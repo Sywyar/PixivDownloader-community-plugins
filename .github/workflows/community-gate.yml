@@ -4,19 +4,17 @@ on:
     branches: [master]
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed, labeled, unlabeled]
   workflow_run:
-    workflows: [Community review event, Community review decision, Submission static check, Community candidate archive]
+    workflows: [Community review event, Community review decision, Submission static check, Community candidate archive, Complete community review]
     types: [completed]
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
       prNumber:
-        description: PR number to recalculate (empty recalculates all open PRs)
-        required: false
+        description: PR number to recalculate
+        required: true
         type: string
 permissions:
   contents: read
-# ponytail: 全仓库串行适用于小型目录；吞吐受限时按 PR 拆分 sweep 与执行。
+# ponytail: 单队列适用于小型目录；吞吐受限时改为按 PR 排队。
 concurrency:
   group: community-review-state
   queue: max
@@ -45,6 +43,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          verify-signature: true
       - id: app
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:

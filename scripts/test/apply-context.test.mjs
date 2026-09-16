@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { introducedBy, publicationEnvironment } from '../apply-context.mjs';
-import { inputsFrom, failedPublication } from '../community-publication.mjs';
+import { inputsFrom, waitingProjection } from '../community-publication.mjs';
 
 test('批准事实绑定真实 release 环境、授权个人、当前运行及唯一主分支', () => {
     const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };
@@ -57,14 +57,11 @@ test('真实 Git 合并第一父链定位批准 PR，后续改写和伪造作者
         throw new Error('Unexpected request ' + endpoint);
     };
     assert.equal(introducedBy(file, merge, call, args => git(args)).pr.user.id, 101);
-    const failureCall = endpoint => endpoint.includes('/collaborators?') ? [[{ id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' }]] : call(endpoint);
-    const context = { current: merge, run: { id: 17, event: 'workflow_dispatch', triggering_actor: { id: policy.repositoryOwnerId } } };
-    const failed = failedPublication(context, inputsFrom({ inputs: { prNumber: '3', expectedHeadSha: head } }), failureCall, args => git(args));
-    assert.deepEqual(failed[0].labels, ['state:apply-failed']); assert.equal(failed[0].head, head);
-    assert.throws(() => failedPublication(context, { prNumber: 3, expectedHeadSha: 'e'.repeat(40) }, failureCall, args => git(args)), /PUBLICATION_HEAD_CHANGED/);
-    assert.deepEqual(inputsFrom({ inputs: { action: 'refresh' } }), { action: 'refresh', recoveryApproved: false, organizationRepresentations: '' });
-    assert.throws(() => inputsFrom({ inputs: { action: 'refresh', prNumber: '3' } }), /PUBLICATION_INPUT_INVALID/);
-    assert.throws(() => inputsFrom({ inputs: { action: 'unknown' } }), /PUBLICATION_ACTION_INVALID/);
+    const inputs = { prNumber: '3', expectedHeadSha: head, reason: 'Reviewed request and evidence.' };
+    assert.equal(inputsFrom({ inputs }).prNumber, 3);
+    assert.throws(() => inputsFrom({ inputs: { ...inputs, reason: '' } }), /DECISION_REASON_INVALID/);
+    assert.throws(() => inputsFrom({ inputs: { ...inputs, recoveryApproved: 'yes' } }), /PUBLICATION_INPUT_INVALID/);
+    assert.deepEqual(waitingProjection({ ...pr, state: 'open', merged: false }, 'MAINTAINER_EDITS_REQUIRED').labels, ['review:pending']);
     const changed = git(['hash-object', '-w', '--stdin'], '{"changed":true}\n');
     git(['update-index', '--cacheinfo', '100644', changed, file]);
     const later = git(['commit-tree', git(['write-tree']), '-p', merge], 'Changed approval\n');

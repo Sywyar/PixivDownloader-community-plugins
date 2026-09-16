@@ -1,121 +1,16 @@
-name: Apply reviewed community operation
+name: Publish merged community state
 on:
-  workflow_dispatch:
-    inputs:
-      action:
-        description: Apply a reviewed request or refresh the current signed generation
-        required: true
-        type: choice
-        options: [apply, refresh]
-        default: apply
-      prNumber:
-        description: Merged request PR number
-        required: false
-        type: string
-      expectedHeadSha:
-        description: Full reviewed PR head SHA
-        required: false
-        type: string
-      recoveryApproved:
-        description: Explicitly approve missing-key or ownership recovery
-        type: boolean
-        default: false
-      organizationRepresentations:
-        description: Reviewed organizationId:personId pairs, comma separated
-        type: string
-        default: ''
   push:
     branches: [master]
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: community-publication
   queue: max
 jobs:
-  preflight:
-    if: >-
-      github.event_name == 'workflow_dispatch' && github.repository_id == '1347624983' &&
-      github.repository_owner_id == '83223374' && github.ref == 'refs/heads/master'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: '24'
-      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
-        with:
-          distribution: temurin
-          java-version: '17'
-          verify-signature: true
-      - run: node scripts/community-publication.mjs preflight
-        env:
-          GH_TOKEN: ${{ github.token }}
-  apply:
-    needs: preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: release
-    outputs:
-      replayed: ${{ steps.prepare.outputs.replayed }}
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: '24'
-      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
-        with:
-          distribution: temurin
-          java-version: '17'
-          verify-signature: true
-      - id: prepare
-        run: node scripts/community-publication.mjs prepare
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMMUNITY_RELEASE_KEY_ID: ${{ vars.COMMUNITY_RELEASE_KEY_ID }}
-          COMMUNITY_RELEASE_PUBLIC_KEY_BASE64: ${{ vars.COMMUNITY_RELEASE_PUBLIC_KEY_BASE64 }}
-          COMMUNITY_RELEASE_PRIVATE_KEY_BASE64: ${{ secrets.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64 }}
-      - id: proof
-        if: steps.prepare.outputs.manifest != ''
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
-        with:
-          subject-path: ${{ steps.prepare.outputs.manifest }}
-          create-storage-record: false
-      - if: steps.prepare.outputs.manifest != ''
-        run: node scripts/community-publication.mjs store
-        env:
-          GH_TOKEN: ${{ secrets.COMMUNITY_PUBLICATION_TOKEN }}
-          COMMUNITY_PUBLICATION_FILE: ${{ steps.prepare.outputs.manifest }}
-          COMMUNITY_ATTESTATION_BUNDLE: ${{ steps.proof.outputs.bundle-path }}
-      - if: steps.prepare.outputs.recovered == 'true'
-        run: node scripts/community-publication.mjs recover
-        env:
-          GH_TOKEN: ${{ secrets.COMMUNITY_PUBLICATION_TOKEN }}
   finalize:
-    needs: [preflight, apply]
-    if: >-
-      always() && (github.event_name == 'push' || needs.apply.outputs.replayed == 'true' ||
-      needs.preflight.result == 'failure' || needs.apply.result == 'failure') &&
-      github.repository_id == '1347624983' &&
-      github.repository_owner_id == '83223374' && github.ref == 'refs/heads/master'
+    if: github.repository_id == '1347624983' && github.repository_owner_id == '83223374' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: community-gate
@@ -138,7 +33,6 @@ jobs:
           distribution: temurin
           java-version: '17'
           verify-signature: true
-      - run: node scripts/community-publication.mjs "$PUBLICATION_MODE"
+      - run: node scripts/community-publication.mjs finalize
         env:
           GH_TOKEN: ${{ github.token }}
-          PUBLICATION_MODE: ${{ (needs.preflight.result == 'failure' || needs.apply.result == 'failure') && 'failed' || 'finalize' }}

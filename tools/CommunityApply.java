@@ -76,15 +76,8 @@ public final class CommunityApply {
                 outputs.put("revocations/restrictions.json", encode(CommunityJson.encode(value.revocations().restrictions())));
             }
             case "OWNERSHIP_TRANSFER" -> {
-                var approvals = new ArrayList<TransferApproval.Input>();
-                for (var node : input.withArray("approvals")) {
-                    var record = evidence(node.get("reference"));
-                    approvals.add(new TransferApproval.Input(CommunityJson.parse(CommunityJson.Kind.APPROVAL, record.bytes()),
-                            record.reference().path(), JSON.treeToValue(node.get("pr"), CommunityPr.class),
-                            JSON.treeToValue(node.get("author"), Account.class), true));
-                }
                 result = OwnershipTransfer.apply(context, document("binding", CommunityJson.Kind.BINDING), document("targetPublisher", CommunityJson.Kind.PUBLISHER),
-                        input.path("targetLogin").asText(null), approvals).result();
+                        input.path("targetLogin").asText(null), transferApprovals()).result();
             }
             default -> throw new IllegalArgumentException("APPLY_OPERATION_INVALID");
         }
@@ -93,6 +86,28 @@ public final class CommunityApply {
         var audit = OperationAudit.read(result.audit());
         outputs.put("audits/" + audit.requestId() + ".json", encode(result.audit().bytes()));
         return outputs;
+    }
+
+    private List<TransferApproval.Input> transferApprovals() throws Exception {
+        var approvals = new ArrayList<TransferApproval.Input>();
+        for (var node : input.withArray("approvals")) {
+            var record = evidence(node.get("reference"));
+            approvals.add(new TransferApproval.Input(CommunityJson.parse(CommunityJson.Kind.APPROVAL, record.bytes()),
+                    record.reference().path(), JSON.treeToValue(node.get("pr"), CommunityPr.class),
+                    JSON.treeToValue(node.get("author"), Account.class), true));
+        }
+        return approvals;
+    }
+
+    private Object transferReady() throws Exception {
+        var record = evidence(input.get("request"));
+        var request = OwnershipTransferRequest.read(CommunityJson.parse(CommunityJson.Kind.TRANSFER, record.bytes()), record.reference().path());
+        try { TransferApproval.requireApprovals(transferApprovals(), request, authority()); }
+        catch (ContractException error) {
+            if (!error.code().equals("APPROVAL_REQUIRED")) throw error;
+            return Map.of("ready", false);
+        }
+        return Map.of("ready", true);
     }
 
     private OperationAuthority authority() throws Exception {
@@ -123,7 +138,17 @@ public final class CommunityApply {
                 CommunityPaths.resolve(workspace, input.get("packageFile").textValue(), false, true),
                 input.get("repositoryId").textValue(), verifier, JSON.treeToValue(input.get("signature"), SignatureMetadata.class),
                 input.get("appliedAt").textValue(), records, MAX_BYTES, MAX_BYTES);
-        return Map.of("bytes", encode(PublishedVersion.publish(publication, Map.of(), document("previousVersion", CommunityJson.Kind.PUBLISHED)).document().bytes()));
+        return Map.of("bytes", encode(PublishedVersion.prepare(publication, Map.of(), document("previousVersion", CommunityJson.Kind.PUBLISHED)).document().bytes()));
+    }
+
+    private Object confirmPublication() throws Exception {
+        var key = JSON.treeToValue(input.get("communityKey"), TrustedPluginKey.class);
+        var verifier = new PluginSupplyChainVerifier(PluginTrustStores.community(List.of(key)));
+        var published = PublishedVersion.read(document("published", CommunityJson.Kind.PUBLISHED));
+        published.verifyHistory(CommunityPaths.resolve(workspace, input.get("packageFile").textValue(), false, true),
+                document("publisher", CommunityJson.Kind.PUBLISHER), verifier, input.get("repositoryId").textValue(), records,
+                JSON.treeToValue(input.get("merge"), PublishedVersion.PreparedMerge.class));
+        return Map.of("verified", true);
     }
 
     private Object sign() throws Exception {
@@ -212,7 +237,9 @@ public final class CommunityApply {
         var tool = new CommunityApply(Path.of(args[0]));
         Object result = switch (tool.input.get("command").textValue()) {
             case "operation" -> tool.operation();
+            case "transfer-ready" -> tool.transferReady();
             case "publication" -> tool.publication();
+            case "confirm-publication" -> tool.confirmPublication();
             case "sign" -> tool.sign();
             case "directory" -> tool.directory();
             case "revocations" -> tool.revocations();

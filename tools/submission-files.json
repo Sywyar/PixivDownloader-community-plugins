@@ -4,7 +4,7 @@
     {
       "path": "schemas/community/v1/bundle-manifest.json",
       "size": 7164,
-      "sha256": "57aabb8040e9bcc0a4ec1e6259edf8f5089794ea0ece9202aeb66b725d12360a"
+      "sha256": "e4bb0b35218343e89b36f8dea8a806e261113001d1a520b57d2df096d43207d9"
     },
     {
       "path": "schemas/community/v1/catalogs.json",
@@ -228,8 +228,8 @@
     },
     {
       "path": "scripts/github.mjs",
-      "size": 3645,
-      "sha256": "4cac5ba97f6eb4d8826afef6f24944335b925feba4791df48e46e52cb0f836cd"
+      "size": 3920,
+      "sha256": "ba5937306a049db2a2d03b2d0259d1528e268c310447ccb3b7c8b29dfca89bf0"
     },
     {
       "path": "scripts/project.mjs",
@@ -238,8 +238,8 @@
     },
     {
       "path": "scripts/repository-policy.json",
-      "size": 534,
-      "sha256": "0461d796f44c8d94c0ef4150a7dcbba8da4f529673fb292a841a8b42b8a739cd"
+      "size": 536,
+      "sha256": "42c8ece18b5f1f5dc6cda2a087e01a8df283c6eabf31255e7bbea265a571c5f1"
     },
     {
       "path": "scripts/sdk.mjs",
@@ -263,8 +263,8 @@
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 11501,
-      "sha256": "7587eb57c6b29f4c1fddbc98a34ac763151b91d038a2b4577de7ce52bba550c4"
+      "size": 11531,
+      "sha256": "0827766b682ab53af4314c363da62dc2018ab853dbcaf1954276eb637af4b75c"
     },
     {
       "path": "scripts/submission-messages.mjs",
@@ -369,17 +369,17 @@
     {
       "path": "tools/community-contract.json",
       "size": 384,
-      "sha256": "1e20dc099767f6ca10f3f1226bf7c8d0a4a63b19315f49ea787f472248fcd75b"
+      "sha256": "c4440e50f8048622a4f09c568172faa6df34bcdd6208e48c85fc4ea4364ca61b"
     },
     {
       "path": "tools/sdk-lock.json",
       "size": 355,
-      "sha256": "136e0f3149ac5295e5fbecb57a9f471fc7996915f7af658d3565528ab5b06756"
+      "sha256": "ae7ac275190a634cc88f7acdfaf46f6369e1d04c7f0bc3bd19c87536d09dff3e"
     },
     {
       "path": "tools/sdk-tools.jar",
-      "size": 15430843,
-      "sha256": "b489e79abb96fc5668232e35f0a7c4c99753ed15d62a6d603f923eca6bd6ea0c"
+      "size": 15433508,
+      "sha256": "d79654b2cd9852e5488a9b6bcea91e722bee121d613142d5d2f4b444d4170965"
     },
     {
       "path": "tools/signing-tool.jar",

@@ -1,10 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { api, id, sha, list, prefix, policy, API_BYTES } from './github.mjs';
+import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { downloadCandidate } from './candidate-transfer.mjs';
-import { immutableAsset, readReceipt } from './apply-result.mjs';
+import { immutableAsset, readReceipt, checkResult } from './apply-result.mjs';
+import { mergedRequest } from './apply-context.mjs';
+import { applySdk } from './apply-sdk.mjs';
+import { catalogId, prValue } from './platform.mjs';
 import { stateReader } from './submission-github.mjs';
 import { formalTag, packageName, encoded, releaseStatus } from './apply-generation.mjs';
 export { releaseStatus };
@@ -19,13 +22,18 @@ function tagCommit(tag, call) {
 
 const assetIdentity = ({ id, name, size, digest, state }) => ({ id, name, size, digest, state });
 
-export async function promoteReleases(receipt, workspace, { call = api, download = downloadCandidate, fetch = publicDownload, ...transport } = {}) {
+export async function promoteReleases(completion, workspace, { call = api, download = downloadCandidate, fetch = publicDownload, confirm, ...transport } = {}) {
+    const { receipt, pr, commit, merge } = completion;
+    if (!pr?.merged || pr.state !== 'closed' || !merge || merge.sha !== pr.merge_commit_sha
+        || commit?.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), [receipt.headSha])
+        || !isDeepStrictEqual(merge.parents.map(parent => parent.sha), [receipt.baseSha, pr.head.sha])) throw new Error('REVIEW_MERGE_CHANGED');
+    const targetCommit = sha(merge.sha);
     for (const expected of receipt.releases) {
         const directory = fs.mkdtempSync(path.join(workspace, 'promote-'));
         const read = () => {
             const release = call(`${prefix}/releases/${id(expected.id)}`);
             if (release.draft ? release.tag_name !== expected.originalTag || release.published_at !== null
-                : release.tag_name !== expected.tag || release.target_commitish !== expected.targetCommit) throw new Error('PUBLICATION_RELEASE_CHANGED');
+                : release.tag_name !== expected.tag || release.target_commitish !== targetCommit) throw new Error('PUBLICATION_RELEASE_CHANGED');
             const assets = list(`${prefix}/releases/${id(expected.id)}/assets`, null, call);
             for (const original of expected.originalAssets) {
                 const matches = assets.filter(asset => asset.name === original.name);
@@ -40,23 +48,25 @@ export async function promoteReleases(receipt, workspace, { call = api, download
         if (!artifact || artifact.size !== expected.packageSize || artifact.digest !== `sha256:${expected.packageSha256}`) throw new Error('PUBLICATION_PACKAGE_CHANGED');
         await download(`${prefix}/releases/assets/${id(artifact.id)}`, path.join(directory, 'package'), expected.packageSize,
             { size: expected.packageSize, sha256: expected.packageSha256 });
+        if (typeof confirm !== 'function') throw new Error('PUBLICATION_CONFIRMATION_REQUIRED');
+        await confirm(expected, path.join(directory, 'package'), completion);
         for (const [name, bytes] of [['review.json', Buffer.from(expected.reviewBytes, 'base64')], ['community-signature.json', encoded(expected.signature)]]) {
             const file = path.join(directory, name); fs.writeFileSync(file, bytes, { flag: 'wx' });
             await immutableAsset(expected.id, file, name, { call, download, ...transport });
         }
         const target = tagCommit(expected.tag, call);
-        if (target && target !== expected.targetCommit) throw new Error('PUBLICATION_TAG_CHANGED');
+        if (target && target !== targetCommit) throw new Error('PUBLICATION_TAG_CHANGED');
         const ready = read();
         if (ready.release.draft) {
             const body = `Publisher: ${expected.owner.publisherId} (${expected.owner.accountType} ${expected.owner.accountId})\n`
-                + `Source commit: ${expected.sourceCommit}\nSHA-256: ${expected.packageSha256}\n\nAwaiting the verified generation result PR. Publication assets alone do not grant catalog admission.`;
+                + `Source commit: ${expected.sourceCommit}\nSHA-256: ${expected.packageSha256}\nCommunity merge: ${targetCommit}`;
             try { call(`${prefix}/releases/${id(expected.id)}`, { method: 'PATCH', body: { tag_name: expected.tag,
-                target_commitish: expected.targetCommit, name: expected.name, body, draft: false,
+                target_commitish: targetCommit, name: expected.name, body, draft: false,
                 prerelease: /-(?:alpha|beta|rc)(?:\.?[0-9]+)?(?:\+.*)?$/u.test(expected.version), make_latest: 'false' } }); }
             catch (error) { if (call(`${prefix}/releases/${id(expected.id)}`).draft) throw error; }
         }
         const published = read();
-        if (published.release.draft || !published.release.published_at || tagCommit(expected.tag, call) !== expected.targetCommit) throw new Error('PUBLICATION_READBACK_FAILED');
+        if (published.release.draft || !published.release.published_at || tagCommit(expected.tag, call) !== targetCommit) throw new Error('PUBLICATION_READBACK_FAILED');
         await fetch(`https://github.com/${policy.repository}/releases/download/${expected.tag}/${expected.packageName}`,
             path.join(directory, 'public-package'), expected.packageSize, { size: expected.packageSize, sha256: expected.packageSha256 });
     }
@@ -76,7 +86,25 @@ export function releaseBody(previous, { record, manager, status, sequence, revie
     return result;
 }
 
-export async function finalizeReleases(context, sdk, { call = api, readGit, download = downloadCandidate, verify, write = true } = {}) {
+// completion 必须先经过原生合并、来源与完整生成树核验；本函数交 SDK 复验双签。
+export function confirmPublication(sdk, state, record, file, completion) {
+    const adapter = applySdk(sdk);
+    const review = JSON.parse(state.reference(record.reviewRef));
+    // 预算按本版本证据计算，不把整个目录的历史包证据累加进本次验签。
+    for (const ref of [record.submissionRef, record.reviewRef, record.historicalPublisherRef,
+        review.sourceDiffRef, review.sbomRef, review.dependencyReportRef, review.licenseReportRef,
+        review.rebuildProofRef, review.riskScan.reportRef, review.humanReview.evidenceRef,
+        review.publicationApprovalRef, ...review.riskScan.decisionRefs]) adapter.archive(state.reference(ref), ref.path);
+    const publication = adapter.archive(state.raw(`published/${record.pluginId}/${record.version}.json`));
+    const publisher = adapter.archive(state.raw(`publishers/${record.owner.accountId}/${record.owner.publisherId}.json`));
+    fs.copyFileSync(file, path.join(adapter.workspace, 'package'), fs.constants.COPYFILE_EXCL);
+    return adapter.invoke({ command: 'confirm-publication', communityKey: JSON.parse(state.raw('generated/community-key.json')),
+        repositoryId: catalogId, published: publication, publisher, packageFile: 'package',
+        merge: { pr: { ...prValue(completion.pr), baseSha: completion.receipt.baseSha }, generatedHead: completion.commit.sha,
+            generatedParents: completion.commit.parents.map(parent => parent.sha), mergeParents: completion.merge.parents.map(parent => parent.sha), preparedRecord: publication } });
+}
+
+export async function finalizeReleases(context, sdk, { call = api, readGit, download = downloadCandidate, verify, write = true, ...transport } = {}) {
     const state = stateReader(sdk, context.current, call);
     const bytes = state.raw('generated/current.json');
     if (!bytes) return { applied: false };
@@ -84,19 +112,37 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
     for (const ref of [current.descriptor, current.directory, current.catalog]) state.reference(ref);
     // 只以已进入主线的不可变结果为完成证据；未合并 Draft 不参与状态投影。
     const pointers = [...state.tree.keys()].filter(file => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(file));
-    const receipts = [];
-    for (const file of pointers) receipts.push(await readReceipt(sdk, JSON.parse(state.raw(file).toString('utf8')), context.current, { call, readGit, download, ...(verify ? { verify } : {}) }));
+    const completions = [];
+    for (const file of pointers) {
+        const options = { call, readGit, download, ...(verify ? { verify } : {}) };
+        const pointer = JSON.parse(state.raw(file).toString('utf8'));
+        const receipt = await readReceipt(sdk, pointer, context.current, options);
+        mergedRequest(receipt.prNumber, context.current, call, readGit);
+        const completion = await checkResult(receipt.prNumber, sdk, context.current, { ...options, merged: true });
+        if (!isDeepStrictEqual(completion.pointer, pointer)) throw new Error('APPLY_RECEIPT_CHANGED');
+        completions.push(completion);
+    }
+    const receipts = completions.map(row => row.receipt);
     const revocations = JSON.parse(state.reference(current.revocations).toString('utf8'));
-    const releases = list(`${prefix}/releases`, null, call);
     const versions = [...state.tree.keys()].filter(file => /^published\/[^/]+\/[^/]+\.json$/u.test(file));
     let pending = false;
     for (const file of versions) {
         const record = state.read(file, 'PUBLISHED').value;
-        const matches = releases.filter(release => release.tag_name === formalTag(record));
+        const sources = completions.filter(row => row.receipt.releases.some(release => release.tag === formalTag(record)));
         const original = receipts.flatMap(receipt => receipt.releases).filter(release => release.tag === formalTag(record));
-        if (matches.length !== 1 || original.length !== 1 || id(matches[0].id) !== id(original[0].id) || matches[0].draft
-            || tagCommit(formalTag(record), call) !== original[0].targetCommit) throw new Error('PUBLICATION_RELEASE_CHANGED');
-        const release = matches[0];
+        if (sources.length !== 1 || original.length !== 1) throw new Error('PUBLICATION_RELEASE_CHANGED');
+        const completion = sources[0];
+        let release = call(`${prefix}/releases/${id(original[0].id)}`);
+        if (release.draft) {
+            if (!write) { pending = true; continue; }
+            await promoteReleases(completion, sdk.workspace, { call, download, ...transport, confirm: (expected, file) => {
+                if (sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== context.current) throw new Error('APPLY_BASE_CHANGED');
+                return confirmPublication(sdk, state, record, file, completion);
+            } });
+            release = call(`${prefix}/releases/${id(original[0].id)}`);
+        }
+        if (release.tag_name !== formalTag(record) || release.draft
+            || tagCommit(formalTag(record), call) !== completion.merge.sha) throw new Error('PUBLICATION_RELEASE_CHANGED');
         const assets = list(`${prefix}/releases/${id(release.id)}/assets`, null, call);
         for (const asset of original[0].originalAssets) {
             const matches = assets.filter(row => row.name === asset.name);

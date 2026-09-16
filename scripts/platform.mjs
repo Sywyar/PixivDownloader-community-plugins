@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { api, id, sha, list, policy, prefix, repository, API_BYTES, API_TIMEOUT } from './github.mjs';
 import { root, hash, evidence } from './sdk.mjs';
+import { renewalAuthor, renewalFile } from './community-renewal.mjs';
 
 export const decisionPath = '.github/workflows/community-review-decision.yml';
 export const gatePath = '.github/workflows/community-gate.yml';
@@ -63,7 +64,7 @@ export function execution(workflowPath, env = process.env, call = api, readGit =
 export function pull(number, call = api) {
     const value = call(prefix + '/pulls/' + id(number));
     if (value.number !== Number(number) || id(value.base.repo.id) !== policy.repositoryId
-        || value.base.ref !== policy.defaultBranch || !value.head.repo || value.user.type !== 'User') {
+        || value.base.ref !== policy.defaultBranch || !value.head.repo || value.user.type !== 'User' && !renewalAuthor(value)) {
         throw new Error('PR_TARGET_INVALID');
     }
     return value;
@@ -86,6 +87,8 @@ export function classify(pr, files) {
         throw new Error('PR_FILES_INCOMPLETE');
     }
     const paths = files.flatMap(file => file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]);
+    if (renewalAuthor(pr) && paths.length === 1 && paths[0] === renewalFile
+        && ['added', 'modified'].includes(files[0].status)) return 'renewal';
     if (paths.some(name => typeof name !== 'string' || name.includes('\\') || name.split('/').some(p => !p || p === '.' || p === '..'))) {
         throw new Error('PR_PATH_INVALID');
     }
@@ -98,8 +101,7 @@ export function classify(pr, files) {
         return 'maintenance';
     }
     if (paths.some(name => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(name))) {
-        if (id(pr.user.id) !== policy.repositoryOwnerId || id(pr.head.repo.id) !== policy.repositoryId) throw new Error('PROTECTED_PATH_OWNER_REQUIRED');
-        return 'apply-result';
+        return 'review-completed';
     }
     const versionPaths = /^(?:submissions\/[1-9][0-9]*\/[a-z0-9][a-z0-9._-]*\/[^/]+\.json|publishers\/[1-9][0-9]*\/[a-z0-9][a-z0-9._-]*\.json|assets\/.+)$/u;
     if (paths.every(name => versionPaths.test(name)) && files.every(file => file.status === 'added')

@@ -3,13 +3,15 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { applySdk } from '../apply-sdk.mjs';
-import { generateState, encoded, packageUrl, refreshIdentity } from '../apply-generation.mjs';
+import { generateState, encoded, packageUrl } from '../apply-generation.mjs';
 import { releaseStatus } from '../publication-releases.mjs';
 import { hash, root } from '../sdk.mjs';
+import { prepareResult } from '../community-publication.mjs';
+import { policy } from '../github.mjs';
 
-test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史密钥生成独立限制', () => {
+test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史密钥生成独立限制', async () => {
     const sdk = prepareSubmission();
     const records = new Map();
     const state = { tree: records, raw: file => records.get(file) ?? null };
@@ -72,14 +74,34 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     assert.throws(() => generateState({ sdk, adapter, state, writes: new Map(), communityKey: { ...communityKey, keyId: 'changed' }, privateBytes,
         appliedAt: '2026-01-05T00:00:00Z', nextUpdate: '2026-02-01T00:00:00Z' }), /COMMUNITY_ROOT_CHANGED/);
     revoked.writes.forEach((bytes, file) => records.set(file, bytes));
-    const identity = refreshIdentity(state);
     const refreshed = generation(5, '2026-02-04T00:00:00Z');
     assert.equal(refreshed.result.sequence, revoked.result.sequence + 1);
     const renewed = JSON.parse(refreshed.writes.get('revocations.json'));
     assert.equal(renewed.nextUpdate, '2026-02-04T00:00:00Z'); assert.deepEqual(renewed.entries, document.entries);
     assert.equal(releaseStatus(record, renewed), 'REVOKED');
     refreshed.writes.forEach((bytes, file) => records.set(file, bytes));
-    assert.notEqual(refreshIdentity(state), identity);
     for (const [file, bytes] of immutable) assert.deepEqual(records.get(file), bytes);
+    const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };
+    const context = { current: 'a'.repeat(40), run: { id: 17, run_attempt: 1, event: 'workflow_dispatch', triggering_actor: reviewer } };
+    const call = endpoint => {
+        if (endpoint.includes('/collaborators?')) return [[reviewer]];
+        if (endpoint.endsWith('/environments/release')) return { id: 5, can_admins_bypass: false,
+            deployment_branch_policy: { custom_branch_policies: true },
+            protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer }] }] };
+        if (endpoint.includes('/deployment-branch-policies?')) return [{ branch_policies: [{ name: 'master', type: 'branch' }], total_count: 1 }];
+        if (endpoint.endsWith('/actions/runs/17/approvals')) return [{ state: 'approved', user: reviewer, environments: [{ id: 5, name: 'release' }] }];
+        throw new Error('Unexpected request ' + endpoint);
+    };
+    const pr = { number: 9, state: 'open', merged: false, draft: false, head: { sha: 'b'.repeat(40) }, base: { sha: context.current } };
+    const prepared = await prepareResult(context, { reason: 'Renew unchanged state' }, sdk, { selected: { pr }, state,
+        requestId: 'c'.repeat(64), version: { checked: { operation: 'RENEWAL', requestSha256: 'c'.repeat(64) } },
+        appliedAt: '2026-01-06T00:00:00Z', inputFiles: [{ filename: 'renewals/revocations.json', status: 'added' }] },
+    { communityKey, privateBytes }, { call });
+    assert.equal(prepared.value.operation, 'RENEWAL');
+    assert.deepEqual(prepared.value.releases, []);
+    assert.ok(prepared.value.files.every(file => !/^(?:published|publishers|plugin-bindings|audits)\//u.test(file.path)));
+    const signed = JSON.parse(Buffer.from(prepared.value.files.find(file => file.path === 'revocations.json').bytes, 'base64'));
+    assert.deepEqual(signed.entries, renewed.entries);
+    assert.equal(signed.nextUpdate, '2026-02-05T00:00:00Z');
     privateBytes.fill(0);
 });
