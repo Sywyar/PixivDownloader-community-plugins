@@ -10,6 +10,7 @@ import { buildInputs } from './build-reuse.mjs';
 import { checkResult } from './apply-result.mjs';
 import { stateReader } from './submission-github.mjs';
 import { restoreReview } from './apply-context.mjs';
+import { candidateSlot } from './candidate.mjs';
 
 export async function versionContext(number, sdk, current, call = api, readGit, { appliedBase, checkCall, fetch } = {}) {
     const pr = pull(number, call);
@@ -21,14 +22,16 @@ export async function versionContext(number, sdk, current, call = api, readGit, 
     }
     const checked = await checkPull(number, sdk, checkCall, fetch, { appliedBase });
     if (!['FIRST_RELEASE', 'UPDATE'].includes(checked.operation)) return { checked };
-    const releases = archivedCandidates(number, call).filter(release => release.tag_name.startsWith(`candidate/pr-${number}/${pr.head.sha}/`));
+    const releases = archivedCandidates(checked, call).filter(release => release.tag_name === candidateSlot(checked)
+        || release.tag_name.startsWith(`candidate/pr-${number}/${pr.head.sha}/`));
     if (!releases.length) throw new Error('CANDIDATE_ARCHIVE_PENDING');
     const archived = await readArchivedCandidate(sdk, releases[0], current, { call, readGit });
     const candidate = archived.candidate;
-    if (candidate.submissionSha256 !== checked.submissionSha256 || !isDeepStrictEqual(candidate.submission, checked.submission)
+    if (candidate.pr.number !== pr.number || candidate.pr.head !== pr.head.sha) throw new Error('CANDIDATE_ARCHIVE_PENDING');
+    if (candidateSlot(candidate) !== candidateSlot(checked) || candidate.submissionSha256 !== checked.submissionSha256 || !isDeepStrictEqual(candidate.submission, checked.submission)
         || !isDeepStrictEqual(candidate.owner, checked.owner) || !isDeepStrictEqual(candidate.descriptor, checked.descriptor)
         || !isDeepStrictEqual(candidate.inputs.build, buildInputs(sdk, checked))
         || !isDeepStrictEqual(candidate.inputs.scanner, scanInputs())) throw new Error('CANDIDATE_REVALIDATION_REQUIRED');
     const report = JSON.parse(fs.readFileSync(path.join(sdk.workspace, candidate.scan.riskReportRef.path), 'utf8'));
-    return { checked, candidate, report, directory: archived.directory, releaseId: archived.releaseId, url: archived.url };
+    return { checked, candidate, report, directory: archived.directory, releaseId: archived.releaseId, tag: archived.tag, url: archived.url };
 }

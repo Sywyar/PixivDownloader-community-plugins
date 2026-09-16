@@ -52,7 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      # GitHub 仅向有推送权限的身份返回 Draft Release；这里只执行受保护主线代码。
+      contents: write
       actions: read
       pull-requests: read
     steps:

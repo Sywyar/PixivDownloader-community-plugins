@@ -346,6 +346,16 @@ test('候选尚未归档保留等待检查，不作为工作流失败', async ()
     assert([...state.checks.values()].every(check => check.status === 'queued' && check.conclusion == null));
 });
 
+test('草稿不可读时准入失败，不能误报为候选仍在归档', async () => {
+    const { state, call, context } = fixture();
+    const result = await publish(7, context, {}, call, call, undefined,
+        async () => { throw new Error('CANDIDATE_ARCHIVE_READ_FORBIDDEN'); });
+    assert.equal(result.error, 'CANDIDATE_ARCHIVE_READ_FORBIDDEN');
+    assert(result.labels.includes('ci:blocked'));
+    assert.equal(state.checks.size, policy.requiredContexts.length);
+    assert([...state.checks.values()].every(check => check.conclusion === 'failure'));
+});
+
 test('原生撤销必须有真实账号与理由，评论和普通标签不改变审核', () => {
     const prepared = prepareSdk();
     const { state, call } = fixture();

@@ -32,7 +32,7 @@ export function reusedBuild(sdk, archived, checked, expected) {
 }
 
 export async function reuseBuild(sdk, checked, current, expected) {
-    for (const release of archivedCandidates(checked.pr.number)) {
+    for (const release of archivedCandidates(checked, undefined, { optional: true })) {
         const archived = await readArchivedCandidate(sdk, release, current);
         const build = reusedBuild(sdk, archived, checked, expected);
         if (build) return { build, archived };
