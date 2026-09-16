@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util';
 // 工具临时路径和 Buffer 不属于选择身份；恢复后返回本次重新读取的对象。
 const selectionIdentity = value => value?.candidate ? { candidate: value.candidate }
     : value?.value && value?.sha256 ? { path: value.path, sha256: value.sha256 } : value;
-const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'withdrawConfirm', 'licenseTemplate']);
+const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'withdrawConfirm', 'licenseTemplate', 'deleteRequestBranch', 'retryBranchCleanup']);
 
 export function unavailable(ui, code, details = {}) {
     ui.say('operationUnavailable', { code, ...details });
@@ -19,7 +19,7 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
     const wrapped = { ...ui };
     for (const method of ['ask', 'select', 'multiselect', 'confirm', 'password']) {
         wrapped[method] = async (key, ...args) => {
-            if (method === 'password' || key === 'retrySubmission') return ui[method](key, ...args);
+            if (method === 'password' || key === 'retrySubmission' || key === 'revokeIdentity') return ui[method](key, ...args);
             const index = cursor++;
             const count = counts.get(key) ?? 0;
             counts.set(key, count + 1);

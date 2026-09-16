@@ -6,6 +6,8 @@ import { execution, git, pull, prValue, reviewers, facts, fingerprint } from './
 import { evaluate, hash } from './sdk.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { publicationPath } from './archive-proof.mjs';
+import { authorizeStatus, signedStatusAuthority } from './status-authorization.mjs';
+import { statusEnvironment } from './status-execution.mjs';
 export { publicationPath };
 
 export function mergedRequest(number, current, call = api, readGit = git) {
@@ -38,6 +40,7 @@ export function introducedBy(file, current, call = api, readGit = git) {
 }
 
 export function publicationEnvironment(context, inputs, call = api) {
+    if (context.automatic) return statusEnvironment(context, inputs, call);
     if (context.run.event !== 'workflow_dispatch') throw new Error('PUBLICATION_DISPATCH_REQUIRED');
     const authorized = reviewers(call);
     if (context.run.triggering_actor.type !== 'User' || !authorized.includes(id(context.run.triggering_actor.id))) throw new Error('PUBLICATION_REVIEWER_REQUIRED');
@@ -58,6 +61,7 @@ export function publicationEnvironment(context, inputs, call = api) {
 
 export function operationAuthority({ request, proposal, approvals, context, inputs, adapter, call = api }) {
     const native = publicationEnvironment(context, inputs, call);
+    if (context.automatic) return signedStatusAuthority(request, prValue(proposal.pr), adapter, native);
     const approved = [...new Set(native.approvals.map(row => id(row.user.id)))];
     const ref = adapter.archive({ ...native, requestId: request.requestId, proposal, approvals });
     const representations = [];
@@ -91,10 +95,14 @@ export function currentAdmission(number, sdk, context, version, call = api, read
             input.before.bindingSha256 = input.after.bindingSha256 = version.publicationBindingSha256;
             input.validation.bindingSha256 = version.publicationBindingSha256;
         }
-        return attachDecisions(input, loadDecisions(number, sdk, context.current, reviewCall, readGit, undefined, input.after.version));
+        return authorizeStatus(attachDecisions(input, loadDecisions(number, sdk, context.current, reviewCall, readGit, undefined, input.after.version)),
+            sdk, context, version, pull(number, reviewCall), call);
     };
     const input = collect(), result = evaluate(sdk, input);
-    if (!result.validationPassed || !result.riskPassed || !['APPROVED', 'SELF_APPROVED'].includes(result.human.status)) throw new Error('PUBLICATION_REVIEW_REQUIRED');
+    if (!result.validationPassed || !result.riskPassed
+        || !(result.authorization === 'SIGNED_OWNER' && result.human.status !== 'CHANGES_REQUESTED'
+            || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status))) throw new Error('PUBLICATION_REVIEW_REQUIRED');
+    if (context.automatic && result.authorization !== 'SIGNED_OWNER') throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     if (fingerprint(input) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
     return { input, result };
 }

@@ -11,7 +11,7 @@ const labels = {
     url: 'urlLabel', html_url: 'urlLabel', version: 'versionLabel', title: 'titleLabel',
     buildProfile: 'profile', license: 'license', market: 'marketLabel', key: 'keyAction', owner: 'owner',
     code: 'errorCodeLabel', stage: 'stageLabel', branch: 'branchLabel', base: 'commitLabel',
-    status: 'statusLabel', attempts: 'attemptsLabel',
+    status: 'statusLabel', attempts: 'attemptsLabel', head: 'commitLabel', repositoryId: 'repositoryLabel',
 };
 
 export function formatMetadata(value, text, depth = 0) {
@@ -24,7 +24,7 @@ export function formatMetadata(value, text, depth = 0) {
         if (key === 'value' && value.algorithm === 'Ed25519' || key === 'publicKeySpkiBase64') return [];
         const label = Array.isArray(value) ? String(Number(key) + 1) : text(labels[key] ?? key);
         if (item && typeof item === 'object') return [`${'  '.repeat(depth)}${visible(label)}`, formatMetadata(item, text, depth + 1)];
-        return [`${'  '.repeat(depth)}${visible(label)}: ${formatMetadata(item, text, depth + 1)}`];
+        return [`${'  '.repeat(depth)}${visible(label)}: ${formatMetadata(key === 'branchCleanup' ? text(item) : item, text, depth + 1)}`];
     }).join('\n');
 }
 

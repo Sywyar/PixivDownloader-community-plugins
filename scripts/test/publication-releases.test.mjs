@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { promoteReleases, releaseBody, releaseStatus, finalizeReleases } from '../publication-releases.mjs';
 import { prepareSubmission } from '../submission-sdk.mjs';
-import { publicationCertificate, publicationPath, verifyPublicationProof } from '../archive-proof.mjs';
+import { publicationCertificate, publicationPath, statusPath, verifyPublicationProof } from '../archive-proof.mjs';
 import { makeReceipt, readReceipt } from '../apply-result.mjs';
 import { encoded, formalTag, packageName } from '../apply-generation.mjs';
 import { hash, root } from '../sdk.mjs';
@@ -190,9 +190,10 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
         buildTrigger: 'workflow_dispatch', buildSignerDigest: source, sourceRepositoryDigest: source };
     const verified = [{ verificationResult: { signature: { certificate } } }];
     const readGit = args => { assert.deepEqual(args, ['merge-base', '--is-ancestor', source, current]); return ''; };
+    let expectedPath = publicationPath;
     const verify = (file, bundle, current, readGit) => verifyPublicationProof(file, bundle, current, readGit, (command, args, options) => {
         assert.equal(command, 'gh'); assert.ok(args.includes('--deny-self-hosted-runners'));
-        assert.ok(args.includes(`${policy.repository}/${publicationPath}`));
+        assert.ok(args.includes(`${policy.repository}/${expectedPath}`));
         assert.ok(Object.keys(options.env).every(key => !/TOKEN|SECRET|PRIVATE_KEY/iu.test(key)));
         return JSON.stringify(verified);
     });
@@ -202,6 +203,18 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
     assert.throws(() => publicationCertificate(verified, current, readGit), /ARCHIVE_ATTESTATION_SOURCE_INVALID/);
     certificate.buildTrigger = 'workflow_dispatch';
     await assert.rejects(readReceipt({ workspace: f.workspace }, { ...pointer, sha256: 'e'.repeat(64) }, current, { ...f, readGit, verify }), /APPLY_RECEIPT_CHANGED/);
+    fs.writeFileSync(file, encoded({ ...result.value, authorization: 'SIGNED_OWNER' }));
+    expectedPath = statusPath;
+    assert.throws(() => verify(file, bundle, current, readGit), /ARCHIVE_ATTESTATION_SOURCE_INVALID/);
+    certificate.buildSignerURI = certificate.buildConfigURI = `https://github.com/${policy.repository}/${statusPath}@refs/heads/master`;
+    for (const trigger of ['workflow_run', 'workflow_dispatch']) {
+        certificate.buildTrigger = trigger;
+        assert.deepEqual(verify(file, bundle, current, readGit), certificate);
+    }
+    certificate.buildTrigger = 'pull_request_target';
+    assert.throws(() => verify(file, bundle, current, readGit), /ARCHIVE_ATTESTATION_SOURCE_INVALID/);
+    fs.writeFileSync(file, encoded({ ...result.value, operation: 'KEY_ROTATION', authorization: 'SIGNED_OWNER' }));
+    assert.throws(() => verify(file, bundle, current, readGit), /APPLY_RECEIPT_INVALID/);
     assert.throws(() => makeReceipt({ ...result.value, current: source, pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } }, run: { id: 7, run_attempt: 1 },
         writes: new Map([['tools/sdk-tools.jar', Buffer.from('replacement')]]), state: { raw: () => null } }), /APPLY_WRITE_FORBIDDEN/);
 });

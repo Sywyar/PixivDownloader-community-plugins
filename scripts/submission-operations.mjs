@@ -99,9 +99,20 @@ export async function prepareStatus(context, action) {
     const publisher = state.read(publisherPath(owner), 'PUBLISHER');
     if (!publisher) throw new Error('PUBLISHER_MISSING');
     const proof = await currentProof(context, publisher.value);
+    ui.say(proof && owner.accountType === 'User' ? 'statusSigned' : 'statusManual');
     const request = signOperation(sdk, sign, 'STATUS_REQUEST', { schemaVersion: 1, payload }, proof ? { activeKey: proof } : {});
     return { changes: new Map([[`version-status-requests/${owner.accountId}/${pluginId}/${payload.version}/${request.requestId}.json`, encoded(request)]]),
         title: `chore(plugin): ${action} ${pluginId} ${payload.version}` };
+}
+
+// 在最终预览重新确认，包含从本地保存的已签名请求恢复的路径。
+export async function confirmRevocation(ui, result, changes) {
+    if (result.operation !== 'REVOKE') return;
+    const { pluginId, version, packageSha256 } = JSON.parse(changes.get(result.requestPath).toString('utf8')).payload;
+    ui.say('revokeWarning', { pluginId, version, packageSha256 });
+    await ui.ask('revokeIdentity', '', value => {
+        if (value !== pluginId + '@' + version) throw new Error('REVOKE_CONFIRMATION_MISMATCH');
+    });
 }
 
 export async function prepareTransfer(context) {

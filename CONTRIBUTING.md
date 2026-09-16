@@ -59,15 +59,26 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 | Environment | 限制与凭据 |
 |---|---|
 | `community-gate` | 仅 `master` 分支；保存现有 Gate App 的 `GATE_APP_PRIVATE_KEY`。官方 App action 只申请本社区仓库的短期 `checks:write` token，并在 job 结束撤销 |
+| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、现有维护者分支令牌，只处理有效个人管理者签署的 YANK、UNYANK、REVOKE |
 | `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。工具清单私钥 `COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64` 与插件签名私钥 `COMMUNITY_RELEASE_PRIVATE_KEY_BASE64` 分开保存，各自仅传给对应签名步骤 |
 
 Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单公钥固定在启动器中，不用于插件包签名。两类私钥都保存 PKCS#8 PEM 文件的 Base64 编码，密钥默认不设置到期时间。
 
 插件签名还需在 `release` 配置 `COMMUNITY_RELEASE_KEY_ID` 和 `COMMUNITY_RELEASE_PUBLIC_KEY_BASE64` 变量，后者为 Ed25519 SPKI DER 的 Base64。社区密钥不能使用官方应用、插件或 FFmpeg 根公钥；已发布社区根不能通过改变量直接替换。
 
-同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `release` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。此凭据只传给追加原分支提交的步骤，不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留待审核状态。
+同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `release` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。自动状态操作在 `community-status` 使用同一用途的凭据追加 fork 分支提交，并以仓库所有者身份合并原 PR；令牌须能读当前用户、写入目标 fork 分支及合并社区 PR。合并前核对所有者数字 ID，仍遵守全部保护规则。此凭据不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留请求。
 
 ## 完成审核与发布
+
+### 作者签名的版本状态操作
+
+**Apply signed version status** 在静态检查完成后检查相应请求，也支持按 PR 编号和完整 head 手动重试。它只处理当前个人管理者活动密钥签署的 YANK、UNYANK、REVOKE，并重新核对当前 binding、发布包和状态。组织代表权、密钥恢复及涉及社区独立限制的 UNYANK 转入下方人工流程。
+
+执行器在原 PR 追加生成结果，显式触发 Gate，并最多等待十分钟。Gate 记录 `SIGNED_OWNER` 授权，保留真实人工审核状态及拒绝。四项绑定 App 的检查通过后，执行器重新核对原请求、生成父链和当前事实，以精确 head 请求 Merge commit。受保护规则仍可阻止合并；失败时保留分支和生成归档。合并后显式触发现有 Release 收尾流程，同仓投稿也不依赖机器人提交触发普通事件。
+
+合并前的操作审计记为 `PREPARED`，不伪造合并 SHA；收尾时固定原始审计字节，并核对真实生成提交和 merge 的有序父节点。状态操作复用已发布包，不触发重建，也不改变作者签名或原包。自动操作不会删除请求分支；删除须由用户另行确认。
+
+### 需要人工审核的请求
 
 1. 等待请求 PR 的技术检查和候选归档完成，复核原包、源码及审核证据。原生 Review 或显式自审必须针对当前完整 head SHA。
 2. 在 `master` 手动运行 **Complete community review**，填写 `prNumber`、`expectedHeadSha` 和审核理由。恢复操作须勾选 `recoveryApproved`；组织代表权经人工核对后填写 `organizationId:personId`，多项以逗号分隔。

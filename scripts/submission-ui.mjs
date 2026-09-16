@@ -213,7 +213,8 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         // 默认拒绝；必须主动切换选项并回车，普通输入与连续回车不会授权操作。
         for (;;) {
             const answer = await select('confirm', key === 'preview' ? [false, true, 'details'] : [false, true],
-                accepted => text(accepted === 'details' ? 'technicalDetails' : accepted ? 'confirmAction' : key === 'optionalKey' ? 'skipProof' : 'cancelAction'));
+                accepted => text(accepted === 'details' ? 'technicalDetails' : accepted ? 'confirmAction'
+                    : key === 'optionalKey' ? 'skipProof' : ['deleteRequestBranch', 'retryBranchCleanup'].includes(key) ? 'keepBranch' : 'cancelAction'));
             if (answer !== 'details') return answer;
             prompts.note(visible(JSON.stringify(value, null, 2)).replaceAll('\\u000a', '\n'), text('technicalDetails'), common);
         }

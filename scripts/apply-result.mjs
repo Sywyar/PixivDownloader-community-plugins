@@ -29,7 +29,8 @@ export function resultPath(file) {
         || /^(?:generated\/(?:catalog\.json(?:\.sig)?|repository\.json)|revocations\.json\.sig)$/u.test(file);
 }
 
-export function makeReceipt({ requestId, operation, pr, current, run, writes, state, releases, appliedAt, reviewContext, inputFiles, recordOnly = false }) {
+export function makeReceipt({ requestId, operation, pr, current, run, writes, state, releases, appliedAt, reviewContext, inputFiles, recordOnly = false, authorization }) {
+    if (authorization !== undefined && (authorization !== 'SIGNED_OWNER' || !['YANK', 'UNYANK', 'REVOKE'].includes(operation) || recordOnly)) throw new Error('APPLY_RECEIPT_INVALID');
     const files = [...writes].filter(([file, bytes]) => !state.raw(file)?.equals(bytes)).sort(([a], [b]) => a.localeCompare(b)).map(([file, bytes]) => {
         if (!resultPath(file) || file === receiptPath(requestId)) throw new Error('APPLY_WRITE_FORBIDDEN');
         const before = state.raw(file);
@@ -38,7 +39,7 @@ export function makeReceipt({ requestId, operation, pr, current, run, writes, st
     }).filter(file => file.before !== file.sha256);
     if (!pr || pr.state !== 'open' || pr.merged || pr.draft || pr.base.sha !== current) throw new Error('REVIEW_OPEN_REQUEST_REQUIRED');
     const value = { schemaVersion: 2, repositoryId: policy.repositoryId, requestId, operation, prNumber: pr.number,
-        headSha: sha(pr.head.sha), baseSha: sha(current), runId: id(run.id),
+        headSha: sha(pr.head.sha), baseSha: sha(current), runId: id(run.id), ...(authorization === undefined ? {} : { authorization }),
         runAttempt: run.run_attempt, appliedAt, files, releases, reviewContext, originalPr: pr, inputFiles, recordOnly,
         expiresAt: new Date(Date.parse(appliedAt) + 30 * 24 * 60 * 60 * 1000).toISOString() };
     const bytes = Buffer.from(JSON.stringify(value) + '\n');
@@ -202,7 +203,7 @@ export function appendReviewCommit(receipt, pointer, call = api) {
     }
     const parent = scoped(`${target}/git/commits/${receipt.headSha}`);
     const created = scoped(`${target}/git/trees`, { method: 'POST', body: { base_tree: sha(parent.tree.sha), tree } });
-    const message = `chore(community): 完成 ${receipt.operation} 请求审核\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
+    const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
     const identity = { name: 'Community review', email: `${policy.repositoryOwnerId}+${policy.repository.split('/')[0]}@users.noreply.github.com`, date: receipt.appliedAt };
     const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { message, tree: sha(created.sha), parents: [receipt.headSha], author: identity, committer: identity } });
     const before = pull(receipt.prNumber, call);

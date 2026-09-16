@@ -6,6 +6,7 @@ import { versionContext } from './version-review.mjs';
 import { gatePath, execution, facts, fingerprint, event, pull, classify } from './platform.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
+import { authorizeStatus } from './status-authorization.mjs';
 
 export function appliedProjection(pr, files, result) {
     const recorded = result.receipts?.find(receipt => receipt.prNumber === pr.number && receipt.recordOnly);
@@ -24,7 +25,8 @@ export function appliedProjection(pr, files, result) {
 const managedLabels = new Set(JSON.parse(fs.readFileSync(new URL('labels.json', import.meta.url), 'utf8')).map(row => row.name));
 function conclusions(result) {
     return [result.validationPassed, result.riskPassed,
-        ['APPROVED', 'SELF_APPROVED'].includes(result.human.status), result.flow === 'READY'];
+        result.authorization === 'SIGNED_OWNER' && result.human.status !== 'CHANGES_REQUESTED'
+            || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status), result.flow === 'READY'];
 }
 
 export async function publish(number, context, prepared, call = api, write = api, readGit, resolveVersion = versionContext, readApplication = finalizeReleases) {
@@ -64,7 +66,8 @@ export async function publish(number, context, prepared, call = api, write = api
         const reviewCall = version?.completion?.reviewCall ?? call;
         const collect = () => {
             const input = facts(number, prepared, context.current, reviewCall, version);
-            return attachDecisions(input, loadDecisions(number, prepared, context.current, reviewCall, readGit, undefined, input.after.version));
+            return authorizeStatus(attachDecisions(input, loadDecisions(number, prepared, context.current, reviewCall, readGit, undefined, input.after.version)),
+                prepared, context, version, pull(number, reviewCall), call);
         };
         const before = collect();
         if (before.after.pr.headSha !== (version?.completion?.receipt.headSha ?? head)) throw new Error('PR_HEAD_CHANGED');
@@ -72,11 +75,12 @@ export async function publish(number, context, prepared, call = api, write = api
         const after = collect();
         if (fingerprint(before) !== fingerprint(after)) throw new Error('REVIEW_FACTS_CHANGED');
         const states = conclusions(result).map(value => value ? 'success' : 'failure');
-        if (result.human.status === 'PENDING') states[2] = 'pending';
+        if (result.human.status === 'PENDING' && result.authorization !== 'SIGNED_OWNER') states[2] = 'pending';
         if (!pr.draft && (version && !version.completion || states[2] === 'pending') && states[0] === 'success' && states[1] === 'success'
             && states[2] !== 'failure') states[3] = 'pending';
         const summary = 'Operation: ' + (version ? version.checked.operation : 'maintenance') + '\n\nInput: ' + result.snapshot.inputSha256
             + '\n\nHuman review: ' + result.human.status + '\n\nFlow: ' + result.flow
+            + '\n\nAuthorization: ' + result.authorization
             + (version?.report ? '\n\nPlugin scan: ' + version.report.status + '; blocking findings: ' + result.blockingFindingIds.length
                 + '\n\nFinding IDs (first 20): ' + result.blockingFindingIds.slice(0, 20).join(', ')
                 + '\n\nRisk declaration: ' + (before.declaration.present ? before.declaration.signals.join(', ') || 'empty' : 'not declared')
@@ -84,7 +88,10 @@ export async function publish(number, context, prepared, call = api, write = api
                     ? 'requires human verification for GitHub organization IDs ' + version.checked.organizationRepresentationRequired.join(', ') : 'not applicable')
                 + '\n\nPending archive: ' + version.url + '\n\nThis draft is not publication or SOURCE_REVIEWED.'
                 : '\n\nPlugin scan: not applicable to this operation.')
-            + (version && !version.completion ? '\n\nWaiting for a maintainer to run Complete community review for this exact head.' : '')
+            + (version && !version.completion ? result.authorization === 'SIGNED_OWNER'
+                ? '\n\nWaiting for protected automatic status preparation and exact-head checks.'
+                : '\n\nWaiting for a maintainer to run Complete community review for this exact head.' : '')
+            + (version?.statusManualReason ? '\n\nCommunity restrictions require human review before restoring this version.' : '')
             + (version && !version.completion && id(pr.head.repo.id) !== policy.repositoryId && pr.maintainer_can_modify !== true
                 ? '\n\nPlease enable **Allow edits from maintainers** on this pull request before completing the review.' : '')
             + (version?.checked.recoveryRequired ? '\n\nApplication requires explicit recovery approval in the protected release workflow.' : '')
@@ -106,7 +113,7 @@ export async function publish(number, context, prepared, call = api, write = api
         if (states[3] === 'pending') {
             const ready = labels.indexOf('state:ready');
             if (ready >= 0) labels.splice(ready, 1);
-            if (!labels.includes('review:pending')) labels.push('review:pending');
+            if (result.authorization !== 'SIGNED_OWNER' && !labels.includes('review:pending')) labels.push('review:pending');
         }
         // 维护合并没有目录应用动作；只有发布执行器能显示 awaiting-apply/completed。
         if (!version && result.snapshot.state === 'MERGED') labels.splice(labels.indexOf('state:awaiting-apply'), 1);

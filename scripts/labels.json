@@ -90,6 +90,11 @@
     "description": "当前扫描缺口经人工补充复核放行"
   },
   {
+    "name": "authorization:signed-owner",
+    "color": "0e8a16",
+    "description": "当前个人管理者的活动密钥已授权版本状态操作；不代表人工审核"
+  },
+  {
     "name": "flow:recovery",
     "color": "d4c5f9",
     "description": "当前动作进入已定义的密钥/所有权恢复路径"

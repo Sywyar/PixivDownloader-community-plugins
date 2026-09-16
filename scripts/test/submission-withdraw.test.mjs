@@ -20,7 +20,7 @@ test('取消只关闭本人请求，确认后重新核对，响应丢失按远�
             }
             return structuredClone(pr);
         };
-        const context = { snapshot: { actor }, call, ui: { select: async (_key, values) => values[0], confirm: async () => {
+        const context = { snapshot: { actor }, call, ui: { say() {}, select: async (_key, values) => values[0], confirm: async () => {
             if (mode === 'head-changed') pr.head.sha = 'b'.repeat(40);
             if (mode === 'merged') { pr.merged = true; pr.state = 'closed'; }
             return mode !== 'cancel';

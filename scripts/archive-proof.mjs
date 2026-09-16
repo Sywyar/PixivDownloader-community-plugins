@@ -13,6 +13,7 @@ export function archiveCertificate(results, current, readGit = git) {
 }
 
 export const publicationPath = '.github/workflows/community-review-complete.yml';
+export const statusPath = '.github/workflows/community-status.yml';
 export function publicationCertificate(results, current, readGit = git) {
     return workflowCertificate(results, current, publicationPath, 'workflow_dispatch', readGit);
 }
@@ -40,6 +41,19 @@ export function verifyArchiveProof(file, bundle, current, readGit = git, execute
 }
 
 export function verifyPublicationProof(file, bundle, current, readGit = git, execute = execFileSync) {
+    if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > API_BYTES) throw new Error('ARCHIVE_PROOF_SIZE');
+    const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (receipt.authorization === 'SIGNED_OWNER') {
+        if (!['YANK', 'UNYANK', 'REVOKE'].includes(receipt.operation)) throw new Error('APPLY_RECEIPT_INVALID');
+        return verifyProof(file, bundle, current, statusPath, (results, current, readGit) => {
+            for (const trigger of ['workflow_run', 'workflow_dispatch']) {
+                try { return workflowCertificate(results, current, statusPath, trigger, readGit); }
+                catch (error) { if (error.message !== 'ARCHIVE_ATTESTATION_SOURCE_INVALID') throw error; }
+            }
+            throw new Error('ARCHIVE_ATTESTATION_SOURCE_INVALID');
+        }, readGit, execute);
+    }
+    if (receipt.authorization !== undefined) throw new Error('APPLY_RECEIPT_INVALID');
     return verifyProof(file, bundle, current, publicationPath, publicationCertificate, readGit, execute);
 }
 

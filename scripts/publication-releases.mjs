@@ -123,6 +123,18 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
         completions.push(completion);
     }
     const receipts = completions.map(row => row.receipt);
+    for (const completion of completions) for (const file of completion.receipt.files.filter(file => file.path.startsWith('audits/'))) {
+        const bytes = state.raw(file.path);
+        if (!bytes || hash(bytes) !== file.sha256) throw new Error('AUDIT_REFERENCE_MISMATCH');
+        const audit = sdk.document('AUDIT', bytes, file.path).value;
+        if (audit.result === 'PREPARED') {
+            const adapter = applySdk(sdk);
+            adapter.invoke({ command: 'confirm-operation', audit: adapter.archive(bytes, file.path),
+                pr: { ...prValue(completion.pr), baseSha: completion.receipt.baseSha },
+                generatedParents: completion.commit.parents.map(parent => parent.sha),
+                mergeParents: completion.merge.parents.map(parent => parent.sha) });
+        }
+    }
     const revocations = JSON.parse(state.reference(current.revocations).toString('utf8'));
     const versions = [...state.tree.keys()].filter(file => /^published\/[^/]+\/[^/]+\.json$/u.test(file));
     let pending = false;
