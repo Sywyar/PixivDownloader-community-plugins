@@ -6,6 +6,7 @@ import { renewalAuthor, renewalFile } from './community-renewal.mjs';
 
 export const decisionPath = '.github/workflows/community-review-decision.yml';
 export const gatePath = '.github/workflows/community-gate.yml';
+export const cleanupPath = '.github/workflows/community-candidate-cleanup.yml';
 export const catalogId = 'pixivdownloader-community';
 const surface = ['.github', 'scripts', 'tools', 'schemas', 'package.json'];
 
@@ -33,11 +34,12 @@ export function trustedRun(runId, attempt, workflowPath, current, call = api, re
         || workflow.path !== workflowPath || id(workflow.id) !== id(run.workflow_id)
         || run.path !== workflowPath
         || (workflowPath === decisionPath && run.event !== 'workflow_dispatch')
+        || (workflowPath === cleanupPath && run.event !== 'pull_request_target')
         || (workflowPath === gatePath && !['pull_request_target', 'workflow_run', 'workflow_dispatch', 'push'].includes(run.event))) {
         throw new Error('WORKFLOW_SOURCE_INVALID');
     }
     let sourceSha = run.head_sha;
-    if (workflowPath === gatePath && run.event === 'pull_request_target') {
+    if ([gatePath, cleanupPath].includes(workflowPath) && run.event === 'pull_request_target') {
         // run head 属于投稿，关闭后原生 PR 关联还会为空；仅使用已交叉验证的当前执行上下文。
         sourceSha = sha(executionSha);
     } else if (run.head_branch !== policy.defaultBranch) throw new Error('WORKFLOW_SOURCE_INVALID');

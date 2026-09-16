@@ -40,6 +40,18 @@ public class WorkflowJson {
     for (const job of Object.values(build.jobs)) assert.equal((job.permissions ?? build.permissions).contents, 'read');
     assert.equal(read('community-archive').concurrency.group, read('community-review-complete').concurrency.group);
     assert.equal(read('community-archive').concurrency.group, read('community-publication').concurrency.group);
+    const cleanup = read('community-candidate-cleanup');
+    assert.equal(cleanup.concurrency.group, read('community-archive').concurrency.group);
+    assert.equal(cleanup.concurrency.queue, 'max');
+    assert.deepEqual(cleanup.on.pull_request_target, { branches: ['master'], types: ['closed'] });
+    assert.equal(cleanup.permissions.contents, 'read');
+    assert.deepEqual(cleanup.jobs.cleanup.permissions, { contents: 'write', actions: 'read', 'pull-requests': 'read' });
+    assert(cleanup.jobs.cleanup.if.includes('github.event.pull_request.merged == false'));
+    assert(cleanup.jobs.cleanup.if.includes('refs/heads/master'));
+    const checkout = cleanup.jobs.cleanup.steps.find(step => step.uses?.startsWith('actions/checkout@'));
+    assert.equal(checkout.with.ref, '${{ github.workflow_sha }}');
+    assert.equal(checkout.with['persist-credentials'], false);
+    assert.equal(cleanup.jobs.cleanup.steps.find(step => step.run)?.env.GH_TOKEN, '${{ github.token }}');
     assert.equal(read('community-gate').jobs.notify.permissions.contents, 'read');
 });
 
