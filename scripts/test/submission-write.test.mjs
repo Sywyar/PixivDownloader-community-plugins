@@ -148,6 +148,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     const firstHead = candidate;
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
     assert.equal(body.base, policy.defaultBranch);
+    assert.equal(body.maintainer_can_modify, true);
     assert.match(body.head, new RegExp(`^${actor.login}:community/first_release/`));
     assert.equal(git(upstream, 'rev-parse', policy.defaultBranch), base);
     assert(writes.every(endpoint => endpoint.endsWith('/pulls')));

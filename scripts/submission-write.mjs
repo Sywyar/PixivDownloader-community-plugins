@@ -171,7 +171,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     unchanged(snapshot, call);
     let pull;
     try { pull = call(`repos/${policy.repository}/pulls`, { method: 'POST', body: {
-        title, head: `${snapshot.actor.login}:${preview.branch}`, base: policy.defaultBranch, draft: false,
+        title, head: `${snapshot.actor.login}:${preview.branch}`, base: policy.defaultBranch, draft: false, maintainer_can_modify: true,
         body: preview.body,
     } }); }
     catch (error) {

@@ -1,4 +1,6 @@
 export const additions = {
+    yes: ['是', 'Yes', '是', 'はい', '예'],
+    no: ['否', 'No', '否', 'いいえ', '아니요'],
     operationUnavailable: ['当前没有可执行的对象，已返回社区操作菜单。', 'No eligible items are available. Returning to the operation menu.', '目前沒有可操作的項目，已返回操作選單。', '操作できる対象がありません。操作メニューに戻ります。', '작업 가능한 항목이 없습니다. 작업 메뉴로 돌아갑니다.'],
     rotation: ['更换发布者签名密钥', 'Rotate a publisher signing key', '更換發布者簽章金鑰', '発行者の署名鍵を変更', '게시자 서명 키 교체'],
     withdraw: ['取消尚未合并的投稿或管理请求', 'Withdraw an unmerged submission or management request', '取消尚未合併的投稿或管理請求', '未マージの投稿や管理リクエストを取り下げ', '병합 전 제출 또는 관리 요청 취소'],

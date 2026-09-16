@@ -215,12 +215,45 @@ test('恢复提示使用已保存语言，继续跳过语言选择，拒绝恢�
         const opening = terminal(tty.input, tty.output, { resumeLocale: locale });
         await setImmediate();
         assert(tty.rendered().includes((await import('../submission-ui.mjs')).localizedText(locale, 'resumeSession')));
+        for (const key of ['yes', 'no']) {
+            const label = (await import('../submission-ui.mjs')).localizedText(locale, key);
+            assert.notEqual(label, key);
+            assert(tty.rendered().includes(label));
+        }
         await tty.key(resume ? '\r' : '\x1b[B\r');
         if (!resume) await tty.key('\x1b[B\r');
         const ui = await opening;
         assert.equal(ui.resume, resume); assert.equal(ui.locale, resume ? locale : 'en-US');
         ui.close();
     }
+});
+
+test('恢复已拒绝的密钥确认时重新提问，解锁成功不会重放上次取消', { timeout: 10000 }, async () => {
+    let history = [];
+    const first = consoleStreams(); first.key('\x1b[B\r');
+    const original = await terminal(first.input, first.output);
+    const form = async ui => {
+        await ui.password('password', value => { if (value !== 'secret') throw new Error('KEY_PASSWORD_INVALID'); });
+        return ui.confirm('keyAction', { keyId: 'example-key' });
+    };
+    try {
+        const running = navigation(original, () => null, { onChange: value => { history = value; } }).run(form);
+        await first.key('secret\r'); await setImmediate();
+        await first.key('\r'); assert.equal(await running, false);
+    } finally { original.close(); }
+    assert(!JSON.stringify(history).includes('secret'));
+    const second = consoleStreams(); second.key('\r');
+    const resumed = await terminal(second.input, second.output, { resumeLocale: 'en-US' });
+    try {
+        let finished = false;
+        const running = navigation(resumed, () => null, { history: JSON.parse(JSON.stringify(history)) }).run(form)
+            .then(value => { finished = true; return value; });
+        await second.key('secret\r'); await setImmediate();
+        assert.equal(finished, false);
+        assert(second.rendered().includes(resumed.text('keyAction')));
+        await second.key('\x1b[B\r'); assert.equal(await running, true);
+        assert(!second.rendered().includes('secret'));
+    } finally { resumed.close(); }
 });
 
 test('真实业务线程阻塞期间终端持续刷新，异步字段验证和密码通过线程交接', { timeout: 10000 }, async t => {

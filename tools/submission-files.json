@@ -268,13 +268,13 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 44375,
-      "sha256": "b516cd6ec2b9cd8080260ce147a395ff66e34eaf47235df4923ca0ad6cd78494"
+      "size": 44480,
+      "sha256": "13c64851b5973bc5aac26c1437f77a48a8087d8de6802919118c57f049d560f0"
     },
     {
       "path": "scripts/submission-navigation.mjs",
-      "size": 4332,
-      "sha256": "af936fa430b56a7bb7994d23158cabc0e4b50edec64dcc529d0e584917b9c010"
+      "size": 4472,
+      "sha256": "d09a625cb9df5be6d2e4e34841e2e57550ace92303dbee7af48617c3e2ad4417"
     },
     {
       "path": "scripts/submission-operations.mjs",
@@ -338,8 +338,8 @@
     },
     {
       "path": "scripts/submission-write.mjs",
-      "size": 11636,
-      "sha256": "0ba00b626ff158b5e7831a00ffe91608fd1a01c6f38cc9960efd5bdb03a650f6"
+      "size": 11665,
+      "sha256": "058bea9d8f6eb5e06cd9049bdb2fb3c87232d8e3542e48399d40c55246340092"
     },
     {
       "path": "scripts/submit.mjs",

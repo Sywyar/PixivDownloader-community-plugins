@@ -29,7 +29,9 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
             const signature = [method, key, method === 'ask' || method === 'confirm' && freshConfirmation.has(key)
                 ? null : method === 'select' ? args[0].map(selectionIdentity) : args[0], scope];
             const previous = answers[index];
-            if (!(method === 'confirm' && freshConfirmation.has(key)) && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
+            // 拒绝确认表示停在此处，不是下次恢复时再次取消的指令。
+            if (!(method === 'confirm' && (freshConfirmation.has(key) || previous?.value !== true))
+                && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
                 let valid = true;
                 if (method === 'select' && !args[0].some(value => isDeepStrictEqual(selectionIdentity(value), previous.value))) valid = false;
                 if (method === 'ask' && args[1]) {
