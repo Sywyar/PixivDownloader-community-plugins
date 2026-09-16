@@ -27,7 +27,8 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.', prev
     const selected = licenses.filter(file => path.posix.dirname(file) === projectDir);
     const suggestions = selected.length ? selected : licenses.filter(file => path.posix.dirname(file) === '.');
     const templates = sdk.invoke({ command: 'licenses' }).map(template => template.id);
-    if (!suggestions.length) {
+    ui.say?.('licenseNotice');
+    if (await ui.select('licenseAction', ['existingLicense', 'createLicense'], key => ui.text(key)) === 'createLicense') {
         const id = await ui.select('licenseTemplate', templates);
         const template = sdk.invoke({ command: 'license', id });
         let text = readFile(template.file).toString('utf8');
@@ -42,9 +43,16 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.', prev
             text = text.replaceAll('<year>', year).replaceAll('<copyright holders>', holder).replaceAll('<owner>', holder);
             if (id === '0BSD') text = text.replace('YEAR', year).replace('AUTHOR EMAIL', holder);
         }
-        const selectedRoot = sdk.invoke({ command: 'path', root: projectRoot, path: projectDir, allowRoot: true, mustExist: true }).path;
-        const file = path.join(selectedRoot, 'LICENSE');
-        if (await ui.confirm('licenseTemplate', { id, file, text })) fs.writeFileSync(file, text, { flag: 'wx', encoding: 'utf8' });
+        const output = value => {
+            const file = sdk.invoke({ command: 'path', root: projectRoot, path: value, mustExist: false }).path;
+            if (fs.existsSync(file)) throw new Error('LICENSE_FILE_EXISTS');
+            if (!fs.statSync(path.dirname(file)).isDirectory()) throw new Error('LICENSE_PARENT_REQUIRED');
+            return file;
+        };
+        const defaultPath = path.posix.join(projectDir, suggestions.length ? 'LICENSE.plugin' : 'LICENSE');
+        const file = output(await ui.ask('licenseOutput', defaultPath, output));
+        if (!await ui.confirm('licenseTemplate', { id, file, text })) throw new Error('CANCELLED');
+        fs.writeFileSync(file, text, { flag: 'wx', encoding: 'utf8' });
         ui.say('rebuild');
         return null;
     }
@@ -54,24 +62,28 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.', prev
         const bytes = readFile(absolute);
         return { path: file, size: bytes.length, sha256: hash(bytes) };
     };
-    ui.say?.('licenseNotice');
     const files = (await ui.ask('licenseFiles', previous?.files?.map(file => file.path).join(',') ?? suggestions.join(','), value => {
-        value.split(',').map(file => reference(file.trim()));
+        const files = value.split(',').map(file => file.trim());
+        if (new Set(files).size !== files.length) throw new Error('LICENSE_FILES_DUPLICATED');
+        files.forEach(reference);
     })).split(',').map(value => value.trim());
     const references = files.map(reference);
     // 仅完整固定正文匹配才提出已知许可证；不根据单个关键词猜测法律授权。
     const known = new Set();
+    let recognized = 0;
     for (const file of files) {
         const actual = readFile(path.join(projectRoot, file)).toString('utf8').replace(/\s+/gu, ' ').trim();
         for (const id of templates) {
             const template = readFile(path.join(root, `schemas/community/v1/licenses/${id}.txt`)).toString('utf8');
-            const pattern = template.trim().split(/(<year>|<owner>|<copyright holders>|\s+)/u).map(part =>
-                /^<.+>$/u.test(part) ? '.+?' : /^\s+$/u.test(part) ? ' ' : part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('');
-            if (new RegExp('^' + pattern + '$', 'u').test(actual)) known.add(id);
+            const pattern = template.trim().split(/(<year>|<owner>|<copyright holders>|YEAR|AUTHOR EMAIL|\s+)/u).map(part =>
+                /^(?:<.+>|YEAR|AUTHOR EMAIL)$/u.test(part) ? '.+?' : /^\s+$/u.test(part) ? ' ' : part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('');
+            if (new RegExp('^' + pattern + '$', 'u').test(actual)) { known.add(id); recognized++; }
         }
     }
     if (known.size > 1) ui.say('license', [...known]);
-    const expression = await ui.ask('license', previous?.expression ?? (known.size === 1 ? [...known][0] : ''),
+    const suggestion = known.size === 1 && recognized === files.length ? [...known][0] : null;
+    const selectedExpression = suggestion ? await ui.select('license', [suggestion, 'customLicense'], key => key === 'customLicense' ? ui.text(key) : key) : 'customLicense';
+    const expression = selectedExpression !== 'customLicense' ? selectedExpression : await ui.ask('license', previous?.expression ?? suggestion ?? '',
         value => {
             sdk.invoke({ command: 'field', field: 'license', value });
             if (known.size === 1 && /^[A-Za-z0-9.-]+$/u.test(value) && !known.has(value)) throw new Error('LICENSE_CONFLICT');

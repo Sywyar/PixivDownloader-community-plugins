@@ -9,6 +9,7 @@ import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRep
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer } from './submission-operations.mjs';
+import { withdrawRequest } from './submission-withdraw.mjs';
 import { validateChanges } from './submission-check.mjs';
 import { submitPreview } from './submission-write.mjs';
 import { navigation } from './submission-navigation.mjs';
@@ -59,7 +60,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             if (context.state) return;
             sdk ??= await ui.task('preparing', () => prepareSubmission());
             const snapshot = await ui.task('loading', () => protectedSnapshot(call));
-            Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: signingTool(sdk) });
+            Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: context.sign ?? signingTool(sdk) });
         };
         if (ui.resume && saved) {
             await initialize();
@@ -81,14 +82,19 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         };
         const navigator = navigation(ui, () => context.store, { history, onFailure: retry, onChange: values => {
             history = values; saveSession(context, { navigation: history, operation: context.operation, prepared: null });
-        }, onBack: () => { context.resumePrepared = false; } });
+        }, onBack: () => { context.resumePrepared = false; }, onMenu: () => {
+            context.store?.update({ session: null });
+            context.store?.close(); context.sign?.close();
+            Object.assign(context, { store: null, state: null, generatedKey: null, resumePrepared: false, operation: undefined });
+        } });
         context.ui = navigator.ui;
         context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };
         const outcome = await navigator.run(async ui => {
-        const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'YANK', 'UNYANK', 'REVOKE', 'transfer'], key => ui.text(key));
+        const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer'], key => ui.text(key));
         context.operation = operation;
         await initialize();
         const { snapshot, state } = context;
+        if (operation === 'withdraw') return withdrawRequest(context);
         let prepared;
         if (context.resumePrepared) prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
         else if (operation === 'publish') {
@@ -106,7 +112,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
                 return { original: prepared.original.value };
             }
             if (prepared.rotation) prepared = await prepareRotation(context, prepared.rotation);
-        } else if (operation === 'transfer') prepared = await prepareTransfer(context);
+        } else if (operation === 'rotation') prepared = await prepareRotation(context);
+        else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
         savePrepared(context, prepared);
         const original = appliedRequest(sdk, state, prepared.changes);
@@ -133,7 +140,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         if (outcome.original) { context.store?.complete(outcome); return outcome; }
         if (outcome.sourceChangeRequired) return outcome;
         if (!outcome.cancelled) context.store?.complete({ ...(context.store.record.receipt ?? {}), ...outcome });
-        ui.say(outcome.cancelled ? 'cancelled' : 'submitted', outcome);
+        ui.say(outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : 'submitted', outcome);
         return outcome;
     } catch (error) {
         if (error.message === 'WIZARD_SAVE') {

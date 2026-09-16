@@ -13,7 +13,8 @@ import { root, hash } from '../sdk.mjs';
 import { git } from '../project.mjs';
 import { httpsUrl } from '../download.mjs';
 import { runWizard } from '../submit.mjs';
-import { navigation } from '../submission-navigation.mjs';
+import { policy, prefix } from '../github.mjs';
+import { navigation, unavailable } from '../submission-navigation.mjs';
 import { publisherOwner } from '../submission-release.mjs';
 import { unlockPrivateKey } from '../submission-signing.mjs';
 import { errors } from '../submission-messages.mjs';
@@ -404,6 +405,30 @@ test('向导投影下载错误码及阶段，不输出原始异常或凭据', as
     } finally { process.exitCode = previous; }
 });
 
+test('真实入口连续切换不可用操作后仍可返回菜单，不重复创建固定签名工具', async () => {
+    const sdk = prepareSubmission(), project = path.join(sdk.workspace, 'menu-project'); fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
+    git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    const spoken = [], operations = ['REVOKE', 'YANK', 'rotation', 'withdraw'];
+    const call = endpoint => {
+        if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId }, default_branch: 'master' };
+        if (endpoint === `${prefix}/git/ref/heads/master`) return { object: { sha: 'a'.repeat(40) } };
+        if (endpoint === 'user') return { id: policy.repositoryOwnerId, type: 'User', login: policy.repository.split('/')[0] };
+        if (endpoint.startsWith(`${prefix}/git/trees/`)) return { tree: [], truncated: false };
+        if (endpoint.startsWith(`${prefix}/pulls?`)) return [[]];
+        throw new Error('Unexpected request ' + endpoint);
+    };
+    const previous = process.exitCode;
+    try {
+        const result = await runWizard(project, { call, stateHome: project, ui: { locale: 'en-US', text: key => key,
+            select: key => { assert.equal(key, 'operation'); if (!operations.length) throw new Error('CANCELLED'); return operations.shift(); },
+            task: (_key, work) => work(), say: (...args) => spoken.push(args), close() {} } });
+        assert.deepEqual(result, { cancelled: true });
+        assert.deepEqual(spoken.filter(([key]) => key === 'operationUnavailable').map(([, value]) => value.code),
+            ['NO_OWNED_PLUGINS', 'NO_OWNED_PLUGINS', 'NO_OWNED_PUBLISHERS', 'NO_WITHDRAWABLE_REQUESTS']);
+    } finally { process.exitCode = previous; }
+});
+
 test('市场默认语言跟随向导，首次显示名由开发者填写，已有市场信息继续作为建议', async () => {
     for (const locale of locales) {
         for (const previous of [undefined, { defaultLocale: 'en', displayName: { en: 'Existing name' }, summary: { en: 'Existing summary' } }]) {
@@ -433,7 +458,7 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     fs.writeFileSync(path.join(project, 'LICENSE'), 'root license');
     fs.writeFileSync(path.join(project, 'nested/LICENSE'), mit);
     git(project, 'add', 'LICENSE', 'nested/LICENSE');
-    const ui = { ask: async (key, fallback) => {
+    const ui = { text: key => key, select: async (_key, values) => values[0], ask: async (key, fallback) => {
         if (key === 'licenseFiles') assert.equal(fallback, 'nested/LICENSE');
         if (key === 'license') assert.equal(fallback, 'MIT');
         return fallback;
@@ -454,4 +479,43 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     assert.equal(changes.size, 1);
     assert.deepEqual([...changes.values()][0], fs.readFileSync(image));
     sdk.document('SUBMISSION', submission, 'submissions/101/' + submission.pluginId + '/' + submission.version + '.json');
+});
+
+test('连续临时子步骤不留下引导空行，空选项返回操作菜单且清除旧答案', async t => {
+    const tty = consoleStreams(); tty.key('\x1b[B\r');
+    const ui = await terminal(tty.input, tty.output); t.after(() => ui.close());
+    const offset = tty.rendered().length;
+    for (let i = 0; i < 30; i++) {
+        const activity = ui.activity('readingGitObjects');
+        activity.message(ui.text('checkingContract'));
+        activity.clear();
+    }
+    assert(!tty.rendered().slice(offset).includes('\n'));
+    let menus = 0, resets = 0;
+    const navigator = navigation({ ...ui, select: async () => ++menus === 1 ? 'REVOKE' : 'publish' }, () => null,
+        { onMenu: () => resets++ });
+    const result = await navigator.run(async form => {
+        const operation = await form.select('operation', ['REVOKE', 'publish']);
+        if (operation === 'REVOKE') unavailable(form, 'NO_ELIGIBLE_VERSIONS');
+        return operation;
+    });
+    assert.equal(result, 'publish'); assert.equal(resets, 1); assert.equal(menus, 2);
+    await assert.rejects(ui.select('plugin', []), /WIZARD_MENU/u);
+    assert(tty.rendered().includes(ui.text('operationUnavailable')));
+});
+
+test('已有 SDK 许可证仍可创建独立模板，保留原文件并要求重新提交源码', async () => {
+    const sdk = prepareSubmission();
+    const project = path.join(sdk.workspace, 'license-project'); fs.mkdirSync(project);
+    git(project, 'init'); fs.writeFileSync(path.join(project, 'LICENSE'), 'Original notices'); git(project, 'add', 'LICENSE');
+    const ui = { text: key => key, say() {}, select: async key => key === 'licenseAction' ? 'createLicense' : 'MIT',
+        ask: async (key, initial, validate) => {
+            const value = key === 'copyright' ? 'Plugin Author' : initial;
+            if (key === 'licenseOutput') assert.throws(() => validate('LICENSE'), /LICENSE_FILE_EXISTS/u);
+            validate?.(value); return value;
+        }, confirm: async (_key, preview) => { assert(preview.text.includes('Plugin Author')); return true; } };
+    assert.equal(await licenseFields(sdk, ui, project), null);
+    assert.equal(fs.readFileSync(path.join(project, 'LICENSE'), 'utf8'), 'Original notices');
+    assert(fs.readFileSync(path.join(project, 'LICENSE.plugin'), 'utf8').includes('Plugin Author'));
+    assert.equal(git(project, 'ls-files', 'LICENSE.plugin'), '');
 });
