@@ -5,7 +5,7 @@ import { main } from './github.mjs';
 import { preflight, markerMissing, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { terminal, failureCode } from './submission-ui.mjs';
-import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository } from './submission-github.mjs';
+import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from './submission-operations.mjs';
@@ -62,7 +62,9 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             const snapshot = await ui.task('loading', () => protectedSnapshot(call));
             Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: context.sign ?? signingTool(sdk) });
         };
-        if (ui.resume && saved) {
+        let resumePending = Boolean(ui.resume && saved);
+        const restoreSession = async () => {
+            if (!resumePending) return;
             await initialize();
             if (context.snapshot.actor.id !== saved.actorId) throw new Error('SESSION_ACCOUNT_CHANGED');
             if (saved.session.sourceCommit !== git(project.gitRoot, 'rev-parse', 'HEAD')) throw new Error('SOURCE_CHANGED');
@@ -73,9 +75,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             context.generatedKey = context.store.record.session?.generatedKey;
             context.resumePrepared = Boolean(context.store.record.session?.prepared);
             context.operation = saved.session.operation;
-        }
+            resumePending = false;
+        };
         const retry = async error => {
-            ui.say('requestFailed', { code: failureCode(error), status: error.status, attempts: error.attempts });
+            ui.say('requestFailed', { code: failureCode(error), ...requestDetails(error) });
             if (await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) !== 'retry') throw new Error('WIZARD_SAVE');
             context.resumePrepared = Boolean(context.store?.record.session?.prepared);
             return true;
@@ -90,6 +93,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         context.ui = navigator.ui;
         context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };
         const outcome = await navigator.run(async ui => {
+        await restoreSession();
+        if (context.state) unchanged(context.snapshot, call);
         const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer'], key => ui.text(key));
         context.operation = operation;
         await initialize();
@@ -147,15 +152,13 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         return outcome;
     } catch (error) {
         if (error.message === 'WIZARD_SAVE') {
-            if (!context?.store) { ui?.say('cancelled'); return { cancelled: true }; }
+            if (!context?.store) { ui?.say(ui?.resume ? 'saved' : 'cancelled'); return ui?.resume ? { saved: true } : { cancelled: true }; }
             ui?.say('saved', { path: context.store.folder }); return { saved: true };
         }
         if (error.message === 'CANCELLED') { ui?.say('cancelled'); return { cancelled: true }; }
         // 原生命令错误可能包含工程输出，只向终端投影固定错误码。
         const code = failureCode(error);
-        const stage = ['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'BODY'].includes(error.downloadStage) ? error.downloadStage : undefined;
-        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...(stage ? { stage } : {}),
-            ...(error.github ? { status: error.status, attempts: error.attempts } : {}),
+        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...requestDetails(error),
             ...(error.statePath ? { path: error.statePath } : {}) });
         else console.error(code);
         process.exitCode = 1;

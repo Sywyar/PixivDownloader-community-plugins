@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { recoverableRequest } from './submission-github.mjs';
 
 // 工具临时路径和 Buffer 不属于选择身份；恢复后返回本次重新读取的对象。
 const selectionIdentity = value => value?.candidate ? { candidate: value.candidate }
@@ -59,7 +60,7 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
             cursor = 0; counts = new Map();
             try { return await work(wrapped); }
             catch (error) {
-                if (error.github && onFailure && await onFailure(error)) { replay = answers.length; continue; }
+                if (recoverableRequest(error) && onFailure && await onFailure(error)) { replay = answers.length; continue; }
                 if (!sealed && error.message === 'WIZARD_MENU') {
                     answers.length = 0; replay = 0; onMenu(); onChange([]); continue;
                 }

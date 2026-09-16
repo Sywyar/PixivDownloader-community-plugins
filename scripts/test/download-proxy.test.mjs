@@ -46,10 +46,19 @@ test('真实 HTTPS 代理固定 CONNECT 地址、验证 TLS、下载与复核字
     const bytes = Buffer.from('package and source bytes');
     const expected = { size: bytes.length, sha256: hash(bytes) };
     const requests = [];
+    const hits = new Map();
     const connections = [];
     const sockets = new Set();
     const origin = https.createServer({ key: fs.readFileSync(privateKey), cert: fs.readFileSync(certificate) }, (req, res) => {
         requests.push({ url: req.url, headers: req.headers, servername: req.socket.servername });
+        const attempt = (hits.get(req.url) ?? 0) + 1;
+        hits.set(req.url, attempt);
+        if (req.url === '/recover-headers' && attempt === 1) { req.socket.destroy(); return; }
+        if (req.url === '/recover-body' && attempt === 1) {
+            res.writeHead(200, { 'Content-Length': bytes.length }); res.write(bytes.subarray(0, 4));
+            setTimeout(() => req.socket.destroy(), 20); return;
+        }
+        if (req.url === '/recover-status' && attempt === 1) { res.writeHead(503); res.end(); return; }
         if (req.url === '/redirect') { res.writeHead(302, { Location: 'https://assets.example.org/package' }); res.end(); }
         else if (req.url === '/private') { res.writeHead(302, { Location: 'https://127.0.0.1/forbidden' }); res.end(); }
         else if (req.url === '/credentials') { res.writeHead(302, { Location: 'https://user:password@assets.example.org/package' }); res.end(); }
@@ -62,10 +71,17 @@ test('真实 HTTPS 代理固定 CONNECT 地址、验证 TLS、下载与复核字
         else { res.setHeader('Content-Length', bytes.length); res.end(bytes); }
     });
     let behavior = 'success';
+    let failures = 0;
     const proxy = http.createServer();
     const secureProxy = https.createServer({ key: fs.readFileSync(privateKey), cert: fs.readFileSync(certificate) });
     const connect = (req, client, head) => {
+        client.on('error', () => {});
         connections.push({ destination: req.url, headers: req.headers });
+        if (failures-- > 0) {
+            if (behavior === 'recover-reset') client.destroy();
+            else client.end('HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n');
+            return;
+        }
         if (behavior === 'timeout') return;
         if (behavior === 'auth') { client.end('HTTP/1.1 407 Proxy Authentication Required\r\n\r\n'); return; }
         assert.match(req.url, /^8\.8\.8\.[89]:443$/u);
@@ -111,7 +127,7 @@ try {
             (url,file,maximum,expected)=>download(url,file,maximum,expected,options));
     }
     console.log(JSON.stringify({ok:true}));
-} catch(error) { console.log(JSON.stringify({code:error.message,stage:error.downloadStage})); process.exitCode=1; }
+} catch(error) { console.log(JSON.stringify({code:error.message,stage:error.downloadStage,attempts:error.attempts,retryable:error.retryable})); process.exitCode=1; }
 `, 'utf8');
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/proxy|TOKEN|SECRET|PRIVATE_KEY|NODE_OPTIONS|NODE_EXTRA_CA_CERTS/iu.test(key)));
     let sequence = 0;
@@ -133,6 +149,17 @@ try {
     const count = connections.length;
     assert.deepEqual(await run({ direct: true, port: origin.address().port, routes: ['package'] }), { ok: true });
     assert.equal(connections.length, count);
+    for (const kind of ['recover-reset', 'recover-status']) {
+        behavior = kind; failures = 1;
+        const before = connections.length;
+        assert.deepEqual(await run({ routes: ['package'], secureProxy: kind === 'recover-status' }), { ok: true });
+        assert.equal(connections.length - before, 2);
+    }
+    behavior = 'success';
+    for (const route of ['recover-headers', 'recover-body', 'recover-status']) {
+        assert.deepEqual(await run({ routes: [route] }), { ok: true });
+        assert.equal(hits.get('/' + route), 2);
+    }
     for (const shell of process.platform === 'win32' ? ['powershell.exe', 'pwsh'] : ['pwsh']) assert.deepEqual(await run({}, shell), { ok: true });
     for (const req of requests) {
         assert.equal(req.headers.authorization, undefined); assert.equal(req.headers.cookie, undefined);
@@ -157,7 +184,16 @@ try {
         [{ untrusted: true }, 'DOWNLOAD_TLS_FAILED'],
         [{ routes: ['wrong-host'] }, 'DOWNLOAD_TLS_FAILED'],
         [{ routes: ['body-timeout'], timeout: 300 }, 'DOWNLOAD_TIMEOUT'],
-    ]) assert.equal((await run(config)).code, code);
+    ]) {
+        const failure = await run(config);
+        assert.equal(failure.code, code);
+        const transient = ['DOWNLOAD_RESPONSE_INVALID', 'DOWNLOAD_CONNECTION_RESET', 'DOWNLOAD_TIMEOUT'].includes(code);
+        assert.equal(failure.retryable, transient);
+        assert.equal(failure.attempts, transient && code !== 'DOWNLOAD_TIMEOUT' ? 3 : 1);
+        if (code === 'DOWNLOAD_CONNECTION_RESET') assert.equal(failure.stage, 'HEADERS');
+        if (code === 'DOWNLOAD_TLS_FAILED') assert.equal(failure.stage, 'TLS');
+    }
+    assert(!fs.readdirSync(folder).some(name => new RegExp('^' + sequence + '-').test(name)), 'failed body must be removed');
     behavior = 'auth';
     assert.equal((await run()).code, 'DOWNLOAD_PROXY_AUTH_REQUIRED');
     behavior = 'timeout';

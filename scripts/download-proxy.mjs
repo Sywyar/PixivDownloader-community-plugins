@@ -58,7 +58,7 @@ export async function resolveProxy(url, signal, { env = process.env, platform = 
 }
 
 // CONNECT 仅携带已核对的目标 IP；源站 TLS/SNI 和 Host 仍使用原始主机。
-export function tunnelAgent(proxy, selected, url, signal) {
+export function tunnelAgent(proxy, selected, url, signal, stage = () => {}) {
     const agent = new https.Agent({ keepAlive: false });
     agent.createConnection = (_options, callback) => {
         let completed = false;
@@ -75,9 +75,11 @@ export function tunnelAgent(proxy, selected, url, signal) {
         request.once('connect', (response, socket, head) => {
             if (response.statusCode !== 200 || head.length) {
                 socket.destroy();
-                done(new Error(response.statusCode === 407 ? 'DOWNLOAD_PROXY_AUTH_REQUIRED' : 'DOWNLOAD_PROXY_CONNECT_FAILED'));
+                done(Object.assign(new Error(response.statusCode === 407 ? 'DOWNLOAD_PROXY_AUTH_REQUIRED' : 'DOWNLOAD_PROXY_CONNECT_FAILED'),
+                    { status: response.statusCode === 200 ? undefined : response.statusCode }));
                 return;
             }
+            stage('TLS');
             const hostname = url.hostname.replace(/^\[|\]$/gu, '');
             const connection = tls.connect({ socket, servername: isIP(hostname) ? undefined : hostname,
                 rejectUnauthorized: true, checkServerIdentity: (_host, certificate) => tls.checkServerIdentity(hostname, certificate) });
@@ -86,6 +88,7 @@ export function tunnelAgent(proxy, selected, url, signal) {
             connection.once('close', () => signal.removeEventListener('abort', abort));
             connection.once('error', done);
             connection.once('secureConnect', () => {
+                stage('HEADERS');
                 connection.removeListener('error', done);
                 done(null, connection);
             });

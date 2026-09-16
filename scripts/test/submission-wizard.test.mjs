@@ -313,13 +313,22 @@ test('真实业务线程阻塞期间终端持续刷新，异步字段验证和�
         import { parentPort, workerData } from 'node:worker_threads';
         import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
         import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
+        import { navigation } from ${JSON.stringify(new URL('../submission-navigation.mjs', import.meta.url).href)};
         const ui = await workerTerminal(parentPort, workerData.cancelled);
         const wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
         await ui.task('preparing', () => observe('checkingPath', '', () => Atomics.wait(workerData.blocked, 0, 0, 5000)));
         const value = await ui.ask('name', '', value => { wait(100); if (value !== 'Example') throw new Error('FIELD_PLACEHOLDER'); });
         const password = await ui.password('password', value => { if (value !== 'secret') throw new Error('KEY_PASSWORD_INVALID'); });
+        let attempts = 0;
+        const nav = navigation(ui, undefined, { onFailure: async error => {
+            ui.say('requestFailed', { code: error.message, stage: error.downloadStage, attempts: error.attempts });
+            return await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) === 'retry';
+        } });
+        await nav.run(() => ui.task('validating', async () => {
+            if (++attempts === 1) throw Object.assign(new Error('DOWNLOAD_CONNECTION_RESET'), { download: true, retryable: true, downloadStage: 'PROXY_CONNECT', attempts: 3 });
+        }));
         ui.close();
-        parentPort.postMessage({ method: 'result', args: [{ value, passwordLength: password.length }] });
+        parentPort.postMessage({ method: 'result', args: [{ value, passwordLength: password.length, attempts }] });
         parentPort.close();
     `)), { workerData: { cancelled, blocked } });
     t.after(() => worker.terminate());
@@ -333,7 +342,8 @@ test('真实业务线程阻塞期间终端持续刷新，异步字段验证和�
     Atomics.store(blocked, 0, 1); Atomics.notify(blocked, 0);
     await until('Plugin display name'); await tty.key('Example\r');
     await until('Private key password'); await tty.key('secret\r');
-    assert.deepEqual(await result, { value: 'Example', passwordLength: 6 });
+    await until('DOWNLOAD_CONNECTION_RESET'); await until('Save and exit'); await tty.key('\r');
+    assert.deepEqual(await result, { value: 'Example', passwordLength: 6, attempts: 2 });
     assert(!tty.rendered().includes('secret'));
 });
 
@@ -488,9 +498,10 @@ test('真实入口连续切换不可用操作后仍可返回菜单，不重复�
     fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
     git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
     const spoken = [], operations = ['REVOKE', 'YANK', 'rotation', 'withdraw'];
+    let base = 'a'.repeat(40);
     const call = endpoint => {
         if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId }, default_branch: 'master' };
-        if (endpoint === `${prefix}/git/ref/heads/master`) return { object: { sha: 'a'.repeat(40) } };
+        if (endpoint === `${prefix}/git/ref/heads/master`) return { object: { sha: base } };
         if (endpoint === 'user') return { id: policy.repositoryOwnerId, type: 'User', login: policy.repository.split('/')[0] };
         if (endpoint.startsWith(`${prefix}/git/trees/`)) return { tree: [], truncated: false };
         if (endpoint.startsWith(`${prefix}/pulls?`)) return [[]];
@@ -500,7 +511,10 @@ test('真实入口连续切换不可用操作后仍可返回菜单，不重复�
     try {
         const result = await runWizard(project, { call, stateHome: project, ui: { locale: 'en-US', text: key => key,
             select: key => { assert.equal(key, 'operation'); if (!operations.length) throw new Error('CANCELLED'); return operations.shift(); },
-            task: (_key, work) => work(), say: (...args) => spoken.push(args), close() {} } });
+            task: (_key, work) => work(), say: (...args) => {
+                spoken.push(args);
+                if (args[0] === 'operationUnavailable') base = (base[0] === 'a' ? 'b' : 'a').repeat(40);
+            }, close() {} } });
         assert.deepEqual(result, { cancelled: true });
         assert.deepEqual(spoken.filter(([key]) => key === 'operationUnavailable').map(([, value]) => value.code),
             ['NO_OWNED_PLUGINS', 'NO_OWNED_PLUGINS', 'NO_OWNED_PUBLISHERS', 'NO_WITHDRAWABLE_REQUESTS']);
