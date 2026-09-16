@@ -3,9 +3,14 @@ import { isDeepStrictEqual } from 'node:util';
 // 工具临时路径和 Buffer 不属于选择身份；恢复后返回本次重新读取的对象。
 const selectionIdentity = value => value?.candidate ? { candidate: value.candidate }
     : value?.value && value?.sha256 ? { path: value.path, sha256: value.sha256 } : value;
-const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer']);
+const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'withdrawConfirm', 'licenseTemplate']);
 
-export function navigation(ui, getStore = () => null, { history = [], onChange = () => {}, onBack = () => {}, onFailure } = {}) {
+export function unavailable(ui, code, details = {}) {
+    ui.say('operationUnavailable', { code, ...details });
+    throw new Error('WIZARD_MENU');
+}
+
+export function navigation(ui, getStore = () => null, { history = [], onChange = () => {}, onBack = () => {}, onMenu = () => {}, onFailure } = {}) {
     const answers = structuredClone(history);
     let cursor = 0;
     let replay = answers.length;
@@ -24,7 +29,9 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
             const signature = [method, key, method === 'ask' || method === 'confirm' && freshConfirmation.has(key)
                 ? null : method === 'select' ? args[0].map(selectionIdentity) : args[0], scope];
             const previous = answers[index];
-            if (!(method === 'confirm' && freshConfirmation.has(key)) && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
+            // 拒绝确认表示停在此处，不是下次恢复时再次取消的指令。
+            if (!(method === 'confirm' && (freshConfirmation.has(key) || previous?.value !== true))
+                && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
                 let valid = true;
                 if (method === 'select' && !args[0].some(value => isDeepStrictEqual(selectionIdentity(value), previous.value))) valid = false;
                 if (method === 'ask' && args[1]) {
@@ -53,6 +60,9 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
             try { return await work(wrapped); }
             catch (error) {
                 if (error.github && onFailure && await onFailure(error)) { replay = answers.length; continue; }
+                if (!sealed && error.message === 'WIZARD_MENU') {
+                    answers.length = 0; replay = 0; onMenu(); onChange([]); continue;
+                }
                 if (sealed || error.message !== 'WIZARD_BACK') throw error;
                 onBack();
                 replay = Math.max(0, cursor - 2);

@@ -18,5 +18,5 @@
     "community/human-review",
     "community/admission"
   ],
-  "publicationMode": "result-pull-request"
+  "publicationMode": "original-pull-request"
 }

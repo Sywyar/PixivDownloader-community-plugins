@@ -27,7 +27,7 @@ export function sessionLocator(directory, home = submissionHome()) {
                 const session = data.actors?.[ref.actorId]?.session;
                 if (!session) return null;
                 if (session.schemaVersion !== 1 || !Array.isArray(session.navigation)
-                    || !['publish', 'YANK', 'UNYANK', 'REVOKE', 'transfer'].includes(session.operation)
+                    || !['publish', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer'].includes(session.operation)
                     || !locales.includes(session.locale)
                     || session.navigation.some(answer => !answer || !Array.isArray(answer.signature)
                         || !['ask', 'select', 'multiselect', 'confirm'].includes(answer.signature[0]))) throw new Error();

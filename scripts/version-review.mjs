@@ -7,12 +7,20 @@ import { pull, classify } from './platform.mjs';
 import { checkPull } from './submission-pr.mjs';
 import { archivedCandidates, readArchivedCandidate } from './archive-read.mjs';
 import { buildInputs } from './build-reuse.mjs';
+import { checkResult } from './apply-result.mjs';
+import { stateReader } from './submission-github.mjs';
+import { restoreReview } from './apply-context.mjs';
 
-export async function versionContext(number, sdk, current, call = api, readGit) {
+export async function versionContext(number, sdk, current, call = api, readGit, { appliedBase, checkCall, fetch } = {}) {
     const pr = pull(number, call);
-    if (classify(pr, list(`${prefix}/pulls/${number}/files`, null, call)) === 'maintenance') return null;
-    const checked = await checkPull(number, sdk);
-    if (!['FIRST_RELEASE', 'UPDATE'].includes(checked.operation)) throw new Error('SUBMISSION_EXECUTOR_UNAVAILABLE');
+    const operation = classify(pr, list(`${prefix}/pulls/${number}/files`, null, call));
+    if (operation === 'maintenance') return null;
+    if (operation === 'review-completed') {
+        const result = await checkResult(number, sdk, current, { call, readGit });
+        return { ...restoreReview(sdk, stateReader(sdk, current, call), result.receipt), completion: result };
+    }
+    const checked = await checkPull(number, sdk, checkCall, fetch, { appliedBase });
+    if (!['FIRST_RELEASE', 'UPDATE'].includes(checked.operation)) return { checked };
     const releases = archivedCandidates(number, call).filter(release => release.tag_name.startsWith(`candidate/pr-${number}/${pr.head.sha}/`));
     if (!releases.length) throw new Error('CANDIDATE_ARCHIVE_PENDING');
     const archived = await readArchivedCandidate(sdk, releases[0], current, { call, readGit });
@@ -22,5 +30,5 @@ export async function versionContext(number, sdk, current, call = api, readGit) 
         || !isDeepStrictEqual(candidate.inputs.build, buildInputs(sdk, checked))
         || !isDeepStrictEqual(candidate.inputs.scanner, scanInputs())) throw new Error('CANDIDATE_REVALIDATION_REQUIRED');
     const report = JSON.parse(fs.readFileSync(path.join(sdk.workspace, candidate.scan.riskReportRef.path), 'utf8'));
-    return { checked, candidate, report, releaseId: archived.releaseId, url: archived.url };
+    return { checked, candidate, report, directory: archived.directory, releaseId: archived.releaseId, url: archived.url };
 }

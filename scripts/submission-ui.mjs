@@ -129,7 +129,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
             if (value.code && errors[value.code]) prompts.log.error(errors[value.code][index], common);
             prompts.note(formatMetadata(value, text), '', common);
         }
-        if (['submitted', 'original', 'cancelled', 'saved', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
+        if (['submitted', 'withdrawn', 'original', 'cancelled', 'saved', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
             (['cancelled', 'failed', 'downloadFailed'].includes(key) ? prompts.cancel : prompts.outro)(text(key), common);
         } else if (value === undefined) prompts.log.info(text(key), common);
     };
@@ -171,7 +171,10 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         return actual(value);
     };
     const select = async (key, options, label = value => String(value), initialValue) => {
-        if (!options.length) throw new Error('NO_SELECTABLE_VALUES');
+        if (!options.length) {
+            say('operationUnavailable', { code: 'NO_SELECTABLE_VALUES', field: text(key) });
+            throw new Error('WIZARD_MENU');
+        }
         prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation') + ' · ' + text('formNavigation'));
         const selected = await prompt(prompts.select, {
             message: text(key),
@@ -215,13 +218,14 @@ export async function terminal(input = process.stdin, output = process.stdout, o
             try { await validate?.(value); } catch (error) { return errorText(error); }
         },
     });
-    const activity = (key, detail) => {
-        const loading = prompts.spinner({ ...common, cancelMessage: text('cancelled'), errorMessage: text('failed'), onCancel: end });
+    const activity = (key, detail, transient = true) => {
+        const loading = prompts.spinner({ ...common, withGuide: !transient,
+            cancelMessage: text('cancelled'), errorMessage: text('failed'), onCancel: end });
         loading.start(text(key) + (detail ? ' · ' + visible(detail) : ''));
         return loading;
     };
     const task = async (key, work) => {
-        const loading = activity(key);
+        const loading = activity(key, undefined, false);
         try {
             await setImmediate();
             if (controller.signal.aborted) throw new Error('CANCELLED');

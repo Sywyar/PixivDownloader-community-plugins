@@ -1,6 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import { terminal, localizedText, failureCode } from './submission-ui.mjs';
 import { progressReporter } from './submission-progress.mjs';
+import { visible } from './submission-presentation.mjs';
 
 const failure = error => ({ message: failureCode(error), ...(error.downloadStage ? { downloadStage: error.downloadStage } : {}) });
 
@@ -90,7 +91,10 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                 if (method === 'progress') {
                     if (prompting) return;
                     if (tasks.size) { if (message.value.active) for (const task of tasks.values()) task.update(message.value.step, message.value.detail); }
-                    else if (message.value.active) { clear(); busy = ui.activity(message.value.step, message.value.detail); }
+                    else if (message.value.active) {
+                        if (busy) busy.message(ui.text(message.value.step) + (message.value.detail ? ' · ' + visible(message.value.detail) : ''));
+                        else busy = ui.activity(message.value.step, message.value.detail);
+                    }
                     else clear();
                     return;
                 }

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { root } from '../sdk.mjs';
 import { policy } from '../github.mjs';
 import { git } from '../project.mjs';
-import { forkTarget, submitPreview } from '../submission-write.mjs';
+import { forkTarget, submitPreview, submissionBranch } from '../submission-write.mjs';
 
 test.before(() => fs.mkdirSync(path.join(root, 'target'), { recursive: true }));
 
@@ -42,6 +42,7 @@ test('完整预览后才写入；身份、绑定和文件变化阻止 fork、pus
         if (endpoint === `repos/${policy.repository}`) return { full_name: policy.repository, id: policy.repositoryId,
             owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
         if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch)) return { object: { sha: base } };
+        if (endpoint.includes('/pulls?')) return [[]];
         throw new Error('GITHUB_NOT_FOUND');
     };
     const changes = new Map([['version-status-requests/101/demo/2.3.4/request.json', Buffer.from('{}\n')]]);
@@ -55,6 +56,17 @@ test('完整预览后才写入；身份、绑定和文件变化阻止 fork、pus
     await assert.rejects(submitPreview({ ...input, confirm: () => true, recheck: async () => { throw new Error('BINDING_CONFLICT'); } }), /BINDING_CONFLICT/u);
     await assert.rejects(submitPreview({ ...input, confirm: () => { changes.values().next().value[0] = 32; return true; } }), /PREVIEW_CHANGED/u);
     assert.deepEqual(writes, []);
+});
+
+test('已关闭请求重投使用新分支，开放请求保留身份，已合并请求不能再投', () => {
+    const snapshot = { actor: { id: '101', login: 'author' } };
+    const initial = 'community/yank/abcd';
+    const old = { id: 10, number: 10, user: { id: 101 }, state: 'closed', merged_at: null };
+    const call = endpoint => [[...(decodeURIComponent(endpoint).includes(initial + '-after-10') ? [] : [old])]];
+    assert.equal(submissionBranch(snapshot, initial, call), initial + '-after-10');
+    old.state = 'open'; assert.equal(submissionBranch(snapshot, initial, call), initial);
+    old.state = 'closed'; old.merged_at = '2026-01-01';
+    assert.throws(() => submissionBranch(snapshot, initial, call), /EXISTING_PR_CONFLICT/u);
 });
 
 for (const owner of [false, true]) for (const lostResponse of [false, true]) test(`真实 Git ${owner ? '所有者同仓库' : '普通 fork'}投稿在${lostResponse ? '写入响应丢失' : 'PR 失败'}后复用结果`, async t => {
@@ -136,6 +148,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     const firstHead = candidate;
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
     assert.equal(body.base, policy.defaultBranch);
+    assert.equal(body.maintainer_can_modify, true);
     assert.match(body.head, new RegExp(`^${actor.login}:community/first_release/`));
     assert.equal(git(upstream, 'rev-parse', policy.defaultBranch), base);
     assert(writes.every(endpoint => endpoint.endsWith('/pulls')));

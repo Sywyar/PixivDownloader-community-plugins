@@ -7,9 +7,24 @@ import { policy, prefix } from '../github.mjs';
 import { prepareSdk, evaluate, hash, evidence, readDecisionArtifact } from '../sdk.mjs';
 import { trustedRun, execution, classify, facts, decisionPath, gatePath } from '../platform.mjs';
 import { createDecision, attachDecisions, loadDecisions } from '../decisions.mjs';
-import { publish, notify } from '../community-gate.mjs';
+import { publish, notify, gateRequests } from '../community-gate.mjs';
+import { renewalBranch, renewalFile } from '../community-renewal.mjs';
 
 const head = 'a'.repeat(40), current = 'b'.repeat(40);
+test('主线汇总不读取开放 PR，审核事件只重新检查关联请求', () => {
+    const noApi = () => assert.fail('must not enumerate open pull requests');
+    assert.deepEqual(gateRequests({ ref: 'refs/heads/master', after: current }, noApi), []);
+    assert.deepEqual(gateRequests({ pull_request: { number: 7 } }, noApi), [7]);
+    assert.deepEqual(gateRequests({ inputs: { prNumber: '8' } }, noApi), [8]);
+    for (const [file, title] of [['submission-check', 'Submission PR #7'], ['community-archive', 'Archive Submission PR #7'],
+        ['community-review-event', 'Review PR #7'], ['community-review-decision', `Community decision PR #7 head ${head}`],
+        ['community-review-complete', `Complete community review PR #7 head ${head}`]]) {
+        assert.deepEqual(gateRequests({ workflow_run: { id: 91 } }, endpoint => {
+            assert.equal(endpoint, `${prefix}/actions/runs/91`);
+            return { repository: { id: policy.repositoryId }, status: 'completed', path: `.github/workflows/${file}.yml`, display_title: title };
+        }), [7]);
+    }
+});
 function fixture() {
     const owner = { id: Number(policy.repositoryOwnerId), login: 'owner', type: 'User', role_name: 'admin' };
     const repo = { id: Number(policy.repositoryId), full_name: policy.repository, owner,
@@ -131,6 +146,28 @@ test('目标事件要求受保护执行上下文，投稿 head 和关闭后的�
     assert.equal(state.writes.length, 0);
 });
 
+test('续签机器人请求必须取得真实维护者批准，仍等待手动完成审核', async () => {
+    const sdk = prepareSdk(), { state, call, readGit, context } = fixture();
+    state.pr.user = { id: 41898282, type: 'Bot' };
+    state.pr.head.ref = renewalBranch;
+    state.files = [{ filename: renewalFile, status: 'added' }];
+    const version = { checked: { operation: 'RENEWAL', requestSha256: 'd'.repeat(64),
+        pr: { head, base: current, user: { id: '41898282' } } } };
+    const resolve = async () => version;
+    const pending = await publish(7, context, sdk, call, call, readGit, resolve);
+    assert.equal(pending.error, undefined);
+    assert.equal([...state.checks.values()].at(-2).status, 'queued');
+    state.reviews = [{ id: 31, user: state.owner, commit_id: head, state: 'APPROVED',
+        submitted_at: '2025-01-01T00:00:00Z', pull_request_url: 'https://api.github.com/' + prefix + '/pulls/7' }];
+    const approved = await publish(7, context, sdk, call, call, readGit, resolve);
+    assert.equal(approved.error, undefined);
+    assert.equal([...state.checks.values()].at(-2).conclusion, 'success');
+    assert.equal([...state.checks.values()].at(-1).status, 'queued');
+    assert.equal(classify(state.pr, state.files), 'renewal');
+    state.pr.user.id = 1;
+    assert.equal((await publish(7, context, sdk, call, call, readGit, resolve).catch(error => ({ error: error.message }))).error, 'PR_TARGET_INVALID');
+});
+
 test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事实与伪来源', async () => {
     const prepared = prepareSdk();
     const { state, call, readGit, context } = fixture();
@@ -187,7 +224,7 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     assert.equal(changedSource.error, undefined);
     assert(changedSource.labels.includes('review:pending'));
     assert(!changedSource.labels.includes('state:ready'));
-    assert.equal([...state.checks.values()].at(-1).conclusion, 'failure');
+    assert.equal([...state.checks.values()].at(-1).status, 'queued');
     state.run.head_sha = current;
     state.pr.head.sha = 'f'.repeat(40);
     const changedHead = await publish(7, context, prepared, call, call, readGit);
@@ -251,7 +288,8 @@ test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒�
         }
         const checks = structuredClone([...state.checks]);
         const unavailable = () => { throw new Error('Closed PR must not load review sources or rebuild candidates'); };
-        const projection = await publish(7, context, new Error('SDK unavailable'), call, call, unavailable, unavailable);
+        const projection = await publish(7, context, merged && operation === 'version' ? {} : new Error('SDK unavailable'), call, call, unavailable, unavailable,
+            async (_context, _sdk, options) => { assert.equal(options.write, false); return { applied: false }; });
         const labels = !merged ? ['state:closed'] : operation === 'maintenance'
             ? ['type:maintenance', 'state:merged'] : ['state:awaiting-apply'];
         assert.equal(projection.error, undefined);
@@ -281,6 +319,31 @@ test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒�
         assert.equal(state.writes.length, writes);
         assert.deepEqual([...state.checks], checks);
     }
+});
+
+test('已合并请求回写完成，回读失败保留原准入检查', async () => {
+    for (const file of [`version-status-requests/101/demo/2.3.4/${'a'.repeat(64)}.json`, `generated/receipts/${'a'.repeat(64)}.json`]) {
+        const { state, call, context } = fixture();
+        state.files = [{ filename: file, status: 'added' }];
+        Object.assign(state.pr, { state: 'closed', merged: true });
+        const originalChecks = structuredClone([...state.checks]);
+        const ready = await publish(7, context, {}, call, call, undefined, undefined, async () => ({ applied: true, sequence: 4,
+            receipts: [{ prNumber: 6, requestId: 'a'.repeat(64) }] }));
+        assert.deepEqual(ready.labels, ['state:completed']);
+        const failed = await publish(7, context, {}, call, call, undefined, undefined, async () => { throw new Error('PUBLICATION_ASSET_CHANGED'); });
+        assert.deepEqual(failed.labels, ['state:apply-failed']);
+        assert.deepEqual([...state.checks], originalChecks); assert.equal(state.writes.length, 0);
+    }
+});
+
+test('候选尚未归档保留等待检查，不作为工作流失败', async () => {
+    const { state, call, context } = fixture();
+    const result = await publish(7, context, {}, call, call, undefined,
+        async () => { throw new Error('CANDIDATE_ARCHIVE_PENDING'); });
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.labels, ['review:pending']);
+    assert.equal(state.checks.size, policy.requiredContexts.length);
+    assert([...state.checks.values()].every(check => check.status === 'queued' && check.conclusion == null));
 });
 
 test('原生撤销必须有真实账号与理由，评论和普通标签不改变审核', () => {

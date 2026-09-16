@@ -33,6 +33,18 @@ export function writePreview(snapshot, changes, result, fork, title) {
         actions: [...(fork.create ? ['CREATE_FORK'] : []), 'CREATE_COMMIT', 'PUSH_BRANCH', 'CREATE_READY_PR'] };
 }
 
+export function submissionBranch(snapshot, initial, call = github) {
+    let branch = initial;
+    for (let attempt = 0; attempt < 32; attempt++) {
+        const requests = paged(`repos/${policy.repository}/pulls?state=all&head=${encodeURIComponent(snapshot.actor.login + ':' + branch)}`, call);
+        if (!requests.length || requests.some(pr => pr.state === 'open')) return branch;
+        if (requests.some(pr => pr.merged_at || pr.state !== 'closed' || id(pr.user.id) !== snapshot.actor.id)) throw new Error('EXISTING_PR_CONFLICT');
+        // 已关闭请求保留原分支身份；重投使用新分支，避免沿用同 head 的旧准入检查。
+        branch = initial + '-after-' + Math.max(...requests.map(pr => Number(id(pr.number))));
+    }
+    throw new Error('SUBMISSION_HISTORY_LIMIT');
+}
+
 function verifyCommit(checkout, head, preview, changes, readGit) {
     const headers = readGit(checkout, 'cat-file', '-p', head).split('\n\n')[0].split('\n');
     if (!isDeepStrictEqual(headers.filter(line => line.startsWith('parent ')), ['parent ' + preview.base])) throw new Error('COMMIT_BASE_CHANGED');
@@ -71,6 +83,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     unchanged(snapshot, call);
     const fork = forkTarget(snapshot, call);
     const preview = writePreview(snapshot, changes, result, fork, title);
+    preview.branch = submissionBranch(snapshot, preview.branch, call);
     preview.actions.unshift(...actions);
     if (!await confirm(preview)) return { cancelled: true };
     await recheck();
@@ -158,7 +171,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     unchanged(snapshot, call);
     let pull;
     try { pull = call(`repos/${policy.repository}/pulls`, { method: 'POST', body: {
-        title, head: `${snapshot.actor.login}:${preview.branch}`, base: policy.defaultBranch, draft: false,
+        title, head: `${snapshot.actor.login}:${preview.branch}`, base: policy.defaultBranch, draft: false, maintainer_can_modify: true,
         body: preview.body,
     } }); }
     catch (error) {

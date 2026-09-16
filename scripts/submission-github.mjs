@@ -30,9 +30,11 @@ export function githubRequest(work, { method = 'GET', timeout = API_TIMEOUT, now
 }
 
 export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
-    if (!/^(?:user(?:\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
+    if (!/^(?:user(?:\/[1-9][0-9]*|\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
         || endpoint.split('/').some(part => part === '..' || part === '.')) throw new Error('GITHUB_TARGET_MISMATCH');
-    if (!['GET', 'POST'].includes(method) && !(method === 'PATCH' && /^repos\/[^/]+\/[^/]+\/releases\/[1-9][0-9]*$/u.test(endpoint))) throw new Error('GITHUB_METHOD_FORBIDDEN');
+    const withdrawal = endpoint.startsWith(`repos/${policy.repository}/pulls/`) && /^repos\/[^/]+\/[^/]+\/pulls\/[1-9][0-9]*$/u.test(endpoint)
+        && body?.state === 'closed' && Object.keys(body).length === 1;
+    if (!['GET', 'POST'].includes(method) && !(method === 'PATCH' && (withdrawal || /^repos\/[^/]+\/[^/]+\/releases\/[1-9][0-9]*$/u.test(endpoint)))) throw new Error('GITHUB_METHOD_FORBIDDEN');
     const args = ['api', '--hostname', 'github.com', '--method', method, '-H', 'X-GitHub-Api-Version: 2022-11-28', endpoint];
     if (pages) args.push('--paginate', '--slurp');
     if (body !== undefined) args.push('--input', '-');
@@ -109,15 +111,15 @@ export function readBlob(name, entry, call = github) {
     return bytes;
 }
 
-export function stateReader(sdk, base, call = github) {
-    const tree = repositoryTree(policy.repository, base, call);
+export function stateReader(sdk, base, call = github, repositoryName = policy.repository) {
+    const tree = repositoryTree(repositoryName, base, call);
     const cached = new Map();
     const documents = new Map();
     let total = 0;
     const raw = file => {
         if (!tree.has(file)) return null;
         if (!cached.has(file)) {
-            const bytes = readBlob(policy.repository, tree.get(file), call);
+            const bytes = readBlob(repositoryName, tree.get(file), call);
             total += bytes.length;
             if (total > API_BYTES) throw new Error('STATE_SIZE_EXCEEDED');
             cached.set(file, bytes);
@@ -174,7 +176,9 @@ export function eligible(owner, user, call = github) {
     if (owner.accountType !== 'Organization') return false;
     const organization = call(`organizations/${id(owner.accountId)}`);
     if (id(organization.id) !== owner.accountId || organization.type !== 'Organization') return false;
-    const membership = call(`user/memberships/orgs/${organization.login}`);
+    let membership;
+    try { membership = call(`user/memberships/orgs/${organization.login}`); }
+    catch (error) { if (error.message === 'GITHUB_NOT_FOUND' && error.status === 404) return false; throw error; }
     return membership.state === 'active' && id(membership.user.id) === user.id && id(membership.organization.id) === owner.accountId;
 }
 

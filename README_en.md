@@ -4,7 +4,7 @@
 
 Submit a PixivDownloader plugin for review here. Push your public source to GitHub, wait for the candidate CI to pass, then run the wizard from your source project. You do not need to clone this repository or write submission files by hand.
 
-> Submissions and reviews are available. Community signing, marketplace publication and the execution of version management requests are not connected yet. Approval or merging a PR does not currently list a plugin in the marketplace.
+After review, a maintainer runs publication and merges its result PR before the plugin enters the community catalog. A source candidate Release or a community Draft under review does not grant community admission.
 
 ## Submissions and version management
 
@@ -55,11 +55,21 @@ Long operations show temporary substeps that disappear when complete. Temporary 
 
 Draft Releases remain available after Actions artifacts expire. If an archive is missing, the wizard can rerun the original CI for this commit after confirmation.
 
+The license step accepts existing files or creates a new file from a bundled template. Existing files are preserved. A recognized complete template preselects its SPDX identifier; combined licenses still require confirmation. After creating or changing a license, commit, push and wait for new CI.
+
 ### 4. Wait for review
 
 Follow check results and review comments in the PR. The community validates the submission, rebuilds the package, scans its declarations and performs human review. Waiting for review does not require another build. Changes to source, packages or build inputs require rebuilding and renewed review.
 
 For an update, change the version, push and wait for CI, then use the same entry point. The wizard restores license and marketplace details, preserves existing languages and images, and checks for duplicate IDs and versions early. Key rotation, yanking, unyanking, revocation and ownership transfer have separate management options.
+
+- To withdraw a request, choose the withdrawal operation and confirm closing your unmerged PR. For a merged request that has not been applied, ask a maintainer to pause execution.
+- YANK blocks new installations. UNYANK removes your own yank after the issue is resolved; independent community restrictions remain effective.
+- REVOKE blocks installation and startup and cannot be undone. Clients enforce the revocation protocols they support.
+- For key rotation, select the publisher and a new key. A lost old key requires recovery review.
+- For a transfer, the recipient creates a request using their own key, then the current maintainer selects and approves that request in the wizard. Neither party needs to share a private key. Recovery evidence and separate review are required when the current maintainer cannot approve.
+
+Management requests also require review and protected execution. Formal Release names retain the original publisher; their descriptions show the current maintainer and status. Package bytes, historical signatures and original authorship remain unchanged. If no item is eligible, the wizard explains why and returns to the operation menu.
 
 ## Help and maintenance
 

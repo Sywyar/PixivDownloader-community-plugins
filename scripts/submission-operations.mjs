@@ -5,14 +5,18 @@ import { hash } from './sdk.mjs';
 import { signingKey } from './submission-release.mjs';
 import { signOperation, keyLocation, unlockPrivateKey } from './submission-signing.mjs';
 import { readFile } from './submission-fields.mjs';
+import { unavailable } from './submission-navigation.mjs';
+import { isDeepStrictEqual } from 'node:util';
+import path from 'node:path';
 
 const encoded = value => Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
 
 async function currentProof(context, publisher) {
     const { ui, projectRoot } = context;
     if (!await ui.confirm('optionalKey', { keyId: activeKey(publisher).keyId })) return null;
-    const privateFile = keyLocation(await ui.ask('privateKey', context.store?.record.key?.privateFile ?? '', value => keyLocation(value, projectRoot)), projectRoot);
     const key = activeKey(publisher);
+    const prior = context.store?.record.key;
+    const privateFile = keyLocation(await ui.ask('privateKey', prior?.keyId === key.keyId ? prior.privateFile : '', value => keyLocation(value, projectRoot)), projectRoot);
     const publicFile = context.sdk.save(Buffer.from('-----BEGIN PUBLIC KEY-----\n' + key.publicKeySpkiBase64 + '\n-----END PUBLIC KEY-----\n'), '.pem');
     await unlockPrivateKey(context, privateFile, publicFile);
     if (!await ui.confirm('keyAction', { privateFile, keyId: activeKey(publisher).keyId })) throw new Error('CANCELLED');
@@ -21,7 +25,24 @@ async function currentProof(context, publisher) {
 
 export async function prepareRotation(context, rotation) {
     const { ui, sdk, sign } = context;
+    if (!rotation) {
+        const { state, snapshot, call = github } = context;
+        const publishers = [...state.tree.keys()].filter(file => /^publishers\/[1-9][0-9]*\/[^/]+\.json$/u.test(file))
+            .map(file => state.read(file, 'PUBLISHER')).filter(record => eligible({ accountId: record.value.githubAccount.id,
+                accountType: record.value.githubAccount.type }, snapshot.actor, call));
+        if (!publishers.length) unavailable(ui, 'NO_OWNED_PUBLISHERS');
+        const existing = await ui.select('publisher', publishers, record => record.value.publisherId);
+        const owner = { accountId: existing.value.githubAccount.id, accountType: existing.value.githubAccount.type, publisherId: existing.value.publisherId };
+        if (owner.accountType === 'Organization' && !await ui.confirm('representation', owner)) throw new Error('CANCELLED');
+        const binding = [...state.tree.keys()].filter(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))
+            .map(file => state.read(file, 'BINDING')).find(record => isDeepStrictEqual(record.value.owner, owner));
+        if (binding) bindHistory(context, binding.value.pluginId);
+        rotation = { owner, existing, selectedKey: await signingKey(context) };
+    }
     const { owner, existing, selectedKey } = rotation;
+    if (existing.value.signingKeys.some(key => key.keyId === selectedKey.key.keyId || key.publicKeySpkiBase64 === selectedKey.key.publicKeySpkiBase64)) {
+        unavailable(ui, 'KEY_ID_REUSED');
+    }
     const payload = { publisherId: owner.publisherId, githubAccount: { id: owner.accountId, type: owner.accountType },
         publisherRecordSha256: existing.sha256, oldKeyId: activeKey(existing.value).keyId, newKey: selectedKey.key,
         reasonCode: await ui.select('reason', ['ROUTINE_ROTATION', 'KEY_LOST', 'KEY_COMPROMISED']), explanation: await ui.ask('explanation') };
@@ -43,6 +64,7 @@ async function selectBinding(context, partiesOnly = true) {
     };
     const bindings = [...state.tree.keys()].filter(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))
         .map(file => state.read(file, 'BINDING')).filter(record => !partiesOnly || authorized(record.value.owner));
+    if (!bindings.length) unavailable(ui, partiesOnly ? 'NO_OWNED_PLUGINS' : 'NO_REGISTERED_PLUGINS');
     const selected = await ui.select('plugin', bindings, record => `${record.value.pluginId} (${record.value.owner.publisherId})`);
     bindHistory(context, selected.value.pluginId);
     if (partiesOnly && selected.value.owner.accountType === 'Organization' && !await ui.confirm('representation', selected.value.owner)) throw new Error('CANCELLED');
@@ -62,7 +84,12 @@ export async function prepareStatus(context, action) {
     const { state, ui, sdk, sign, snapshot } = context;
     const binding = await selectBinding(context);
     const { owner, pluginId } = binding.value;
-    const published = await ui.select('version', state.published(pluginId), record => `${record.value.version} (${record.value.package.sha256})`);
+    const versions = state.published(pluginId).filter(record => {
+        const current = state.currentStatus(pluginId, record.value.version, record.value.package.sha256).state;
+        return action === 'UNYANK' ? current === 'YANKED' : action === 'YANK' ? current === 'ACTIVE' : current !== 'REVOKED';
+    });
+    if (!versions.length) unavailable(ui, 'NO_ELIGIBLE_VERSIONS', { pluginId, action });
+    const published = await ui.select('version', versions, record => `${record.value.version} (${record.value.package.sha256})`);
     const reasons = { YANK: ['FUNCTIONAL_DEFECT', 'COMPATIBILITY_PROBLEM', 'MAINTAINER_WITHDRAWAL', 'LICENSE_ISSUE', 'OTHER'],
         UNYANK: ['ISSUE_RESOLVED', 'YANK_IN_ERROR', 'OTHER'], REVOKE: ['MALICIOUS_CODE', 'KEY_COMPROMISE', 'CRITICAL_VULNERABILITY', 'ARTIFACT_TAMPERING', 'OTHER'] };
     const payload = { owner, requester: { id: snapshot.actor.id, type: 'User' }, pluginBindingSha256: binding.sha256, pluginId,
@@ -80,19 +107,30 @@ export async function prepareStatus(context, action) {
 export async function prepareTransfer(context) {
     const { state, ui, snapshot, sdk, sign, call = github } = context;
     const requests = [...state.tree.keys()].filter(file => /^ownership-transfers\/[^/]+\/[^/]+\/proposal\.json$/u.test(file))
-        .map(file => state.read(file, 'TRANSFER'));
+        .map(file => state.read(file, 'TRANSFER')).filter(record => {
+            const request = record.value;
+            if (state.read(`audits/${request.requestId}.json`, 'AUDIT')) return false;
+            if (state.read(`plugin-bindings/${request.payload.pluginId}.json`, 'BINDING')?.sha256 !== request.payload.pluginBindingSha256) return false;
+            const target = state.read(publisherPath(request.payload.to), 'PUBLISHER');
+            if ((target?.sha256 ?? null) !== request.payload.targetPublisherRecordSha256) return false;
+            return ['FROM', 'TO'].some(role => eligible(role === 'FROM' ? request.payload.from : request.payload.to, snapshot.actor, call)
+                && !state.tree.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`));
+        });
     const proposal = await ui.select('proposal', [null, ...requests], record => record ? `${record.value.payload.pluginId} (${record.value.requestId})` : ui.text('newProposal'));
     const changes = new Map();
     let request;
     if (proposal) { request = proposal.value; bindHistory(context, request.payload.pluginId); }
     else {
         const binding = await selectBinding(context, false);
-        const login = await ui.ask('targetLogin');
+        const login = await ui.ask('targetLogin', snapshot.actor.login, value => { if (!/^[A-Za-z0-9-]+$/u.test(value)) throw new Error('GITHUB_LOGIN_INVALID'); });
         if (!/^[A-Za-z0-9-]+$/u.test(login)) throw new Error('GITHUB_LOGIN_INVALID');
         const account = call(`users/${login}`);
         if (!['User', 'Organization'].includes(account.type) || account.login.toLowerCase() !== login.toLowerCase()) throw new Error('TARGET_ACCOUNT_INVALID');
-        const to = { accountId: id(account.id), accountType: account.type, publisherId: await ui.ask('publisher', account.login.toLowerCase()) };
+        const to = { accountId: id(account.id), accountType: account.type, publisherId: await ui.ask('publisher', account.login.toLowerCase(),
+            value => sdk.invoke({ command: 'field', field: 'publisher', value })) };
+        if (isDeepStrictEqual(binding.value.owner, to)) unavailable(ui, 'TRANSFER_SAME_OWNER');
         if (!eligible(binding.value.owner, snapshot.actor, call) && !eligible(to, snapshot.actor, call)) throw new Error('TRANSFER_PARTY_REQUIRED');
+        if (!eligible(to, snapshot.actor, call)) unavailable(ui, 'TRANSFER_RECIPIENT_START_REQUIRED');
         const target = state.read(publisherPath(to), 'PUBLISHER');
         const selectedKey = await signingKey(context, target ? activeKey(target.value) : null);
         if (target && (selectedKey.key.keyId !== activeKey(target.value).keyId
@@ -102,10 +140,26 @@ export async function prepareTransfer(context) {
             ...(!target ? { targetPublisherDisplayName: await ui.ask('display', account.login) } : {}),
             mode: await ui.select('mode', ['REGULAR', 'RECOVERY']), explanation: await ui.ask('explanation') };
         if (payload.mode === 'RECOVERY') {
+            const files = await ui.ask('evidence', '', value => {
+                const files = value.split(',').map(file => file.trim());
+                if (files.some(file => !file)) throw new Error('RECOVERY_EVIDENCE_REQUIRED');
+                let total = 0;
+                const hashes = new Set();
+                for (const file of files) {
+                    const bytes = readFile(path.resolve(context.projectRoot, file));
+                    if (!bytes.length) throw new Error('RECOVERY_EVIDENCE_REQUIRED');
+                    if ((total += bytes.length) > 32 * 1024 * 1024) throw new Error('INPUT_SIZE_EXCEEDED');
+                    if (hashes.has(hash(bytes))) throw new Error('RECOVERY_EVIDENCE_DUPLICATED');
+                    hashes.add(hash(bytes));
+                }
+            });
             payload.recoveryEvidence = [];
-            for (const file of (await ui.ask('evidence')).split(',').map(value => value.trim())) {
-                const bytes = readFile(file);
+            let total = 0;
+            for (const file of files.split(',').map(value => value.trim())) {
+                const bytes = readFile(path.resolve(context.projectRoot, file));
+                if (!bytes.length || (total += bytes.length) > 32 * 1024 * 1024) throw new Error('INPUT_SIZE_EXCEEDED');
                 const relative = `ownership-transfer-evidence/${payload.pluginId}/${hash(bytes)}.bin`;
+                if (payload.recoveryEvidence.some(ref => ref.path === relative)) throw new Error('RECOVERY_EVIDENCE_DUPLICATED');
                 if (state.tree.has(relative)) {
                     if (hash(state.raw(relative)) !== hash(bytes)) throw new Error('RECOVERY_EVIDENCE_MISMATCH');
                 } else changes.set(relative, bytes);
@@ -118,10 +172,12 @@ export async function prepareTransfer(context) {
     }
     for (const role of ['FROM', 'TO']) {
         const owner = role === 'FROM' ? request.payload.from : request.payload.to;
+        const approvalPath = `ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`;
+        if (state.tree.has(approvalPath)) continue;
         if (!eligible(owner, snapshot.actor, call)) continue;
         if (owner.accountType === 'Organization' && !await ui.confirm('representation', owner)) continue;
         if (!await ui.confirm('transfer', { role, proposal: request })) continue;
-        changes.set(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`,
+        changes.set(approvalPath,
             encoded({ schemaVersion: 1, requestId: request.requestId, role }));
     }
     if (!changes.size) throw new Error('CANCELLED');
