@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { api, id, sha, list, policy, prefix, API_BYTES, API_TIMEOUT } from './github.mjs';
 import { git } from './platform.mjs';
-import { archivePath, candidateIdentity } from './candidate.mjs';
+import { archivePath, candidateIdentity, candidateSlot } from './candidate.mjs';
 import { hash } from './sdk.mjs';
 import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
 
@@ -74,10 +74,14 @@ function verifyProof(file, bundle, current, workflowPath, certificate, readGit, 
 export async function storeArchiveProof(releaseId, file, bundle, current, { call = api,
     download = downloadCandidate, upload = uploadCandidate, verify = verifyArchiveProof } = {}) {
     verify(file, bundle, current);
-    const tag = candidateIdentity(JSON.parse(fs.readFileSync(file, 'utf8')));
+    const bytes = fs.readFileSync(file), candidate = JSON.parse(bytes.toString('utf8'));
+    const tags = [candidateIdentity(candidate), candidateSlot(candidate)];
     const requireDraft = () => {
         const release = call(`${prefix}/releases/${id(releaseId)}`);
-        if (!release.draft || release.published_at !== null || release.tag_name !== tag) throw new Error('CANDIDATE_RELEASE_CHANGED');
+        const manifests = list(`${prefix}/releases/${id(releaseId)}/assets`, null, call).filter(asset => asset.name === 'candidate.json');
+        if (!release.draft || release.published_at !== null || !tags.includes(release.tag_name) || manifests.length !== 1
+            || manifests[0].state !== 'uploaded' || manifests[0].size !== bytes.length
+            || manifests[0].digest !== `sha256:${hash(bytes)}`) throw new Error('CANDIDATE_RELEASE_CHANGED');
     };
     requireDraft();
     const assets = list(`${prefix}/releases/${id(releaseId)}/assets`, null, call).filter(asset => asset.name === 'archive-attestation.json');
@@ -93,13 +97,13 @@ export async function storeArchiveProof(releaseId, file, bundle, current, { call
         requireDraft();
         return;
     }
-    const bytes = fs.readFileSync(bundle);
+    const proofBytes = fs.readFileSync(bundle);
     const asset = upload(releaseId, bundle, 'archive-attestation.json');
     if (asset.name !== 'archive-attestation.json' || asset.state !== 'uploaded'
-        || asset.size !== bytes.length || asset.digest !== `sha256:${hash(bytes)}`) throw new Error('ARCHIVE_PROOF_CHANGED');
+        || asset.size !== proofBytes.length || asset.digest !== `sha256:${hash(proofBytes)}`) throw new Error('ARCHIVE_PROOF_CHANGED');
     const readback = path.join(path.dirname(file), 'stored-attestation.json');
     await download(`${prefix}/releases/assets/${id(asset.id)}`, readback, API_BYTES,
-        { size: bytes.length, sha256: hash(bytes) });
+        { size: proofBytes.length, sha256: hash(proofBytes) });
     verify(file, readback, current);
     requireDraft();
 }

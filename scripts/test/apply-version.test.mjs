@@ -67,7 +67,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
         dependencyFiles: [], dependencyMetadata: [], sourceFiles: [], model: { dependencies: [] }, jdkVersion: '17.0.1+1' }, submission,
     { runId: '81', runAttempt: 1, headSha: pr.head.sha });
     const binding = encoded({ schemaVersion: 1, pluginId: submission.pluginId, owner, effectiveRequestId: null, updatedAt: appliedAt });
-    const version = { releaseId: '501', directory: sdk.workspace, publicationBindingSha256: hash(binding),
+    const version = { releaseId: '501', tag: 'candidate/' + 'c'.repeat(64), directory: sdk.workspace, publicationBindingSha256: hash(binding),
         checked: { operation: 'FIRST_RELEASE', owner, submission, submissionPath, submissionSha256: hash(records.get(submissionPath)), descriptor: inspected.descriptor,
             publisherSha256: hash(records.get('publishers/101/example.json')), bindingSha256: hash(Buffer.from('null')), package: { size: bytes.length, sha256: hash(bytes) },
             pr: { head: pr.head.sha, base: current, user: { id: '101', type: 'User' } } },
@@ -79,6 +79,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
     assert.equal(result.published.assuranceLevel, 'SOURCE_REVIEWED');
     assert.equal(result.published.sourceCommit, submission.source.commit);
     assert.equal(result.release.id, '501'); assert.equal(result.release.packageSha256, hash(bytes));
+    assert.equal(result.release.originalTag, version.tag);
     result.writes.set('generated/community-key.json', encoded(communityKey));
     const publication = adapter.archive(result.writes.get(`published/${submission.pluginId}/${submission.version}.json`));
     const publisher = adapter.archive(records.get('publishers/101/example.json'));

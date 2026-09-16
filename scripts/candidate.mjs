@@ -7,6 +7,15 @@ import { fileSnapshot } from './build-files.mjs';
 export const buildPath = '.github/workflows/submission-check.yml';
 export const archivePath = '.github/workflows/community-archive.yml';
 export const candidateName = (number, head, digest) => `candidate/pr-${id(number)}/${sha(head)}/${digest}`;
+// 草稿槽位按发布身份复用；PR、head 和构建摘要继续保留在签名清单中。
+export function candidateSlot({ owner, submission }) {
+    if (!owner || !['User', 'Organization'].includes(owner.accountType)
+        || ![owner.publisherId, submission?.pluginId, submission?.version].every(value => typeof value === 'string' && value.length > 0)) {
+        throw new Error('CANDIDATE_IDENTITY_INVALID');
+    }
+    return `candidate/${hash(Buffer.from(JSON.stringify([id(owner.accountId), owner.accountType,
+        owner.publisherId, submission.pluginId, submission.version])))}`;
+}
 const digest = value => {
     if (typeof value !== 'string' || !/^[a-f0-9]{64}$/u.test(value)) throw new Error('CANDIDATE_DIGEST_INVALID');
     return value;

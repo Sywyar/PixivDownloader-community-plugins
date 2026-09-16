@@ -25,7 +25,8 @@ jobs:
     timeout-minutes: 15
     environment: community-gate
     permissions:
-      contents: read
+      # Draft Release 的读取要求 Contents write；checkout 始终固定受保护主线。
+      contents: write
       actions: read
       pull-requests: read
     outputs:

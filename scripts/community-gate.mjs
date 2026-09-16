@@ -132,7 +132,9 @@ export async function publish(number, context, prepared, call = api, write = api
         if (pr.state === 'closed' && pr.merged) return { ...identity, labels: ['state:apply-failed'], error: error.message,
             summary: 'Protected state or release readback failed. Admission checks retain their original results; inspect the publication workflow before retrying.' };
         return { ...identity, labels: ['ci:blocked', 'review:pending'], error: error.message,
-            summary: 'Admission could not be verified. See the trusted workflow log. This PR is not ready.' };
+            summary: error.message === 'CANDIDATE_ARCHIVE_READ_FORBIDDEN'
+                ? 'The trusted workflow token cannot read Draft Releases. Its archive-reading job requires Contents write permission. Admission remains blocked.'
+                : 'Admission could not be verified. See the trusted workflow log. This PR is not ready.' };
     }
 }
 

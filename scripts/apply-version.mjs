@@ -60,7 +60,7 @@ export function publishVersion({ sdk, adapter, state, version, pr, context, admi
     const writes = new Map([[bindingPath, bindingBytes], [reviewPath, reviewBytes], [`published/${p}/${v}.json`, publishedBytes]]);
     for (const [file] of adapter.records) writes.set(file, fs.readFileSync(path.join(adapter.workspace, file)));
     return { replayed: false, writes, published, decision: approval, release: { id: version.releaseId, tag: formalTag(published),
-        name: `${published.owner.publisherId} / ${p}-v${v}`, originalTag: `candidate/pr-${pr.number}/${pr.head.sha}/${version.candidate.inputSha256}`,
+        name: `${published.owner.publisherId} / ${p}-v${v}`, originalTag: version.tag,
         packageName: packageName(published), packageSize: published.package.expectedSize,
         packageSha256: published.package.sha256, reviewBytes: reviewBytes.toString('base64'), signature,
         owner: published.owner, pluginId: p, version: v, sourceCommit: published.sourceCommit,

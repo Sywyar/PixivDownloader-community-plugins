@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: community-candidate-archive
+  group: community-publication
   queue: max
 jobs:
   archive:

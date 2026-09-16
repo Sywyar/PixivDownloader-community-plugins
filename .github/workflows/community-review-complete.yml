@@ -39,7 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      # 预检需要读取 Draft Release，不向投稿源码提供此 token。
+      contents: write
       actions: read
       pull-requests: read
     steps:
