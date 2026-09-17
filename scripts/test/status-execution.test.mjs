@@ -34,6 +34,9 @@ test('签名授权只选择个人当前作者，请求取自原 head，管理状
     assert.equal(state.read('plugin-bindings/demo.json', 'BINDING').value.owner, 'current');
     assert.deepEqual(state.read('request.json', 'STATUS_REQUEST').value, request);
     assert.ok(signedStatusEligible(checked));
+    const rotation = { ...checked, operation: 'KEY_ROTATION', reasonCode: 'ROUTINE_ROTATION' };
+    assert.ok(signedStatusEligible(rotation));
+    for (const reasonCode of ['KEY_LOST', 'KEY_COMPROMISED', undefined]) assert.equal(signedStatusEligible({ ...rotation, reasonCode }), false);
     for (const patch of [{ operation: 'KEY_ROTATION' }, { recoveryRequired: true }, { organizationRepresentationRequired: ['202'] },
         { owner: { accountType: 'Organization', accountId: '101' } }, { pr: { user: { id: '202' } } }]) assert.equal(signedStatusEligible({ ...checked, ...patch }), false);
     assert.throws(() => statusState(sdk, base, { ...checked, requestSha256: 'f'.repeat(64) }, { head: { repo: { full_name: 'author/fork' } } }, call), /APPLY_REQUEST_CHANGED/);
@@ -67,19 +70,23 @@ function fixture() {
         }
         throw new Error('Unexpected ' + endpoint);
     };
+    f.refreshed = 0;
     f.options = { call: f.call, token: 'owner-token', check: async () => completion, readState: () => ({}),
+        refresh: async () => { f.refreshed++; return {}; },
         admission: () => {}, now: () => f.time, wait: async milliseconds => { f.time += milliseconds; } };
     return f;
 }
 
 test('自动合并复用所有者凭据、等待绑定 App 检查并恢复合并响应丢失', async () => {
-    for (const failure of [null, 'lost', 'protected']) {
+    for (const operation of ['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION']) for (const failure of [null, 'lost', 'protected']) {
         const f = fixture(); f.failure = failure;
+        f.completion.receipt.operation = operation;
         const result = await mergeStatus(f.context, {}, 7, head, f.options);
         assert.equal(result.merged === true, failure !== 'protected');
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('/merge')).length, 1);
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('community-publication.yml/dispatches')).length, failure === 'protected' ? 0 : 1);
-        assert.equal(f.writes[0].endpoint, prefix + '/actions/workflows/community-gate.yml/dispatches');
+        assert.equal(f.refreshed, 1);
+        assert(!f.writes.some(row => row.endpoint.endsWith('community-gate.yml/dispatches')));
     }
 });
 
@@ -99,7 +106,8 @@ test('缺少凭据、错误身份、人工拒绝、head 改变和失败检查均
     const f = fixture(); f.conclusion = 'failure';
     assert.equal((await mergeStatus(f.context, {}, 7, head, f.options)).pending, 'STATUS_CHECKS_PENDING');
     assert.equal(f.time, STATUS_CHECK_WAIT_MS);
-    assert.equal(f.writes.length, 1);
+    assert.equal(f.refreshed, 1);
+    assert.equal(f.writes.length, 0);
 });
 
 test('自动运行只接受静态检查唤醒和无人工审批的 master 环境', () => {

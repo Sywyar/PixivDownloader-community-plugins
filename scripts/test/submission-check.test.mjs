@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission, withEmergencyState } from './local-sdk.mjs';
 import { signingTool, exportKey, signOperation } from '../submission-signing.mjs';
 import { validateChanges, versionAvailable } from '../submission-check.mjs';
 import { root, hash } from '../sdk.mjs';
@@ -12,7 +12,7 @@ import { checkPull } from '../submission-pr.mjs';
 import { policy } from '../github.mjs';
 import { openProject, projectIdentity } from '../submission-state.mjs';
 import { saveSession, savePrepared, sessionLocator } from '../submission-session.mjs';
-import { runWizard } from '../submit.mjs';
+import { runWizard } from './local-sdk.mjs';
 import { git } from '../project.mjs';
 
 test('独立投稿检查重新验证包与源码；身份冲突、版本占用、摘要变化均拒绝', async () => {
@@ -56,8 +56,8 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
     const changes = () => new Map([[submissionPath, bytes(submission)], ['publishers/101/example.json', bytes(publisher)]]);
     let downloads = 0;
     const input = { sdk, state, user: { id: '101', type: 'User' }, authorize: (owner, user) => owner.accountId === user.id,
-        call: endpoint => endpoint.includes('/commits/') ? { sha: submission.source.commit }
-            : { id: 100, owner: { id: 101 }, full_name: 'example/plugin' },
+        call: withEmergencyState(endpoint => endpoint.includes('/commits/') ? { sha: submission.source.commit }
+            : { id: 100, owner: { id: 101 }, full_name: 'example/plugin' }),
         fetch: async (url, file, _maximum, expected) => {
             downloads++;
             const body = url === submission.source.archive.url ? sourceBytes : packageBytes;
@@ -125,7 +125,7 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
         head: { repo: { id: '123', full_name: 'example/fork' }, sha: 'c'.repeat(40) } };
     const files = entries.map(entry => ({ filename: entry.path, status: 'added', sha: entry.sha }));
     let base = pull.base.sha;
-    const native = (endpoint, options = {}) => {
+    const native = withEmergencyState((endpoint, options = {}) => {
         assert(!options.method || options.method === 'GET');
         if (endpoint === `repos/${policy.repository}`) return { full_name: policy.repository, id: policy.repositoryId,
             owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
@@ -135,7 +135,7 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
         if (endpoint.includes('/git/blobs/')) return blobs.get(endpoint.split('/').at(-1));
         if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch)) return { object: { sha: base } };
         return input.call(endpoint);
-    };
+    });
     assert.equal((await checkPull(17, sdk, native, input.fetch)).validation, 'STATIC_VALIDATED');
     files.push({ filename: 'scripts/candidate.mjs', status: 'added', sha: 'd'.repeat(40) }); pull.changed_files++;
     await assert.rejects(checkPull(17, sdk, native, input.fetch), /UNEXPECTED_SUBMISSION_FILE/u);
@@ -165,7 +165,7 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
         currentStatus: (pluginId, version, packageSha256, request) => sdk.invoke({ command: 'status', pluginId, version, packageSha256,
             history: [{ file: sdk.save(request), decisionSha256: request.requestId }] }),
         published: () => [{ value: { version: '2.3.4', package: { sha256: 'a'.repeat(64) } } }] };
-    const input = { sdk, state, user: { id: '101', type: 'User' }, authorize: (owner, user) => owner.accountId === user.id };
+    const input = { sdk, state, call: withEmergencyState(), user: { id: '101', type: 'User' }, authorize: (owner, user) => owner.accountId === user.id };
     const rotation = signOperation(sdk, sign, 'ROTATION', { schemaVersion: 1, payload: { publisherId: 'example', githubAccount: { id: '101', type: 'User' },
         publisherRecordSha256: publisherRecord.sha256, oldKeyId: current.key.keyId, newKey: next.key, reasonCode: 'ROUTINE_ROTATION', explanation: 'Rotate key' } },
     { newKey: { keyId: next.key.keyId, privateFile: next.privateFile } });

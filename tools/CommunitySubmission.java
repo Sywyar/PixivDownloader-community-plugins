@@ -37,6 +37,8 @@ import top.sywyar.pixivdownload.sdk.community.submission.LicenseTemplates;
 import top.sywyar.pixivdownload.sdk.community.submission.MarketImages;
 import top.sywyar.pixivdownload.sdk.community.submission.VersionSubmission;
 import top.sywyar.pixivdownload.sdk.community.review.PublishedVersion;
+import top.sywyar.pixivdownload.sdk.community.emergency.EmergencyKeyDeclaration;
+import top.sywyar.pixivdownload.sdk.community.operation.OperationAuthority;
 
 /** 复用固定 SDK 的静态检查；不装载插件、不求值构建模型、不生成审核或发布事实。 */
 public final class CommunitySubmission {
@@ -67,6 +69,8 @@ public final class CommunitySubmission {
             case "canonical" -> canonical(workspace, input);
             case "verify-proof" -> proof(input);
             case "status" -> status(input);
+            case "emergency-authorize" -> emergency(input);
+            case "emergency-key" -> emergencyKey(input);
             case "source" -> CommunitySource.unpack(workspace, input);
             case "maven-model" -> BuildModels.maven(input);
             case "dependency-metadata" -> BuildModels.dependencies(input);
@@ -140,6 +144,8 @@ public final class CommunitySubmission {
             case SUBMISSION -> VersionSubmission.read(document);
             case ROTATION -> KeyRotationRequest.read(document, path);
             case STATUS_REQUEST -> VersionStatusRequest.read(document, path);
+            case EMERGENCY_REQUEST -> EmergencyKeyDeclaration.read(document, path);
+            case EMERGENCY_KEY_BLOCK -> EmergencyKeyDeclaration.Block.read(document, path);
             case TRANSFER -> OwnershipTransferRequest.read(document, path);
             case PUBLISHED -> PublishedVersion.read(document);
             case AUDIT -> {
@@ -156,6 +162,29 @@ public final class CommunitySubmission {
         byte[] bytes = CommunityJson.canonicalBody(document);
         Files.write(workspace.resolve("canonical.bin"), bytes);
         return Map.of("requestId", CommunityJson.sha256(bytes));
+    }
+
+    private static Object emergency(JsonNode input) throws Exception {
+        var request = read("EMERGENCY_REQUEST", text(input, "file"));
+        var declaration = EmergencyKeyDeclaration.read(request, text(input, "path"));
+        var authority = new com.fasterxml.jackson.databind.ObjectMapper().treeToValue(input.get("authority"), OperationAuthority.class);
+        var publisher = read("PUBLISHER", text(input, "publisher"));
+        return Map.of("blocks", declaration.authorize(request, publisher, authority));
+    }
+
+    private static Object emergencyKey(JsonNode input) throws Exception {
+        var key = input.get("key");
+        var trusted = new TrustedPluginKey(text(key, "keyId"), text(key, "algorithm"), text(key, "publicKeySpkiBase64"),
+                TrustedPluginKey.State.ACTIVE, "community", "community", false);
+        PluginTrustStores.community(java.util.List.of(trusted));
+        var blocks = new java.util.ArrayList<EmergencyKeyDeclaration.Block>();
+        for (var item : input.withArray("blocks")) {
+            var block = EmergencyKeyDeclaration.Block.read(read("EMERGENCY_KEY_BLOCK", text(item, "file")), text(item, "path"));
+            block.verifyRequest(read("EMERGENCY_REQUEST", text(item, "request")));
+            blocks.add(block);
+        }
+        EmergencyKeyDeclaration.requireAllowed(trusted, blocks);
+        return Map.of("fingerprint", trusted.publicKeyFingerprint());
     }
 
     private static Object status(JsonNode input) throws Exception {
@@ -250,7 +279,7 @@ public final class CommunitySubmission {
             result.put("sha256", HexFormat.of().formatHex(digest.digest()));
             result.put("usage", usage);
             if (submission != null) {
-                DescriptorSnapshot.from(descriptor, submission);
+                DescriptorSnapshot.from(descriptor, submission.pluginId(), submission.version());
                 if (!publisher.activeKey().keyId().equals(submission.artifact().signature().keyId())) {
                     throw new ContractException("BINDING_MISMATCH", "/package/signature/keyId");
                 }

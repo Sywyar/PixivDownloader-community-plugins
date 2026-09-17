@@ -7,6 +7,7 @@ import { renewalAuthor, renewalFile } from './community-renewal.mjs';
 export const decisionPath = '.github/workflows/community-review-decision.yml';
 export const gatePath = '.github/workflows/community-gate.yml';
 export const cleanupPath = '.github/workflows/community-candidate-cleanup.yml';
+export const emergencyPath = '.github/workflows/community-emergency.yml';
 export const catalogId = 'pixivdownloader-community';
 const surface = ['.github', 'scripts', 'tools', 'schemas', 'package.json'];
 
@@ -39,7 +40,7 @@ export function trustedRun(runId, attempt, workflowPath, current, call = api, re
         throw new Error('WORKFLOW_SOURCE_INVALID');
     }
     let sourceSha = run.head_sha;
-    if ([gatePath, cleanupPath].includes(workflowPath) && run.event === 'pull_request_target') {
+    if ([gatePath, cleanupPath, emergencyPath].includes(workflowPath) && run.event === 'pull_request_target') {
         // run head 属于投稿，关闭后原生 PR 关联还会为空；仅使用已交叉验证的当前执行上下文。
         sourceSha = sha(executionSha);
     } else if (run.head_branch !== policy.defaultBranch) throw new Error('WORKFLOW_SOURCE_INVALID');

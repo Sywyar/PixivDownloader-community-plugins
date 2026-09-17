@@ -21,7 +21,7 @@ export async function cleanupRequestBranch({ ui, snapshot, sdk, call = github, r
         if (!isDeepStrictEqual(actor(call), snapshot.actor)) throw new Error('SESSION_ACCOUNT_CHANGED');
         const pr = call(`repos/${policy.repository}/pulls/${id(withdrawn.number)}`);
         if (pr.state !== 'closed' || pr.merged || id(pr.user.id) !== snapshot.actor.id
-            || pr.user.type !== 'User' || id(pr.base.repo.id) !== policy.repositoryId || pr.base.ref !== policy.defaultBranch
+            || pr.user.type !== 'User' || id(pr.base.repo.id) !== policy.repositoryId || ![policy.defaultBranch, policy.emergencyBranch].includes(pr.base.ref)
             || pr.head.sha !== withdrawn.head || pr.head.ref !== withdrawn.branch
             || !pr.head.repo || id(pr.head.repo.id) !== withdrawn.repositoryId) throw new Error('BRANCH_CLEANUP_UNSAFE');
         const fork = forkTarget(snapshot, call);
@@ -29,8 +29,8 @@ export async function cleanupRequestBranch({ ui, snapshot, sdk, call = github, r
         const repository = checkedRepository(fork.name, call);
         if (id(repository.id) !== fork.id || id(repository.owner.id) !== snapshot.actor.id) throw new Error('BRANCH_CLEANUP_UNSAFE');
         const branch = pr.head.ref;
-        if (branch === repository.default_branch || branch === policy.defaultBranch
-            || !/^community\/(?:first_release|update|yank|unyank|revoke|key_rotation|ownership_transfer)\/[0-9a-f]{24}(?:-after-[1-9][0-9]*)?$/u.test(branch)) {
+        if (branch === repository.default_branch || branch === policy.defaultBranch || branch === policy.emergencyBranch
+            || !/^community\/(?:first_release|update|yank|unyank|revoke|key_rotation|ownership_transfer|declare_key_compromise)\/[0-9a-f]{24}(?:-after-[1-9][0-9]*)?$/u.test(branch)) {
             throw new Error('BRANCH_CLEANUP_UNSAFE');
         }
         const target = { repository: fork.name, repositoryId: fork.id, branch, head: sha(pr.head.sha) };

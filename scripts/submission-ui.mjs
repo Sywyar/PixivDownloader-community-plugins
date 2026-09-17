@@ -1,7 +1,7 @@
 import { setImmediate } from 'node:timers/promises';
 import * as prompts from './vendor/clack-prompts.mjs';
-import { additions, errors } from './submission-messages.mjs';
-import { visible, formatMetadata, previewMetadata } from './submission-presentation.mjs';
+import { additions, errors, optionNames } from './submission-messages.mjs';
+import { visible, formatMetadata, previewMetadata, optionText } from './submission-presentation.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
@@ -48,7 +48,7 @@ const messages = {
     artifact: ['选择最终安装包', 'Select the final installation package', '選擇最終安裝套件', '最終インストールパッケージを選択', '최종 설치 패키지 선택'],
     risk: ['核对从最终包读取的执行模式和能力声明。需要修改时请取消并修改源码；此处不能编辑声明。', 'Review the execution mode and capability declaration read from the final package. Cancel and edit the source if they need changes.', '核對最終套件的執行模式與能力宣告；需要修改時請取消並修改原始碼。', '最終パッケージから読み取った実行モードと能力宣言を確認してください。変更する場合はキャンセルし、ソースを修正してください。', '최종 패키지에서 읽은 실행 모드와 기능 선언을 확인하세요. 변경이 필요하면 취소하고 소스를 수정하세요.'],
     rebuildPackage: ['请修改源码、提交并重新构建和签名，再运行向导。', 'Edit and commit the source, rebuild and sign, then run the wizard again.', '請修改原始碼、提交並重新建置及簽名，再執行精靈。', 'ソースを修正してコミットし、再ビルド・署名後に再実行してください。', '소스를 수정하고 커밋한 뒤 다시 빌드 및 서명하고 마법사를 실행하세요.'],
-    publisher: ['确认 publisherId', 'Confirm publisherId', '確認 publisherId', 'publisherId を確認', 'publisherId 확인'],
+    publisher: ['发布者标识 publisherId', 'Publisher identifier publisherId', '發布者識別碼 publisherId', '発行者識別子 publisherId', '게시자 식별자 publisherId'],
     display: ['发布者显示名称', 'Publisher display name', '發布者顯示名稱', '発行者の表示名', '게시자 표시 이름'],
     owner: ['发布主体', 'Publisher account', '發布主體', '発行アカウント', '게시 계정'],
     personal: ['当前个人账号', 'Current personal account', '目前個人帳號', '現在の個人アカウント', '현재 개인 계정'],
@@ -93,7 +93,7 @@ const messages = {
     cancelled: ['已取消', 'Cancelled', '已取消', 'キャンセルしました', '취소됨'],
     cleanupFailed: ['临时工作目录清理失败，操作结果保持有效；请关闭占用程序后删除此目录。', 'Temporary workspace cleanup failed. The operation result is still valid; close programs using this folder, then delete it.', '暫存工作目錄清理失敗，操作結果仍有效；請關閉占用程式後刪除此目錄。', '一時フォルダーを削除できませんでした。操作結果は有効です。使用中のプログラムを閉じてから削除してください。', '임시 폴더를 삭제하지 못했습니다. 작업 결과는 유효합니다. 폴더를 사용 중인 프로그램을 닫고 삭제하세요.'],
     original: ['已存在相同请求或已发布的相同包，返回原记录。', 'The same request or package was already processed. Returning the original record.', '相同請求或套件已處理，傳回原紀錄。', '同じ申請またはパッケージは処理済みです。元の記録を返します。', '동일한 요청 또는 패키지가 처리되어 원본 기록을 반환합니다.'],
-    submitted: ['PR 已准备好，请等待仓库审核。', 'The PR is ready for repository review.', 'PR 已準備好，請等候儲存庫審核。', 'PR を作成しました。リポジトリでの審査をお待ちください。', 'PR이 준비되었습니다. 저장소 검토를 기다려 주세요.'],
+    submitted: ['PR 已创建，请在 PR 页面查看检查和处理进度。', 'The PR is ready. Follow checks and processing on its page.', 'PR 已建立，請在 PR 頁面查看檢查及處理進度。', 'PR を作成しました。PR ページでチェックと処理の進捗を確認できます。', 'PR을 만들었습니다. PR 페이지에서 검사 및 처리 진행 상황을 확인하세요.'],
     failed: ['向导已停止，请根据错误码检查输入后重试。', 'The wizard stopped. Check the input using this error code, then retry.', '精靈已停止，請依錯誤碼檢查輸入後重試。', 'ウィザードを停止しました。エラーコードを確認し、入力を修正して再実行してください。', '마법사가 중지되었습니다. 오류 코드를 확인하고 입력을 수정한 뒤 다시 시도하세요.'],
     downloadFailed: ['下载失败。请根据错误码检查网络、代理或文件摘要后重试。', 'Download failed. Use the error code to check the network, proxy or file digest, then retry.', '下載失敗。請依錯誤碼檢查網路、代理或檔案摘要後重試。', 'ダウンロードに失敗しました。エラーコードに従ってネットワーク、プロキシ、ファイルのダイジェストを確認してください。', '다운로드하지 못했습니다. 오류 코드에 따라 네트워크, 프록시 또는 파일 다이제스트를 확인하고 다시 시도하세요.'],
 };
@@ -103,14 +103,15 @@ export function failureCode(error) {
         : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
 }
 
-export const localizedText = (locale, key) => (additions[key] ?? messages[key])?.[Math.max(0, locales.indexOf(locale))] ?? key;
+export const localizedText = (locale, key) => (key.startsWith('option.') ? optionNames[key.slice(7)]
+    : additions[key] ?? messages[key])?.[Math.max(0, locales.indexOf(locale))] ?? key;
 
 export async function terminal(input = process.stdin, output = process.stdout, options = {}) {
     const common = { input, output };
     let index = locales.includes(options.resumeLocale) ? locales.indexOf(options.resumeLocale) : 1;
     let resume = false;
     let navigationEnabled = false;
-    const text = key => (additions[key] ?? messages[key])?.[index] ?? key;
+    const text = key => localizedText(locales[index], key);
     const errorText = error => {
         const code = failureCode(error);
         return (errors[code]?.[index] ?? text('invalid')) + (code ? ` (${code})` : '');
@@ -176,7 +177,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         });
         return actual(value);
     };
-    const select = async (key, options, label = value => String(value), initialValue) => {
+    const select = async (key, options, label = value => optionText(value, text), initialValue) => {
         if (!options.length) {
             say('operationUnavailable', { code: 'NO_SELECTABLE_VALUES', field: text(key) });
             throw new Error('WIZARD_MENU');
@@ -194,7 +195,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         const selected = await prompt(prompts.multiselect, {
             message: text(key),
             required: false, emptyLabel: text('none'), initialValues: options.flatMap((value, i) => initialValues.includes(value) ? [i] : []),
-            options: options.map((value, i) => ({ value: i, label: visible(value) })),
+            options: options.map((value, i) => ({ value: i, label: visible(optionText(value, text)) })),
         });
         return selected.map(i => options[i]);
     };

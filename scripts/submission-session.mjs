@@ -27,7 +27,7 @@ export function sessionLocator(directory, home = submissionHome()) {
                 const session = data.actors?.[ref.actorId]?.session;
                 if (!session) return null;
                 if (session.schemaVersion !== 1 || !Array.isArray(session.navigation)
-                    || !['publish', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer'].includes(session.operation)
+                    || !['publish', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer', 'emergency'].includes(session.operation)
                     || !locales.includes(session.locale)
                     || session.navigation.some(answer => !answer || !Array.isArray(answer.signature)
                         || !['ask', 'select', 'multiselect', 'confirm'].includes(answer.signature[0]))) throw new Error();
@@ -87,7 +87,8 @@ export async function restorePrepared(context) {
     if (!prepared) return null;
     // 主线前进不改变已签名的请求字节；调用方仍须按当前状态完整校验并重新确认。
     sha(prepared.snapshot?.base);
-    if (!isDeepStrictEqual({ ...prepared.snapshot, base: context.snapshot.base }, context.snapshot)) throw new Error('SESSION_IDENTITY_CHANGED');
+    if (!isDeepStrictEqual({ ...prepared.snapshot, base: context.snapshot.base,
+        ...(context.snapshot.masterBase ? { masterBase: context.snapshot.masterBase } : {}) }, context.snapshot)) throw new Error('SESSION_IDENTITY_CHANGED');
     if (!prepared.sourceRelease) return prepared;
     const source = sourceFacts(context.projectRoot);
     if (!isDeepStrictEqual(source, prepared.source)) throw new Error('SOURCE_CHANGED');

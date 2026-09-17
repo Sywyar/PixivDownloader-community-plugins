@@ -4,11 +4,13 @@ import { pull } from './platform.mjs';
 import { checkResult } from './apply-result.mjs';
 import { restoreReview, currentAdmission } from './apply-context.mjs';
 import { stateReader } from './submission-github.mjs';
+import { signedOwnerOperations } from './status-authorization.mjs';
+import { publish } from './community-gate.mjs';
 
-export const STATUS_CHECK_WAIT_MS = 10 * 60_000;
+export const STATUS_CHECK_WAIT_MS = 5_000;
 export async function mergeStatus(context, sdk, number, head, { call = api, readGit, check = checkResult,
     admission = currentAdmission, readState = stateReader, token = process.env.COMMUNITY_REVIEW_BRANCH_TOKEN,
-    now = Date.now, wait = delay } = {}) {
+    now = Date.now, wait = delay, refresh = publish } = {}) {
     if (!context.automatic) throw new Error('STATUS_EXECUTION_INVALID');
     const bound = () => {
         const pr = pull(number, call);
@@ -23,14 +25,14 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
     const issuer = call('user', { token });
     if (issuer.type !== 'User' || id(issuer.id) !== policy.repositoryOwnerId) throw new Error('STATUS_MERGE_IDENTITY_INVALID');
     const completion = await check(number, sdk, context.current, { call, readGit });
-    if (completion.receipt.authorization !== 'SIGNED_OWNER' || !['YANK', 'UNYANK', 'REVOKE'].includes(completion.receipt.operation)
+    if (completion.receipt.authorization !== 'SIGNED_OWNER' || !signedOwnerOperations.includes(completion.receipt.operation)
         || completion.pr.head.sha !== head) throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     const reevaluate = () => admission(number, sdk, context,
         { ...restoreReview(sdk, readState(sdk, context.current, call), completion.receipt), completion }, call, readGit);
     reevaluate();
-    // 同仓投稿使用 GITHUB_TOKEN 追加提交时，不依赖被抑制的 push 事件唤醒检查。
-    call(`${prefix}/actions/workflows/community-gate.yml/dispatches`,
-        { method: 'POST', body: { ref: policy.defaultBranch, inputs: { prNumber: String(number) } } });
+    // 已持有最终写入队列；直接复用 Gate 签发，避免等待同队列另一 workflow 而互相阻塞。
+    const refreshed = await refresh(number, context, sdk, call, call, readGit);
+    if (refreshed.error) throw new Error(refreshed.error);
     const deadline = now() + STATUS_CHECK_WAIT_MS;
     for (;;) {
         const pr = bound();
@@ -59,6 +61,6 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
             return { merged: true, head, merge: actual.merge_commit_sha };
         }
         if (now() >= deadline) return { pending: 'STATUS_CHECKS_PENDING', pr };
-        await wait(Math.min(15_000, deadline - now()));
+        await wait(Math.min(1000, deadline - now()));
     }
 }

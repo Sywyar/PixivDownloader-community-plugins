@@ -5,7 +5,7 @@ import { unavailable } from './submission-navigation.mjs';
 import { cleanupRequestBranch } from './submission-cleanup.mjs';
 
 const endpoint = `repos/${policy.repository}/pulls`;
-const requestPath = /^(?:submissions|key-rotations|version-status-requests|ownership-transfers)\/.+\.json$/u;
+const requestPath = /^(?:submissions|key-rotations|version-status-requests|ownership-transfers|requests)\/.+\.json$/u;
 const identity = pr => ({ number: pr.number, author: id(pr.user.id), repository: id(pr.base.repo.id), base: pr.base.ref,
     headRepository: pr.head.repo ? id(pr.head.repo.id) : null, head: pr.head.sha, branch: pr.head.ref });
 
@@ -13,7 +13,8 @@ const identity = pr => ({ number: pr.number, author: id(pr.user.id), repository:
 export async function withdrawRequest(context) {
     const { ui, snapshot, call = github } = context;
     const requests = [];
-    for (const pr of paged(`${endpoint}?state=open&base=${policy.defaultBranch}`, call)) {
+    for (const pr of paged(`${endpoint}?state=open`, call)) {
+        if (![policy.defaultBranch, policy.emergencyBranch].includes(pr.base.ref)) continue;
         if (id(pr.user.id) !== snapshot.actor.id || pr.user.type !== 'User') continue;
         const files = paged(`${endpoint}/${id(pr.number)}/files`, call);
         if (files.some(file => requestPath.test(file.filename))) requests.push(pr);
@@ -25,7 +26,7 @@ export async function withdrawRequest(context) {
         if (!isDeepStrictEqual(actor(call), snapshot.actor)) throw new Error('SESSION_ACCOUNT_CHANGED');
         const current = call(`${endpoint}/${selected.number}`);
         if (!isDeepStrictEqual(identity(current), expected) || current.user.type !== 'User'
-            || expected.repository !== policy.repositoryId || expected.base !== policy.defaultBranch) throw new Error('WITHDRAWAL_REQUEST_CHANGED');
+            || expected.repository !== policy.repositoryId || ![policy.defaultBranch, policy.emergencyBranch].includes(expected.base)) throw new Error('WITHDRAWAL_REQUEST_CHANGED');
         if (current.merged) throw new Error('WITHDRAWAL_ALREADY_MERGED');
         if (!['open', 'closed'].includes(current.state)) throw new Error('WITHDRAWAL_REQUEST_CHANGED');
         return current;

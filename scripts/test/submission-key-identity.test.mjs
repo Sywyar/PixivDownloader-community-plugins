@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission, withEmergencyState } from './local-sdk.mjs';
 import { signingTool, exportKey } from '../submission-signing.mjs';
 import { signingKey } from '../submission-release.mjs';
 import { prepareRotation } from '../submission-operations.mjs';
 import { navigation } from '../submission-navigation.mjs';
 import { openProject, projectIdentity } from '../submission-state.mjs';
+import { publisherKeys } from '../submission-publisher-state.mjs';
 import { root } from '../sdk.mjs';
 import { additions, errors } from '../submission-messages.mjs';
 import { locales } from '../submission-ui.mjs';
@@ -64,6 +65,46 @@ function form(context, files, options = {}) {
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
+test('真实配对后跨工程复用发布者密钥，旧钥证明更新路径且错误配对不污染记录', async t => {
+    const home = fs.mkdtempSync(path.join(sdk.workspace, 'publisher-history-'));
+    const owner = { accountId: '201', accountType: 'User', publisherId: 'sample' };
+    const stores = [openProject(projectIdentity('101', '.', 'first'), '201', { home }),
+        openProject(projectIdentity('102', '.', 'second'), '201', { home })];
+    t.after(() => stores.forEach(store => store.close()));
+    const context = { sdk, sign, call: withEmergencyState(), projectRoot: root, store: stores[0], snapshot: { actor: { id: '201', type: 'User' } },
+        bindPublisher(value) { this.keyStore = publisherKeys(value, '201', { home }); } };
+    context.bindPublisher(owner);
+    const old = externalKey();
+    let f = form(context, old);
+    const selected = await f.nav.run(() => signingKey(context));
+    assert.equal(stores[0].key(selected.fingerprint), undefined);
+    const publisher = { value: { publisherId: owner.publisherId, githubAccount: { id: owner.accountId, type: owner.accountType },
+        signingKeys: [{ ...selected.key, state: 'ACTIVE' }] }, sha256: 'a'.repeat(64) };
+    const tree = new Map([['publishers/201/sample.json', publisher]]);
+    context.state = { tree, read: file => tree.get(file) }; context.store = stores[1];
+    const correctedPrivate = path.join(old.directory, 'verified-private.pem');
+    fs.copyFileSync(old.privateFile, correctedPrivate);
+    f = form(context, { privateFile: correctedPrivate }, { action: 'generateKey', oldProof: true });
+    const result = await f.nav.run(() => prepareRotation(context));
+    const request = JSON.parse([...result.changes.values()][0]);
+    assert.equal(f.prompts.find(item => item.key === 'privateKey').initial, old.privateFile);
+    const shared = publisherKeys(owner, '201', { home });
+    assert.equal(shared.key(selected.fingerprint).privateFile, correctedPrivate);
+    assert.equal(shared.record.key.keyId, request.payload.newKey.keyId);
+    context.store = stores[0]; context.bindPublisher(owner);
+    stores[0].remember('publicKey:0', old.publicFile);
+    f = form(context, shared.record.key);
+    assert.equal((await f.nav.run(() => signingKey(context))).key.keyId, request.payload.newKey.keyId);
+    assert.equal(f.prompts.find(item => item.key === 'publicKey').initial, shared.record.key.publicFile);
+    const profile = path.join(shared.folder, 'profile.json'), original = fs.readFileSync(profile);
+    f = form(context, { publicFile: old.publicFile, privateFile: shared.record.key.privateFile });
+    await assert.rejects(f.nav.run(() => signingKey(context)), /KEY_PAIR_MISMATCH/);
+    assert.deepEqual(fs.readFileSync(profile), original);
+    f = form(context, { publicFile: path.join(old.directory, 'missing.pem') });
+    await assert.rejects(f.nav.run(() => signingKey(context)), /KEY_PATH_NOT_FOUND/);
+    assert.deepEqual(fs.readFileSync(profile), original);
+});
+
 test('外部生成的密钥首次导入自动分配 UUID；换路径与重新启动仍按公钥指纹恢复', async t => {
     const p = project(t), first = externalKey(), second = externalKey();
     const context = { sdk, sign, projectRoot: root, store: p.store };
@@ -107,7 +148,7 @@ test('新生成密钥不会继承历史输入，换钥冲突停留在字段内�
     p.store.remember('privateKey:0', old.privateFile);
     const publisher = { value: { publisherId: 'sample', githubAccount: { id: '201', type: 'User' }, signingKeys: [{ ...key, state: 'ACTIVE' }] }, sha256: 'a'.repeat(64) };
     const tree = new Map([['publishers/201/sample.json', publisher]]);
-    const context = { sdk, sign, projectRoot: root, store: p.store, snapshot: { actor: { id: '201', type: 'User' } },
+    const context = { sdk, sign, call: withEmergencyState(), projectRoot: root, store: p.store, snapshot: { actor: { id: '201', type: 'User' } },
         state: { tree, read: file => tree.get(file) } };
     const f = form(context, {}, { action: 'generateKey', oldProof: true, checkId: (initial, validate) => {
         assert.match(initial, uuid); assert.notEqual(initial, key.keyId);

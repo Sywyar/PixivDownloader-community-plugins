@@ -12,6 +12,7 @@ import { stateReader } from './submission-github.mjs';
 import { formalTag, packageName, encoded, releaseStatus } from './apply-generation.mjs';
 export { releaseStatus };
 import { download as publicDownload } from './download.mjs';
+import { emergencyState } from './emergency-state.mjs';
 
 function tagCommit(tag, call) {
     const refs = list(`${prefix}/git/matching-refs/tags/${tag}`, null, call).filter(ref => ref.ref === 'refs/tags/' + tag);
@@ -22,7 +23,7 @@ function tagCommit(tag, call) {
 
 const assetIdentity = ({ id, name, size, digest, state }) => ({ id, name, size, digest, state });
 
-export async function promoteReleases(completion, workspace, { call = api, download = downloadCandidate, fetch = publicDownload, confirm, ...transport } = {}) {
+export async function promoteReleases(completion, workspace, { call = api, download = downloadCandidate, fetch = publicDownload, confirm, authorize, ...transport } = {}) {
     const { receipt, pr, commit, merge } = completion;
     if (!pr?.merged || pr.state !== 'closed' || !merge || merge.sha !== pr.merge_commit_sha
         || commit?.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), [receipt.headSha])
@@ -58,6 +59,8 @@ export async function promoteReleases(completion, workspace, { call = api, downl
         if (target && target !== targetCommit) throw new Error('PUBLICATION_TAG_CHANGED');
         const ready = read();
         if (ready.release.draft) {
+            if (typeof authorize !== 'function') throw new Error('PUBLICATION_AUTHORIZATION_REQUIRED');
+            await authorize(expected);
             const body = `Publisher: ${expected.owner.publisherId} (${expected.owner.accountType} ${expected.owner.accountId})\n`
                 + `Source commit: ${expected.sourceCommit}\nSHA-256: ${expected.packageSha256}\nCommunity merge: ${targetCommit}`;
             try { call(`${prefix}/releases/${id(expected.id)}`, { method: 'PATCH', body: { tag_name: expected.tag,
@@ -147,7 +150,15 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
         let release = call(`${prefix}/releases/${id(original[0].id)}`);
         if (release.draft) {
             if (!write) { pending = true; continue; }
-            await promoteReleases(completion, sdk.workspace, { call, download, ...transport, confirm: (expected, file) => {
+            await promoteReleases(completion, sdk.workspace, { call, download, ...transport, authorize: () => {
+                const publisher = sdk.document('PUBLISHER', state.reference(record.historicalPublisherRef), record.historicalPublisherRef.path).value;
+                const key = publisher.signingKeys.find(key => key.keyId === record.package.signature.keyId);
+                if (!key) throw new Error('PUBLICATION_KEY_MISSING');
+                const emergency = emergencyState(sdk, call);
+                emergency.requireKey(key);
+                emergency.unchanged();
+                if (sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== context.current) throw new Error('APPLY_BASE_CHANGED');
+            }, confirm: (expected, file) => {
                 if (sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== context.current) throw new Error('APPLY_BASE_CHANGED');
                 return confirmPublication(sdk, state, record, file, completion);
             } });

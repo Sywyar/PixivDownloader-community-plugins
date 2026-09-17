@@ -24,7 +24,9 @@ public class WorkflowJson {
     const inspect = { contents: 'write', actions: 'read', 'pull-requests': 'read' };
     const notify = { contents: 'read', actions: 'read', 'pull-requests': 'write' };
     const commands = {
-        'community-gate.mjs': inspect,
+        'community-emergency.mjs': { contents: 'write', actions: 'write', 'pull-requests': 'write' },
+        'community-gate.mjs prepare': inspect,
+        'community-gate.mjs publish': inspect,
         'community-gate.mjs notify': notify,
         'decisions.mjs': inspect,
         'community-publication.mjs preflight': inspect,
@@ -99,7 +101,7 @@ public class WorkflowJson {
     const checked = { owner: { accountId: '101', accountType: 'User', publisherId: 'example' },
         submission: { pluginId: 'demo', version: '2.3.4' }, pr: { number: 7 } };
     const release = { id: 1, draft: true, tag_name: candidateSlot(checked) };
-    for (const [file, jobName] of [['community-gate', 'gate'], ['community-review-decision', 'decision'], ['community-review-complete', 'preflight']]) {
+    for (const [file, jobName] of [['community-gate', 'prepare'], ['community-review-decision', 'decision'], ['community-review-complete', 'preflight']]) {
         const workflow = read(file), job = workflow.jobs[jobName];
         assert.equal(workflow.permissions.contents, 'read');
         assert.equal(job.permissions.contents, 'write');
@@ -116,9 +118,34 @@ public class WorkflowJson {
     }
     const build = read('submission-check');
     for (const job of Object.values(build.jobs)) assert.equal((job.permissions ?? build.permissions).contents, 'read');
-    assert.equal(read('community-archive').concurrency.group, read('community-review-complete').concurrency.group);
+    assert.equal(read('community-archive').concurrency.group, read('community-review-complete').jobs.store.concurrency.group);
     assert.equal(read('community-archive').concurrency.group, read('community-publication').concurrency.group);
     const cleanup = read('community-candidate-cleanup');
+    const emergency = read('community-emergency');
+    assert.deepEqual(emergency.on.pull_request_target.branches, ['emergency-state']);
+    assert.equal(emergency.jobs.apply.environment, 'community-status');
+    assert.equal(emergency.concurrency.group, read('community-gate').jobs.gate.concurrency.group);
+    assert.equal(emergency.concurrency.group, read('community-status').jobs.store.concurrency.group);
+    const finalGate = read('community-gate').jobs.gate;
+    assert(finalGate.if.includes('always()'));
+    assert(finalGate.if.includes('!cancelled()'));
+    assert.equal(finalGate.steps.find(step => step.uses?.startsWith('actions/download-artifact@'))['continue-on-error'], true);
+    assert.equal(finalGate.steps.find(step => step.id === 'gate')['continue-on-error'], undefined);
+    // 等待人工批准、长校验和签名不占用最终授权队列。
+    for (const name of ['community-review-complete', 'community-status', 'community-gate']) {
+        const workflow = read(name);
+        assert.equal(workflow.concurrency, undefined);
+        const prepare = workflow.jobs[name === 'community-gate' ? 'prepare' : 'apply'];
+        assert.equal(prepare.concurrency, undefined);
+        assert(prepare.steps.some(step => step.uses?.startsWith('actions/upload-artifact@')));
+        const final = workflow.jobs[name === 'community-gate' ? 'gate' : 'store'];
+        assert.notEqual(final.environment, 'release');
+        const download = final.steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
+        assert.match(download.with['artifact-ids'], /needs\.(prepare|apply)\.outputs\.artifact/u);
+        assert.equal(download.with['run-id'], undefined);
+        assert.equal(download.with['repository'], undefined);
+    }
+    assert.equal(emergency.concurrency.group, read('community-publication').concurrency.group);
     assert.equal(cleanup.concurrency.group, read('community-archive').concurrency.group);
     assert.equal(cleanup.concurrency.queue, 'max');
     assert.deepEqual(cleanup.on.pull_request_target, { branches: ['master'], types: ['closed'] });

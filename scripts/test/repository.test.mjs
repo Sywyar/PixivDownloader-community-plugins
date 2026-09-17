@@ -2,7 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { policy, prefix, list, api, API_BYTES, API_TIMEOUT } from '../github.mjs';
 import { labels, labelChanges, syncLabels } from '../sync-labels.mjs';
-import { desiredSettings, checkSettings, configure, readSettings } from '../configure-repository.mjs';
+import { desiredSettings, checkSettings, configure, readSettings, initializeEmergency } from '../configure-repository.mjs';
+
+test('紧急分支只初始化数据根，已有 ref 或读取失败不覆盖', () => {
+    const server = github(), writes = [], sha = 'a'.repeat(40);
+    let exists = false, forbidden = false;
+    const call = (endpoint, options = {}) => {
+        if (endpoint.endsWith('/git/ref/heads/' + policy.emergencyBranch)) {
+            if (exists) return { object: { sha } };
+            throw Object.assign(new Error('read failed'), { stderr: forbidden ? 'HTTP 403' : '(HTTP 404)' });
+        }
+        if (options.method === 'POST') {
+            writes.push(options.body);
+            if (endpoint.endsWith('/git/refs')) exists = true;
+            return { sha };
+        }
+        return server.call(endpoint, options);
+    };
+    assert.equal(initializeEmergency(call), sha);
+    assert.equal(writes[0].tree.length, 1); assert.equal(writes[0].tree[0].path, 'state.json');
+    assert.equal(JSON.parse(writes[0].tree[0].content).repositoryId, policy.repositoryId);
+    assert.deepEqual(writes[1].parents, []);
+    assert.equal(writes[2].ref, 'refs/heads/' + policy.emergencyBranch);
+    assert.throws(() => initializeEmergency(call), /EMERGENCY_BRANCH_ALREADY_EXISTS/);
+    exists = false; forbidden = true;
+    assert.throws(() => initializeEmergency(call), /read failed/); assert.equal(writes.length, 3);
+});
 
 function github() {
     const wanted = desiredSettings();

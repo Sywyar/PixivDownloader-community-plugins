@@ -5,6 +5,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { hash } from './sdk.mjs';
 import { download, httpsUrl } from './download.mjs';
 import { checkedRepository, github } from './submission-github.mjs';
+import { emergencyState } from './emergency-state.mjs';
+import { keyFingerprint } from './emergency-state.mjs';
 
 export const publisherPath = owner => `publishers/${owner.accountId}/${owner.publisherId}.json`;
 export const bindingPath = pluginId => `plugin-bindings/${pluginId}.json`;
@@ -49,7 +51,7 @@ export async function sourceArchive(sdk, source, projectDir, call = github, fetc
 }
 
 // 候选只提供数据；身份、受保护状态、原始摘要和签名均重新读取并核对。
-export async function validateChanges({ sdk, state, changes, user, authorize, call = github, fetch = download }) {
+export async function validateChanges({ sdk, state, changes, user, authorize, call = github, fetch = download, emergency }) {
     if (!(changes instanceof Map) || !changes.size) throw new Error('SUBMISSION_EMPTY');
     const files = [...changes.keys()];
     for (const file of files) {
@@ -76,8 +78,11 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         same(record.value.owner, owner, 'BINDING_CONFLICT');
         return record;
     };
-    const proof = (record, kind, name, key) => sdk.invoke({ command: 'verify-proof', kind,
-        file: sdk.save(record.bytes), proof: name, key });
+    const requireKey = key => { emergency ??= emergencyState(sdk, call); emergency.requireKey(key); };
+    const proof = (record, kind, name, key) => {
+        requireKey(key);
+        return sdk.invoke({ command: 'verify-proof', kind, file: sdk.save(record.bytes), proof: name, key });
+    };
     const authorizeOwner = owner => {
         if (user.type !== 'User' || !authorize(owner, user)) throw new Error('OWNER_AUTHORIZATION_REQUIRED');
     };
@@ -97,6 +102,7 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         const owner = { accountId, accountType: publisher.value.githubAccount.type, publisherId: value.publisherId };
         if (publisher.value.githubAccount.id !== accountId) throw new Error('PUBLISHER_IDENTITY_MISMATCH');
         authorizeOwner(owner);
+        requireKey(activeKey(publisher.value));
         const binding = state.read(bindingPath(value.pluginId), 'BINDING');
         if (binding) same(binding.value.owner, owner, 'BINDING_CONFLICT');
         const previous = state.published(value.pluginId);
@@ -139,13 +145,17 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         authorizeOwner(owner);
         const publisher = currentPublisher(owner);
         if (publisher.sha256 !== p.publisherRecordSha256 || activeKey(publisher.value).keyId !== p.oldKeyId) throw new Error('PUBLISHER_CHANGED');
+        if (p.reasonCode === 'KEY_COMPROMISED') {
+            emergency ??= emergencyState(sdk, call);
+            if (!emergency.readBlock(keyFingerprint(activeKey(publisher.value)))) throw new Error('KEY_COMPROMISE_DECLARATION_REQUIRED');
+        }
         if (publisher.value.signingKeys.some(key => key.keyId === p.newKey.keyId || key.publicKeySpkiBase64 === p.newKey.publicKeySpkiBase64)) {
             throw new Error('ROTATION_KEY_REUSED');
         }
         proof(record, 'ROTATION', 'newKey', p.newKey);
         if (record.value.proofs.oldKey) proof(record, 'ROTATION', 'oldKey', activeKey(publisher.value));
         result = { operation: 'KEY_ROTATION', owner, requestId: record.value.requestId, requestPath: record.path,
-            requestSha256: record.sha256, publisherSha256: publisher.sha256, recoveryRequired: !record.value.proofs.oldKey };
+            requestSha256: record.sha256, publisherSha256: publisher.sha256, reasonCode: p.reasonCode, recoveryRequired: !record.value.proofs.oldKey };
     } else if (statuses.length) {
         if (statuses.length !== 1) throw new Error('SINGLE_STATUS_REQUIRED');
         const record = read(statuses[0], 'STATUS_REQUEST');
@@ -196,5 +206,6 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
             bindingSha256: p.pluginBindingSha256, publisherSha256: target?.sha256 ?? null, recoveryRequired: p.mode === 'RECOVERY' };
     }
     if (files.some(file => !allowed.has(file))) throw new Error('UNEXPECTED_SUBMISSION_FILE');
+    emergency?.unchanged();
     return { ...result, validation: 'STATIC_VALIDATED' };
 }

@@ -33,9 +33,9 @@ export function stateDirectory(file) {
     if (!fs.lstatSync(file).isDirectory() || fs.realpathSync(file) !== path.resolve(file)) throw new Error('STATE_PATH_INVALID');
 }
 
-export function writeState(file, value) {
+export function writeState(file, value, limitCode = 'PROJECT_STATE_SIZE_EXCEEDED') {
     const bytes = Buffer.from(JSON.stringify(value, null, 2) + '\n');
-    if (bytes.length > STATE_BYTES) throw new Error('PROJECT_STATE_SIZE_EXCEEDED');
+    if (bytes.length > STATE_BYTES) throw new Error(limitCode);
     stateDirectory(path.dirname(file));
     if (fs.existsSync(file)) readFile(file, STATE_BYTES);
     const temporary = path.join(path.dirname(file), randomUUID() + '.tmp');
@@ -47,28 +47,32 @@ export function projectFolder(identity, home = submissionHome()) {
     return path.resolve(home, 'projects', hash(Buffer.from(JSON.stringify(projectIdentity(identity.repositoryId, identity.projectDir, identity.pluginId)))));
 }
 
-// 项目数据不是授权源；每次使用都重新核对平台身份、源码和包字节。
-export function openProject(identity, actorId, { home = submissionHome() } = {}) {
-    if (!/^[1-9][0-9]*$/u.test(String(actorId))) throw new Error('PROJECT_IDENTITY_INVALID');
-    const folder = projectFolder(identity, home);
+export function lockState(folder, name = 'project.lock', code = 'PROJECT_STATE_LOCKED') {
     stateDirectory(folder);
-    const lockFile = path.join(folder, 'project.lock');
+    const lockFile = path.join(folder, name);
     const lock = Buffer.from(JSON.stringify({ pid: process.pid, nonce: randomUUID() }));
     try { fs.writeFileSync(lockFile, lock, { flag: 'wx', mode: 0o600 }); }
     catch (error) {
         if (error.code !== 'EEXIST') throw error;
         const bytes = readFile(lockFile, 1024);
         let owner;
-        try { owner = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('PROJECT_STATE_LOCKED'); }
-        if (!Number.isSafeInteger(owner.pid) || owner.pid < 1) throw new Error('PROJECT_STATE_LOCKED');
-        try { process.kill(owner.pid, 0); throw new Error('PROJECT_STATE_LOCKED'); }
-        catch (busy) { if (busy.code !== 'ESRCH') throw new Error('PROJECT_STATE_LOCKED'); }
-        if (!readFile(lockFile, 1024).equals(bytes)) throw new Error('PROJECT_STATE_LOCKED');
+        try { owner = JSON.parse(bytes.toString('utf8')); } catch { throw new Error(code); }
+        if (!Number.isSafeInteger(owner.pid) || owner.pid < 1) throw new Error(code);
+        try { process.kill(owner.pid, 0); throw new Error(code); }
+        catch (busy) { if (busy.code !== 'ESRCH') throw new Error(code); }
+        if (!readFile(lockFile, 1024).equals(bytes)) throw new Error(code);
         fs.unlinkSync(lockFile);
         fs.writeFileSync(lockFile, lock, { flag: 'wx', mode: 0o600 });
     }
     let closed = false;
-    const release = () => { if (!closed && readFile(lockFile, 1024).equals(lock)) fs.unlinkSync(lockFile); closed = true; };
+    return () => { if (!closed && readFile(lockFile, 1024).equals(lock)) fs.unlinkSync(lockFile); closed = true; };
+}
+
+// 项目数据不是授权源；每次使用都重新核对平台身份、源码和包字节。
+export function openProject(identity, actorId, { home = submissionHome() } = {}) {
+    if (!/^[1-9][0-9]*$/u.test(String(actorId))) throw new Error('PROJECT_IDENTITY_INVALID');
+    const folder = projectFolder(identity, home);
+    const release = lockState(folder);
     const file = path.join(folder, 'profile.json');
     let data;
     try {
@@ -146,14 +150,16 @@ export function openProject(identity, actorId, { home = submissionHome() } = {})
         key(fingerprint) {
             return structuredClone(actor.keys?.[fingerprint] ?? (actor.key?.fingerprint === fingerprint ? actor.key : undefined));
         },
-        update(values) {
+        update(values, { selected = true } = {}) {
             for (const field of ['key', 'license', 'market', 'marketAssets', 'receipt', 'session']) if (Object.hasOwn(values, field)) {
                 if (field === 'key') {
                     const keys = actor.keys ??= {};
                     if (/^[a-f0-9]{64}$/u.test(actor.key?.fingerprint) && actor.key.keyId) keys[actor.key.fingerprint] = actor.key;
-                    actor.key = Object.fromEntries(['keyId', 'fingerprint', 'publicFile', 'privateFile', 'directory']
-                        .filter(key => typeof values.key[key] === 'string').map(key => [key, values.key[key]]));
-                    if (/^[a-f0-9]{64}$/u.test(actor.key.fingerprint) && actor.key.keyId) keys[actor.key.fingerprint] = actor.key;
+                    const source = { ...keys[values.key.fingerprint], ...values.key };
+                    const value = Object.fromEntries(['keyId', 'fingerprint', 'publicFile', 'privateFile', 'directory']
+                        .filter(key => typeof source[key] === 'string').map(key => [key, source[key]]));
+                    if (selected) actor.key = value;
+                    if (/^[a-f0-9]{64}$/u.test(value.fingerprint) && value.keyId) keys[value.fingerprint] = value;
                 } else actor[field] = structuredClone(values[field]);
             }
             save();

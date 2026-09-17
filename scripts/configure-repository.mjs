@@ -1,9 +1,9 @@
 import { isDeepStrictEqual } from 'node:util';
-import { api, id, list, main, policy, prefix, repository } from './github.mjs';
+import { api, id, sha, list, main, policy, prefix, repository } from './github.mjs';
 
 export function desiredSettings() {
-    const ruleset = (name, rules, bypass_actors = []) => ({ name, target: 'branch', enforcement: 'active',
-        conditions: { ref_name: { include: [`refs/heads/${policy.defaultBranch}`], exclude: [] } }, bypass_actors, rules });
+    const ruleset = (name, rules, bypass_actors = [], branch = policy.defaultBranch) => ({ name, target: 'branch', enforcement: 'active',
+        conditions: { ref_name: { include: [`refs/heads/${branch}`], exclude: [] } }, bypass_actors, rules });
     return {
         repository: { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false, allow_auto_merge: false },
         token: { default_workflow_permissions: 'read', can_approve_pull_request_reviews: true },
@@ -20,6 +20,17 @@ export function desiredSettings() {
                     do_not_enforce_on_create: false,
                     required_status_checks: policy.requiredContexts.map(context => ({ context, integration_id: policy.gateApp.id })) } },
             ]),
+            ruleset('community-emergency-owner', [{ type: 'update', parameters: { update_allows_fetch_and_merge: false } }],
+                [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'pull_request' }], policy.emergencyBranch),
+            ruleset('community-emergency-checks', [
+                { type: 'deletion' }, { type: 'non_fast_forward' },
+                { type: 'pull_request', parameters: { allowed_merge_methods: ['merge'],
+                    dismiss_stale_reviews_on_push: false, require_code_owner_review: false, require_last_push_approval: false,
+                    required_approving_review_count: 0, required_review_thread_resolution: false } },
+                { type: 'required_status_checks', parameters: { strict_required_status_checks_policy: true,
+                    do_not_enforce_on_create: false,
+                    required_status_checks: [{ context: policy.emergencyContext, integration_id: policy.gateApp.id }] } },
+            ], [], policy.emergencyBranch),
         ],
         environments: {
             release: { wait_timer: 0, prevent_self_review: false, can_admins_bypass: false,
@@ -32,6 +43,26 @@ export function desiredSettings() {
         },
         deploymentBranch: { name: policy.defaultBranch, type: 'branch' },
     };
+}
+
+// 一次性数据分支初始化，不复制 master 的源码或工作流。已有任何同名 ref 都保留。
+export function initializeEmergency(call = api) {
+    repository(call, { owner: true, publicOnly: true });
+    try {
+        call(`${prefix}/git/ref/heads/${policy.emergencyBranch}`);
+        throw new Error('EMERGENCY_BRANCH_ALREADY_EXISTS');
+    } catch (error) {
+        if (!/\(HTTP 404\)/u.test(String(error.stderr))) throw error;
+    }
+    const marker = JSON.stringify({ schemaVersion: 1, kind: 'community-emergency-state', repositoryId: policy.repositoryId }) + '\n';
+    const tree = call(`${prefix}/git/trees`, { method: 'POST', body: {
+        tree: [{ path: 'state.json', mode: '100644', type: 'blob', content: marker }],
+    } });
+    const commit = call(`${prefix}/git/commits`, { method: 'POST', body: { tree: sha(tree.sha), parents: [],
+        message: 'chore(community): 初始化独立紧急状态数据分支' } });
+    call(`${prefix}/git/refs`, { method: 'POST', body: { ref: `refs/heads/${policy.emergencyBranch}`, sha: sha(commit.sha) } });
+    if (call(`${prefix}/git/ref/heads/${policy.emergencyBranch}`).object.sha !== commit.sha) throw new Error('EMERGENCY_BRANCH_CHANGED');
+    return commit.sha;
 }
 
 // GitHub 会补充只读字段及默认参数；逐项核对目标字段，同时拒绝额外 bypass。
@@ -119,11 +150,12 @@ export function configure(call = api) {
 
 main(import.meta.url, () => {
     const args = process.argv.slice(2);
-    if (args.length !== 1 || !['--plan', '--check', '--apply'].includes(args[0])) {
-        throw new Error('USAGE: configure-repository.mjs --plan|--check|--apply');
+    if (args.length !== 1 || !['--plan', '--check', '--apply', '--initialize-emergency'].includes(args[0])) {
+        throw new Error('USAGE: configure-repository.mjs --plan|--check|--apply|--initialize-emergency');
     }
     if (args[0] === '--plan') console.log(JSON.stringify(desiredSettings(), null, 2));
     else if (args[0] === '--apply') configure();
+    else if (args[0] === '--initialize-emergency') console.log(initializeEmergency());
     else {
         const errors = checkSettings(readSettings());
         if (errors.length) throw new Error(`REPOSITORY_SETTINGS_MISMATCH: ${errors.join(', ')}`);

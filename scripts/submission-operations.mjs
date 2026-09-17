@@ -8,20 +8,31 @@ import { readFile } from './submission-fields.mjs';
 import { unavailable } from './submission-navigation.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
+import { keyLabel } from './submission-emergency.mjs';
+import { emergencyState, keyFingerprint } from './emergency-state.mjs';
 
 const encoded = value => Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
 
-async function currentProof(context, publisher) {
+async function currentProof(context, publisher, automatic) {
     const { ui, projectRoot } = context;
+    const owner = { accountId: publisher.githubAccount.id, accountType: publisher.githubAccount.type, publisherId: publisher.publisherId };
+    ui.say('keyContext', keyLabel(context, owner, activeKey(publisher)));
+    const emergency = context.emergency ?? emergencyState(context.sdk, context.call ?? github);
+    if (emergency.readBlock(keyFingerprint(activeKey(publisher)))) {
+        ui.say('compromisedProofSkipped');
+        return null;
+    }
+    ui.say(automatic ? 'proofAutomaticHelp' : 'proofManualHelp');
     if (!await ui.confirm('optionalKey', { keyId: activeKey(publisher).keyId })) return null;
     const key = activeKey(publisher);
     const fingerprint = hash(Buffer.from(key.publicKeySpkiBase64, 'base64'));
-    const prior = context.store?.key(fingerprint);
+    const prior = context.keyStore?.key(fingerprint) ?? context.store?.key(fingerprint);
     const privateFile = keyLocation(await ui.ask('privateKey', prior?.privateFile ?? '', value => keyLocation(value, projectRoot),
         { identity: fingerprint, remember: false }), projectRoot);
     const publicFile = context.sdk.save(Buffer.from('-----BEGIN PUBLIC KEY-----\n' + key.publicKeySpkiBase64 + '\n-----END PUBLIC KEY-----\n'), '.pem');
     await unlockPrivateKey(context, privateFile, publicFile);
     if (!await ui.confirm('keyAction', { privateFile, keyId: activeKey(publisher).keyId })) throw new Error('CANCELLED');
+    (context.keyStore ?? context.store)?.update({ key: { keyId: key.keyId, fingerprint, privateFile } }, { selected: false });
     return { keyId: activeKey(publisher).keyId, privateFile };
 }
 
@@ -33,15 +44,15 @@ export async function prepareRotation(context, rotation) {
             .map(file => state.read(file, 'PUBLISHER')).filter(record => eligible({ accountId: record.value.githubAccount.id,
                 accountType: record.value.githubAccount.type }, snapshot.actor, call));
         if (!publishers.length) unavailable(ui, 'NO_OWNED_PUBLISHERS');
-        const existing = await ui.select('publisher', publishers, record => record.value.publisherId);
+        const existing = await ui.select('selectPublisher', publishers, record => `${record.value.publisherId} · ${record.value.githubAccount.loginAtRegistration ?? record.value.githubAccount.id} · ${ui.text(record.value.githubAccount.type === 'User' ? 'personal' : 'organization')} (#${record.value.githubAccount.id})`);
         const owner = { accountId: existing.value.githubAccount.id, accountType: existing.value.githubAccount.type, publisherId: existing.value.publisherId };
+        context.bindPublisher?.(owner);
         if (owner.accountType === 'Organization' && !await ui.confirm('representation', owner)) throw new Error('CANCELLED');
-        const binding = [...state.tree.keys()].filter(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))
-            .map(file => state.read(file, 'BINDING')).find(record => isDeepStrictEqual(record.value.owner, owner));
-        if (binding) bindHistory(context, binding.value.pluginId);
+        bindPublisherHistory(context, owner);
         rotation = { owner, existing, selectedKey: await signingKey(context, existing.value.signingKeys, { rotation: true }) };
     }
     const { owner, existing, selectedKey } = rotation;
+    context.bindPublisher?.(owner);
     if (existing.value.signingKeys.some(key => key.keyId === selectedKey.key.keyId || key.publicKeySpkiBase64 === selectedKey.key.publicKeySpkiBase64)) {
         // 从发布入口进入换钥时，也在密钥步骤内修正冲突。
         rotation.selectedKey = await signingKey(context, existing.value.signingKeys, { rotation: true });
@@ -50,9 +61,13 @@ export async function prepareRotation(context, rotation) {
     const payload = { publisherId: owner.publisherId, githubAccount: { id: owner.accountId, type: owner.accountType },
         publisherRecordSha256: existing.sha256, oldKeyId: activeKey(existing.value).keyId, newKey: selectedKey.key,
         reasonCode: await ui.select('reason', ['ROUTINE_ROTATION', 'KEY_LOST', 'KEY_COMPROMISED']), explanation: await ui.ask('explanation') };
+    if (payload.reasonCode === 'KEY_COMPROMISED' && !(context.emergency ?? emergencyState(sdk, context.call ?? github))
+        .readBlock(keyFingerprint(activeKey(existing.value)))) unavailable(ui, 'KEY_COMPROMISE_DECLARATION_REQUIRED');
     const proofs = { newKey: { keyId: selectedKey.key.keyId, privateFile: selectedKey.privateFile } };
-    const old = await currentProof(context, existing.value);
+    const automatic = owner.accountType === 'User' && payload.reasonCode === 'ROUTINE_ROTATION';
+    const old = await currentProof(context, existing.value, automatic);
     if (old) proofs.oldKey = old;
+    ui.say(automatic && old ? 'statusSigned' : 'rotationManual');
     const request = signOperation(sdk, sign, 'ROTATION', { schemaVersion: 1, payload }, proofs);
     return { changes: new Map([[`key-rotations/${owner.accountId}/${owner.publisherId}/${request.requestId}.json`, encoded(request)]]),
         title: `feat(publisher): rotate ${owner.publisherId} signing key` };
@@ -84,10 +99,17 @@ function bindHistory(context, pluginId) {
     context.bindProject?.(id(repository.id), submission.buildProfile.projectDir, pluginId);
 }
 
+export function bindPublisherHistory(context, owner) {
+    const binding = [...context.state.tree.keys()].filter(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))
+        .map(file => context.state.read(file, 'BINDING')).find(record => isDeepStrictEqual(record.value.owner, owner));
+    if (binding) bindHistory(context, binding.value.pluginId);
+}
+
 export async function prepareStatus(context, action) {
     const { state, ui, sdk, sign, snapshot } = context;
     const binding = await selectBinding(context);
     const { owner, pluginId } = binding.value;
+    context.bindPublisher?.(owner);
     const versions = state.published(pluginId).filter(record => {
         const current = state.currentStatus(pluginId, record.value.version, record.value.package.sha256).state;
         return action === 'UNYANK' ? current === 'YANKED' : action === 'YANK' ? current === 'ACTIVE' : current !== 'REVOKED';
@@ -102,7 +124,7 @@ export async function prepareStatus(context, action) {
     if (action === 'UNYANK') payload.yankedDecisionSha256 = state.currentStatus(pluginId, payload.version, payload.packageSha256).decisionSha256;
     const publisher = state.read(publisherPath(owner), 'PUBLISHER');
     if (!publisher) throw new Error('PUBLISHER_MISSING');
-    const proof = await currentProof(context, publisher.value);
+    const proof = await currentProof(context, publisher.value, owner.accountType === 'User');
     ui.say(proof && owner.accountType === 'User' ? 'statusSigned' : 'statusManual');
     const request = signOperation(sdk, sign, 'STATUS_REQUEST', { schemaVersion: 1, payload }, proof ? { activeKey: proof } : {});
     return { changes: new Map([[`version-status-requests/${owner.accountId}/${pluginId}/${payload.version}/${request.requestId}.json`, encoded(request)]]),
@@ -147,6 +169,7 @@ export async function prepareTransfer(context) {
         if (!eligible(binding.value.owner, snapshot.actor, call) && !eligible(to, snapshot.actor, call)) throw new Error('TRANSFER_PARTY_REQUIRED');
         if (!eligible(to, snapshot.actor, call)) unavailable(ui, 'TRANSFER_RECIPIENT_START_REQUIRED');
         const target = state.read(publisherPath(to), 'PUBLISHER');
+        context.bindPublisher?.(to);
         const selectedKey = await signingKey(context, target?.value.signingKeys ?? []);
         if (target && (selectedKey.key.keyId !== activeKey(target.value).keyId
             || selectedKey.key.publicKeySpkiBase64 !== activeKey(target.value).publicKeySpkiBase64)) throw new Error('TARGET_KEY_CHANGED');
