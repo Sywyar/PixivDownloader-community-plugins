@@ -80,6 +80,11 @@ export function openProject(identity, actorId, { home = submissionHome() } = {})
     const actor = data.actors[String(actorId)] ??= { answers: {}, history: [] };
     if (!actor || typeof actor !== 'object' || !actor.answers || typeof actor.answers !== 'object'
         || Array.isArray(actor.answers) || !Array.isArray(actor.history) || actor.history.length > 20) { release(); throw new Error('PROJECT_STATE_INVALID'); }
+    if (actor.keys !== undefined && (!actor.keys || typeof actor.keys !== 'object' || Array.isArray(actor.keys)
+        || Object.entries(actor.keys).some(([fingerprint, key]) => !/^[a-f0-9]{64}$/u.test(fingerprint)
+            || !key || key.fingerprint !== fingerprint || typeof key.keyId !== 'string' || !key.keyId))) {
+        release(); throw new Error('PROJECT_STATE_INVALID');
+    }
     const save = () => writeState(file, data);
     const prunePending = () => {
         const retained = new Set(Object.values(data.actors).map(record => record.session?.prepared?.digest));
@@ -138,11 +143,17 @@ export function openProject(identity, actorId, { home = submissionHome() } = {})
     };
     return { identity, folder, answer, remember, cached, retain, close: release,
         get record() { return structuredClone(actor); },
+        key(fingerprint) {
+            return structuredClone(actor.keys?.[fingerprint] ?? (actor.key?.fingerprint === fingerprint ? actor.key : undefined));
+        },
         update(values) {
             for (const field of ['key', 'license', 'market', 'marketAssets', 'receipt', 'session']) if (Object.hasOwn(values, field)) {
                 if (field === 'key') {
+                    const keys = actor.keys ??= {};
+                    if (/^[a-f0-9]{64}$/u.test(actor.key?.fingerprint) && actor.key.keyId) keys[actor.key.fingerprint] = actor.key;
                     actor.key = Object.fromEntries(['keyId', 'fingerprint', 'publicFile', 'privateFile', 'directory']
                         .filter(key => typeof values.key[key] === 'string').map(key => [key, values.key[key]]));
+                    if (/^[a-f0-9]{64}$/u.test(actor.key.fingerprint) && actor.key.keyId) keys[actor.key.fingerprint] = actor.key;
                 } else actor[field] = structuredClone(values[field]);
             }
             save();
