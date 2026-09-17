@@ -60,3 +60,27 @@ test('缓存满额淘汰最旧包，档案超限保留原文件并释放项目�
     assert.equal(fs.statSync(profile).size, STATE_BYTES + 1);
     assert.equal(fs.existsSync(path.join(state.folder, 'project.lock')), false);
 });
+
+test('公钥指纹映射按项目与账号隔离，沿用档案字节预算并拒绝损坏记录', t => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-key-state-'));
+    t.after(() => fs.rmSync(home, { recursive: true }));
+    const identity = projectIdentity('101', '.', 'example');
+    const state = openProject(identity, '201', { home });
+    const fingerprint = 'a'.repeat(64);
+    state.update({ key: { fingerprint, keyId: 'existing-key', publicFile: '/public.pem', password: 'not-persisted' } });
+    const file = path.join(state.folder, 'profile.json');
+    const original = fs.readFileSync(file);
+    assert(!original.includes(Buffer.from('not-persisted')));
+    assert.throws(() => state.update({ key: { fingerprint, keyId: 'existing-key', publicFile: 'x'.repeat(STATE_BYTES) } }), /PROJECT_STATE_SIZE_EXCEEDED/u);
+    assert.deepEqual(fs.readFileSync(file), original);
+    state.close();
+    for (const [project, actor] of [[identity, '202'], [projectIdentity('102', '.', 'example'), '201']]) {
+        const other = openProject(project, actor, { home });
+        assert.equal(other.key(fingerprint), undefined); other.close();
+    }
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    data.actors['201'].keys[fingerprint].fingerprint = 'b'.repeat(64);
+    fs.writeFileSync(file, JSON.stringify(data));
+    assert.throws(() => openProject(identity, '201', { home }), /PROJECT_STATE_INVALID/u);
+    assert.equal(fs.existsSync(path.join(state.folder, 'project.lock')), false);
+});
