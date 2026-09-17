@@ -56,7 +56,7 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 
 `tools/sdk-lock.json` 固定 SDK 归档摘要、来源 commit 和元数据摘要。工具 JAR 与 `schemas/community/v1/` 是同一 SDK 的原始分发字节。合同、验签和审核归约在主仓库维护，不能修改分发副本来绕过验证。
 
-`tools/signing-tool.json` 单独固定发布者签名 CLI 的来源 commit、JAR 大小和 SHA-256。它提供密钥初始化、密码加密、公钥导出和操作请求签名，向导也可读取已有明文私钥。项目档案只保存密钥路径和身份，密码仅留在当前签名会话。私钥不能进入投稿文件，不能保存到源码仓库、临时目录、PR 或 artifact。
+`tools/signing-tool.json` 单独固定发布者签名 CLI 的来源 commit、JAR 大小和 SHA-256。它提供密钥初始化、密码加密、公钥导出和操作请求签名，向导也可读取已有明文私钥。密钥路径和身份按发布者共享，并区分当前操作账号；工程表单和进度仍按项目隔离。每次使用按真实公钥指纹和配对验证更新路径，密码仅留在当前签名会话。私钥不能进入投稿文件，不能保存到源码仓库、临时目录、PR 或 artifact。
 
 操作审计固定放在 `audits/<requestId>.json`，只能由受保护操作流程追加。状态读取必须核对请求、决定及前后状态的原始引用；重复请求返回原记录，不改写历史。恢复转移的证据使用 `ownership-transfer-evidence/<pluginId>/<sha256>.bin`，摘要基于原始字节，不能在已有请求中替换。
 
@@ -65,22 +65,22 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 | Environment | 限制与凭据 |
 |---|---|
 | `community-gate` | 仅 `master` 分支；保存现有 Gate App 的 `GATE_APP_PRIVATE_KEY`。官方 App action 只申请本社区仓库的短期 `checks:write` token，并在 job 结束撤销 |
-| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、现有维护者分支令牌，只处理有效个人管理者签署的 YANK、UNYANK、REVOKE |
+| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、维护者分支令牌和现有 Gate App 私钥。用于签名管理请求、紧急声明，以及已获人工批准的结果追加 |
 | `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。工具清单私钥 `COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64` 与插件签名私钥 `COMMUNITY_RELEASE_PRIVATE_KEY_BASE64` 分开保存，各自仅传给对应签名步骤 |
 
 Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单公钥固定在启动器中，不用于插件包签名。两类私钥都保存 PKCS#8 PEM 文件的 Base64 编码，密钥默认不设置到期时间。
 
 插件签名还需在 `release` 配置 `COMMUNITY_RELEASE_KEY_ID` 和 `COMMUNITY_RELEASE_PUBLIC_KEY_BASE64` 变量，后者为 Ed25519 SPKI DER 的 Base64。社区密钥不能使用官方应用、插件或 FFmpeg 根公钥；已发布社区根不能通过改变量直接替换。
 
-同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `release` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。自动状态操作在 `community-status` 使用同一用途的凭据追加 fork 分支提交，并以仓库所有者身份合并原 PR；令牌须能读当前用户、写入目标 fork 分支及合并社区 PR。合并前核对所有者数字 ID，仍遵守全部保护规则。此凭据不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留请求。
+同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `community-status` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。签名前的凭据存在性检查仍读取 `release` 中的同名 Secret，两个环境应配置同一用途的令牌。自动操作还用它以仓库所有者身份合并原 PR；令牌须能读当前用户、写入目标 fork 分支及合并社区 PR。合并前核对所有者数字 ID，仍遵守全部保护规则。此凭据不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留请求。
 
 ## 完成审核与发布
 
-### 作者签名的版本状态操作
+### 作者签名的管理操作
 
-**Apply signed version status** 在静态检查完成后检查相应请求，也支持按 PR 编号和完整 head 手动重试。它只处理当前个人管理者活动密钥签署的 YANK、UNYANK、REVOKE，并重新核对当前 binding、发布包和状态。组织代表权、密钥恢复及涉及社区独立限制的 UNYANK 转入下方人工流程。
+**Apply signed owner request** 在静态检查完成后检查相应请求，也支持按 PR 编号和完整 head 手动重试。当前个人管理者活动密钥签署的 YANK、UNYANK、REVOKE 会重新核对当前 binding、发布包和状态。个人 `ROUTINE_ROTATION` 另行读取主线发布者记录，验证新旧密钥对同一请求正文的签名、旧 keyId、发布者记录摘要及原生 PR 作者；历史 keyId 或公钥不能重复使用。组织代表权、密钥丢失或泄露、缺少证明及涉及社区独立限制的 UNYANK 转入下方人工流程。
 
-执行器在原 PR 追加生成结果，显式触发 Gate，并最多等待十分钟。Gate 记录 `SIGNED_OWNER` 授权，保留真实人工审核状态及拒绝。四项绑定 App 的检查通过后，执行器重新核对原请求、生成父链和当前事实，以精确 head 请求 Merge commit。受保护规则仍可阻止合并；失败时保留分支和生成归档。合并后显式触发现有 Release 收尾流程，同仓投稿也不依赖机器人提交触发普通事件。
+执行器在原 PR 追加生成结果，并直接调用 Gate 重新签发准入检查。Gate 记录 `SIGNED_OWNER` 授权，保留真实人工审核状态及拒绝；原生检查回读最多等待五秒。四项绑定 App 的检查通过后，执行器重新核对原请求、生成父链和当前事实，以精确 head 请求 Merge commit。受保护规则仍可阻止合并；失败时保留分支和生成归档。合并后显式触发现有 Release 收尾流程，同仓投稿也不依赖机器人提交触发普通事件。
 
 合并前的操作审计记为 `PREPARED`，不伪造合并 SHA；收尾时固定原始审计字节，并核对真实生成提交和 merge 的有序父节点。状态操作复用已发布包，不触发重建，也不改变作者签名或原包。自动操作不会删除请求分支；删除须由用户另行确认。
 
@@ -98,7 +98,17 @@ Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签
 
 追加提交前中断，可针对未变化的原 head 再次完成审核；若生成提交已经追加，重复运行只验证已有结果。作者、源码、包、base、规则或生成字节变化后，旧结果不再放行。作者需先移除未合并的生成改动，使 PR 只保留请求数据，再重新审核。已合并请求的 Release 收尾失败，可在 `master` 手动运行 **Publish merged community state**；同名异字节资产拒绝覆盖，重跑不执行旧状态写入。
 
-YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引用的管理者下架；社区独立限制继续保留。REVOKE 没有恢复操作。例行换钥保留历史 key；泄露处置同时为旧 key 签发过的历史包生成独立撤销限制。
+YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引用的管理者下架；社区独立限制继续保留。REVOKE 没有恢复操作。换钥把旧密钥标记为 RETIRED，保留历史包验证；泄露密钥须先完成紧急声明，不能通过换钥解除封禁。确需撤销历史包时另行提出版本撤销请求。
+
+### 紧急密钥声明
+
+向导把声明提交到受保护的 `emergency-state` 数据分支。`Community emergency` 只执行 `master` 工作流，核对原生 PR 作者与当前登记密钥，为请求追加固定封禁记录；绑定 Gate App 的 `community/emergency` 检查通过后，用普通 Merge commit 合并。个人发布者仅本人可声明；组织发布者要求原生 API 证实作者具有管理员角色，成员身份或无法读取权限均不放行。
+
+请求使用 `requests/<accountId>/<publisherId>/<requestId>.json`，封禁按公钥指纹保存在 `key-blocks/<fingerprint>.json`。分支只追加数据，不承载可执行代码；修改 keyId 不能绕过封禁。已合并声明没有撤回或到期操作。关闭未合并 PR 不生效，关闭其它 PR 不解除既有封禁。
+
+候选验证和人工 Environment 等待在共享队列外完成；最终准入、结果写入、自动合并及紧急生效串行复核。封禁生效前撤回受影响的开放请求检查，随后重新检查这些请求。通知失败时封禁仍已生效，可重跑原紧急工作流恢复通知。已公开版本不变，尚未公开的草稿在公开前再次核验密钥。
+
+部署时先核对 `repository:plan`，对尚不存在的紧急分支运行 `node scripts/configure-repository.mjs --initialize-emergency`，再应用并回读 Ruleset；命令拒绝覆盖同名分支。普通主线继续使用四项原有检查，紧急分支只要求其专用检查。两个分支都保留所有者合并限制、禁止 force push 和删除；工作流没有合并 bypass。
 
 未合并准备结果的有效期为三十天，过期后不能取得准入。撤销清单的 `nextUpdate` 与工具渠道九十天有效期分别校验；密钥本身没有因此到期。合并后 Release 收尾不会续签撤销清单。
 
@@ -112,4 +122,4 @@ YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引�
 
 这类独立 PR 只负责无申请时的清单续签；插件发布、换钥、状态处置和转移继续在各自原申请 PR 内完成。
 
-master 代码检查不读取开放 PR 列表。社区 Gate 只检查本次事件或显式指定的 PR；投稿向导仍查询开放请求进行查重和取消操作。保护配置保持四项必需检查、禁止删除和 force push 的约束，不授予工作流合并 bypass。
+master 代码检查不读取开放 PR 列表。社区 Gate 只检查本次事件或显式指定的 PR；投稿向导查询开放请求进行查重和取消操作，紧急声明事件另行查找需要撤回旧准入的请求。保护配置不授予工作流合并 bypass。
