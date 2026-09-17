@@ -33,8 +33,10 @@ public class WorkflowJson {
         assert.equal(checkout.with['persist-credentials'], false);
         const script = job.steps.find(step => step.id === jobName);
         assert.equal(script.env.GH_TOKEN, '${{ github.token }}');
-        assert.deepEqual(archivedCandidates(checked, endpoint => endpoint === prefix
-            ? { permissions: { push: job.permissions.contents === 'write' } } : [[release]]), [release]);
+        assert.deepEqual(archivedCandidates(checked, endpoint => {
+            assert.equal(endpoint, `${prefix}/releases?per_page=100`);
+            return [[release]];
+        }), [release]);
     }
     const build = read('submission-check');
     for (const job of Object.values(build.jobs)) assert.equal((job.permissions ?? build.permissions).contents, 'read');
@@ -55,14 +57,38 @@ public class WorkflowJson {
     assert.equal(read('community-gate').jobs.notify.permissions.contents, 'read');
 });
 
-test('缺少草稿读取权限不能伪装成归档等待，可选构建复用不提升权限', () => {
+test('候选发现使用实际可见草稿，不要求 installation token 返回仓库 push 角色', () => {
     const checked = { owner: { accountId: '101', accountType: 'User', publisherId: 'example' },
         submission: { pluginId: 'demo', version: '2.3.4' }, pr: { number: 7 } };
-    for (const permissions of [{ push: false }, undefined]) {
-        const call = endpoint => { assert.equal(endpoint, prefix); return { permissions }; };
-        assert.throws(() => archivedCandidates(checked, call), /CANDIDATE_ARCHIVE_READ_FORBIDDEN/);
-        assert.deepEqual(archivedCandidates(checked, call, { optional: true }), []);
+    const release = { id: 1, draft: true, tag_name: candidateSlot(checked) };
+    for (const permissions of [undefined, { push: false }]) {
+        const call = endpoint => {
+            if (endpoint === prefix) return { permissions };
+            assert.equal(endpoint, `${prefix}/releases?per_page=100`);
+            return [[release, { ...release, id: 2, draft: false }]];
+        };
+        assert.deepEqual(archivedCandidates(checked, call), [release]);
+        assert.deepEqual(archivedCandidates(checked, call, { optional: true }), [release]);
     }
-    const call = endpoint => endpoint === prefix ? { permissions: { push: true } } : [[]];
-    assert.deepEqual(archivedCandidates(checked, call), []);
+    assert.deepEqual(archivedCandidates(checked, () => [[]]), []);
+});
+
+test('Release API 认证拒绝阻断审核，可选复用仅忽略明确的认证拒绝', () => {
+    const checked = { owner: { accountId: '101', accountType: 'User', publisherId: 'example' },
+        submission: { pluginId: 'demo', version: '2.3.4' }, pr: { number: 7 } };
+    for (const status of [401, 403]) {
+        for (const failure of [Object.assign(new Error('denied'), { status }),
+            Object.assign(new Error('gh failed'), { status: 1, stderr: Buffer.from(`gh: denied (HTTP ${status})`) })]) {
+            const call = () => { throw failure; };
+            assert.throws(() => archivedCandidates(checked, call),
+                error => error.message === 'CANDIDATE_ARCHIVE_READ_FORBIDDEN' && error.cause === failure);
+            assert.deepEqual(archivedCandidates(checked, call, { optional: true }), []);
+        }
+    }
+    for (const failure of [Object.assign(new Error('not found'), { status: 404 }),
+        Object.assign(new Error('server error'), { status: 500 }), new Error('network timeout')]) {
+        for (const optional of [false, true]) {
+            assert.throws(() => archivedCandidates(checked, () => { throw failure; }, { optional }), error => error === failure);
+        }
+    }
 });

@@ -169,7 +169,7 @@ export function waitingProjection(pr, code) {
         STATUS_CHECKS_PENDING: 'The signed request is prepared. Exact-head checks have not all passed; no merge was attempted. Resolve the checks, then retry Apply signed version status with the current head.',
         STATUS_MERGE_BLOCKED: 'GitHub branch protection prevented the merge. The prepared request is retained. Resolve the blocking rule, then retry Apply signed version status with the current head.',
         STATUS_MERGE_CREDENTIAL_REQUIRED: 'Automatic merging requires COMMUNITY_REVIEW_BRANCH_TOKEN in the community-status environment to represent the repository owner. The existing owner-only merge rule remains enforced.',
-        CANDIDATE_ARCHIVE_PENDING: 'The verified candidate archive is still being prepared. Complete the review after the build, scan and archive finish.',
+        CANDIDATE_ARCHIVE_PENDING: 'No complete verified candidate is visible. Check that candidate archival has finished and the trusted workflow token can read Draft Releases before completing the review.',
     };
     if (!messages[code]) throw new Error(code);
     return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged,
