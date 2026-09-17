@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { api, id, sha, list, prefix, policy, API_BYTES, repository } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { git, pull, protectedSource } from './platform.mjs';
@@ -185,7 +186,9 @@ export async function checkResult(number, sdk, current, options = {}) {
     return { receipt, pointer, pr, commit, merge, reviewCall: reviewedRequestCall(receipt, call) };
 }
 
-export function appendReviewCommit(receipt, pointer, call = api) {
+export const REVIEW_READBACK_ATTEMPTS = 5;
+
+export async function appendReviewCommit(receipt, pointer, call = api, { wait = delay } = {}) {
     repository(call, { publicOnly: true });
     const current = () => sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha);
     if (current() !== receipt.baseSha) throw new Error('APPLY_BASE_CHANGED');
@@ -203,15 +206,31 @@ export function appendReviewCommit(receipt, pointer, call = api) {
     }
     const parent = scoped(`${target}/git/commits/${receipt.headSha}`);
     const created = scoped(`${target}/git/trees`, { method: 'POST', body: { base_tree: sha(parent.tree.sha), tree } });
-    const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
+    const checked = receipt.reviewContext?.checked;
+    const publisher = (checked?.owner ?? checked?.from)?.publisherId;
+    const plugin = checked?.pluginId ?? checked?.submission?.pluginId;
+    const version = checked?.version ?? checked?.submission?.version;
+    const subject = publisher && plugin ? `${publisher} / ${plugin}${version ? `-v${version}` : ''}${checked.to ? ` → ${checked.to.publisherId}` : ''}`
+        : publisher ? `发布者 ${publisher}` : receipt.operation === 'RENEWAL' ? '社区撤销清单' : `PR #${receipt.prNumber}`;
+    const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}：${subject}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
     const identity = { name: 'Community review', email: `${policy.repositoryOwnerId}+${policy.repository.split('/')[0]}@users.noreply.github.com`, date: receipt.appliedAt };
     const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { message, tree: sha(created.sha), parents: [receipt.headSha], author: identity, committer: identity } });
     const before = pull(receipt.prNumber, call);
     if (current() !== receipt.baseSha || before.head.sha !== receipt.headSha || reviewPrerequisite(before, receipt.headSha, receipt.baseSha)) throw new Error('PUBLICATION_HEAD_CHANGED');
     // 普通快进更新：作者同时追加提交时 GitHub 拒绝，绝不强制覆盖投稿分支。
+    const branch = () => sha(scoped(`${target}/git/ref/heads/${pr.head.ref}`).object.sha);
     try { scoped(`${target}/git/refs/heads/${pr.head.ref}`, { method: 'PATCH', body: { sha: sha(commit.sha), force: false } }); }
-    catch (error) { if (pull(pr.number, call).head.sha !== commit.sha) throw error; }
-    const actual = pull(pr.number, call);
-    if (actual.head.sha !== commit.sha || actual.state !== 'open' || actual.base.sha !== receipt.baseSha || current() !== receipt.baseSha) throw new Error('PUBLICATION_HEAD_CHANGED');
-    return { pr: actual, head: commit.sha };
+    catch (error) { if (branch() !== commit.sha) throw error; }
+    // Git ref 已更新时，PR 视图仍可能短暂返回父提交；只回读，不再次写入。
+    for (let attempt = 1; attempt <= REVIEW_READBACK_ATTEMPTS; attempt++) {
+        const actual = pull(pr.number, call), ref = branch(), base = current();
+        const details = JSON.stringify({ phase: 'review-commit-readback', expectedHead: commit.sha,
+            actualHead: actual.head.sha, branchHead: ref, expectedBase: receipt.baseSha, actualBase: base, attempt });
+        if (ref !== commit.sha || actual.state !== 'open' || actual.merged || actual.draft
+            || actual.base.sha !== receipt.baseSha || base !== receipt.baseSha
+            || ![receipt.headSha, commit.sha].includes(actual.head.sha)) throw new Error('PUBLICATION_HEAD_CHANGED: ' + details);
+        if (actual.head.sha === commit.sha) return { pr: actual, head: commit.sha };
+        if (attempt === REVIEW_READBACK_ATTEMPTS) throw new Error('PUBLICATION_HEAD_NOT_VISIBLE: ' + details);
+        await wait(1000);
+    }
 }
