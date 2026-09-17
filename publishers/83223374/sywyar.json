@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "publisherId": "sywyar",
+  "displayName": "Sywyar",
+  "githubAccount": {
+    "id": "83223374",
+    "type": "User",
+    "loginAtRegistration": "Sywyar"
+  },
+  "signingKeys": [
+    {
+      "keyId": "5fac412d-675d-41f0-a23c-5535044dd716",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA5OzTGh6ofW070DVW5JM7ZzrZ+Jh60HKuYM7kkR3SF3A=",
+      "state": "ACTIVE"
+    }
+  ]
+}
