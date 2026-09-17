@@ -2,13 +2,47 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { root } from '../sdk.mjs';
 import { policy } from '../github.mjs';
 import { git } from '../project.mjs';
-import { forkTarget, submitPreview, submissionBranch } from '../submission-write.mjs';
+import { forkTarget, submitPreview, submissionBranch, pendingPrepared } from '../submission-write.mjs';
 
 test.before(() => fs.mkdirSync(path.join(root, 'target'), { recursive: true }));
+
+test('主线前进后按原始请求找回所有者或 fork 的 PR，冲突和重复请求拒绝', () => {
+    for (const owner of [false, true]) for (const folder of ['submissions', 'key-rotations', 'version-status-requests', 'ownership-transfers']) {
+        const actor = { id: owner ? policy.repositoryOwnerId : '101', login: owner ? policy.repository.split('/')[0] : 'author', type: 'User' };
+        const snapshot = { repositoryId: policy.repositoryId, base: 'b'.repeat(40), actor };
+        const name = `${actor.login}/${policy.repository.split('/')[1]}`;
+        const repository = { full_name: name, id: owner ? policy.repositoryId : '202', owner: { id: actor.id },
+            fork: !owner, parent: { id: policy.repositoryId } };
+        const file = `${folder}/${actor.id}/example/request.json`;
+        const bytes = Buffer.from('{"signed":"original bytes"}\n');
+        const changes = new Map([[file, bytes]]);
+        const pull = { id: 17, number: 17, state: 'open', user: actor, html_url: `https://github.com/${policy.repository}/pull/17`,
+            base: { repo: { id: policy.repositoryId }, ref: policy.defaultBranch }, head: { repo: repository, sha: 'c'.repeat(40) } };
+        let count = 1, content = bytes;
+        const call = (endpoint, options = {}) => {
+            assert(!options.method || options.method === 'GET');
+            const blob = createHash('sha1').update(Buffer.from(`blob ${content.length}\0`)).update(content).digest('hex');
+            if (endpoint.includes('/pulls?')) return [Array.from({ length: count }, (_, i) => ({ ...pull, id: 17 + i, number: 17 + i }))];
+            if (endpoint.includes('/files?')) return [[{ filename: file, status: 'added' }]];
+            if (endpoint === `repos/${name}`) return repository;
+            if (endpoint.includes('/git/trees/')) return { tree: [{ path: file, mode: '100644', type: 'blob', sha: blob, size: content.length }] };
+            if (endpoint.includes('/git/blobs/')) return { sha: blob, size: content.length, encoding: 'base64', content: content.toString('base64') };
+            assert.fail(endpoint);
+        };
+        assert.deepEqual(pendingPrepared(snapshot, changes, call), { url: pull.html_url, head: pull.head.sha, reused: true });
+        count = 0; assert.equal(pendingPrepared(snapshot, changes, call), null);
+        count = 2; assert.throws(() => pendingPrepared(snapshot, changes, call), /EXISTING_PR_CONFLICT/u);
+        count = 1; content = Buffer.from('{"different":true}');
+        assert.throws(() => pendingPrepared(snapshot, changes, call), /EXISTING_PR_CONFLICT/u);
+        content = bytes; pull.user = { id: '909' };
+        assert.throws(() => pendingPrepared(snapshot, changes, call), /EXISTING_PR_CONFLICT/u);
+    }
+});
 
 test('投稿目标按数字身份区分所有者与 fork，拒绝同名替换和错误归属', () => {
     const snapshot = { actor: { id: policy.repositoryOwnerId, login: policy.repository.split('/')[0] } };
@@ -32,7 +66,7 @@ test('投稿目标按数字身份区分所有者与 fork，拒绝同名替换和
 test('完整预览后才写入；身份、绑定和文件变化阻止 fork、push 与 PR', async t => {
     const directory = fs.mkdtempSync(path.join(root, 'target/submission-write-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-    const base = 'a'.repeat(40);
+    let base = 'a'.repeat(40);
     let actor = '101';
     const snapshot = { repositoryId: policy.repositoryId, base, actor: { id: actor, type: 'User', login: 'actor' } };
     const writes = [];
@@ -53,6 +87,8 @@ test('完整预览后才写入；身份、绑定和文件变化阻止 fork、pus
     } }), { cancelled: true });
     await assert.rejects(submitPreview({ ...input, confirm: () => { actor = '102'; return true; } }), /IDENTITY_OR_BASE_CHANGED/u);
     actor = '101';
+    await assert.rejects(submitPreview({ ...input, confirm: () => { base = 'b'.repeat(40); return true; } }), /IDENTITY_OR_BASE_CHANGED/u);
+    base = snapshot.base;
     await assert.rejects(submitPreview({ ...input, confirm: () => true, recheck: async () => { throw new Error('BINDING_CONFLICT'); } }), /BINDING_CONFLICT/u);
     await assert.rejects(submitPreview({ ...input, confirm: () => { changes.values().next().value[0] = 32; return true; } }), /PREVIEW_CHANGED/u);
     assert.deepEqual(writes, []);

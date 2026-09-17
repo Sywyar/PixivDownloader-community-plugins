@@ -66,12 +66,17 @@ test('已准备内容按原始字节恢复，身份、篡改、超限和私钥�
     const identity = projectIdentity('101', '.', 'example');
     const store = openProject(identity, '201', { home }); t.after(() => store.close());
     const context = { store, ui: { locale: 'en-US', password() { assert.fail('must not unlock prepared data'); } },
-        snapshot: { base: 'a'.repeat(40), actor: { id: '201' } } };
+        snapshot: { repositoryId: policy.repositoryId, base: 'a'.repeat(40), actor: { id: '201' } } };
     saveSession(context, { operation: 'YANK' });
     const changes = new Map([['request.json', Buffer.from('{"signed":"exact bytes"}\n')], ['proof.bin', Buffer.from([0, 128, 255])]]);
     savePrepared(context, { changes, title: 'chore(plugin): test' });
     assert.deepEqual((await restorePrepared(context)).changes, changes);
-    await assert.rejects(restorePrepared({ ...context, snapshot: { ...context.snapshot, base: 'b'.repeat(40) } }), /SESSION_IDENTITY_OR_BASE_CHANGED/u);
+    const updated = { ...context.snapshot, base: 'b'.repeat(40) };
+    assert.deepEqual((await restorePrepared({ ...context, snapshot: updated })).changes, changes);
+    assert.deepEqual(store.record.session.prepared.snapshot, context.snapshot);
+    for (const changed of [{ actor: { id: '202' } }, { repositoryId: '909' }]) {
+        await assert.rejects(restorePrepared({ ...context, snapshot: { ...updated, ...changed } }), /SESSION_IDENTITY_CHANGED/u);
+    }
     assert.throws(() => savePrepared(context, { changes: new Map([['too-big', Buffer.alloc(API_BYTES + 1)]]) }), /INPUT_SIZE_EXCEEDED/u);
     assert.throws(() => savePrepared(context, { changes: new Map([['private.pem', Buffer.from('-----BEGIN PRIVATE KEY-----')]]) }), /PRIVATE_KEY_IN_SUBMISSION/u);
     const record = store.record.session.prepared;

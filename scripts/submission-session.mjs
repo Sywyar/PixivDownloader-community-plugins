@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { API_BYTES } from './github.mjs';
+import { API_BYTES, sha } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { sourceFacts } from './project.mjs';
 import { readFile } from './submission-fields.mjs';
@@ -85,7 +85,9 @@ export function preparedChanges(store) {
 export async function restorePrepared(context) {
     const prepared = preparedChanges(context.store);
     if (!prepared) return null;
-    if (!isDeepStrictEqual(prepared.snapshot, context.snapshot)) throw new Error('SESSION_IDENTITY_OR_BASE_CHANGED');
+    // 主线前进不改变已签名的请求字节；调用方仍须按当前状态完整校验并重新确认。
+    sha(prepared.snapshot?.base);
+    if (!isDeepStrictEqual({ ...prepared.snapshot, base: context.snapshot.base }, context.snapshot)) throw new Error('SESSION_IDENTITY_CHANGED');
     if (!prepared.sourceRelease) return prepared;
     const source = sourceFacts(context.projectRoot);
     if (!isDeepStrictEqual(source, prepared.source)) throw new Error('SOURCE_CHANGED');
