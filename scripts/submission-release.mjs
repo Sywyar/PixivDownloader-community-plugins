@@ -13,13 +13,19 @@ import { licenseFields, marketFields, readFile } from './submission-fields.mjs';
 import { download } from './download.mjs';
 import { saveSession } from './submission-session.mjs';
 
-export async function signingKey(context, existing, requirePrivate = true) {
+export async function signingKey(context, registeredKeys = [], { rotation = false } = {}) {
     const { sdk, sign, ui, projectRoot, store } = context;
     const remembered = store?.record.key;
     const choice = await ui.select('keyAction', ['existingKey', 'generateKey'], value => ui.text(value));
     let publicFile;
     let privateFile;
-    let keyId;
+    const readPublicKey = file => {
+        const exported = exportKey(sdk, sign, keyLocation(file, projectRoot), crypto.randomUUID());
+        if (rotation && registeredKeys.some(key => key.publicKeySpkiBase64 === exported.publicKeySpkiBase64)) {
+            throw new Error('KEY_PUBLIC_REUSED');
+        }
+        return exported;
+    };
     if (choice === 'generateKey') {
         const parent = await ui.ask('keyDirectory', remembered?.directory ?? os.homedir(), value => { keyDirectory(value, projectRoot); });
         const protection = await ui.select('keyProtection', ['protectedKey', 'plainKey'], value => ui.text(value));
@@ -38,22 +44,31 @@ export async function signingKey(context, existing, requirePrivate = true) {
             sign('keygen', '--directory', directory);
             context.generatedKey = { parent, protection, directory, keyId: crypto.randomUUID() };
             // 生成后立即保存定位信息，取消或保存退出也能找到已经落盘的私钥。
-            store?.update({ key: { keyId: context.generatedKey.keyId, publicFile, privateFile, directory: parent } });
             saveSession(context, { generatedKey: context.generatedKey });
         }
-        keyId = await ui.ask('keyId', context.generatedKey.keyId, value => sdk.invoke({ command: 'field', field: 'keyId', value }));
     } else {
-        publicFile = keyLocation(await ui.ask('publicKey', remembered?.publicFile ?? '', value => { keyLocation(value, projectRoot); }), projectRoot);
-        keyId = await ui.ask('keyId', existing?.keyId ?? remembered?.keyId ?? '', value => sdk.invoke({ command: 'field', field: 'keyId', value }));
+        publicFile = keyLocation(await ui.ask('publicKey', remembered?.publicFile ?? '', value => { readPublicKey(value); }), projectRoot);
     }
-    keyLocation(publicFile, projectRoot);
-    const { fingerprint, ...key } = exportKey(sdk, sign, publicFile, keyId);
-    if (requirePrivate) {
-        privateFile = keyLocation(privateFile ?? await ui.ask('privateKey', remembered?.privateFile ?? '', value => { keyLocation(value, projectRoot); }), projectRoot);
-        await unlockPrivateKey(context, privateFile, publicFile);
-    }
-    if (!await ui.confirm('keyAction', { key, fingerprint, publicFile, ...(requirePrivate ? { privateFile } : {}) })) throw new Error('CANCELLED');
-    store?.update({ key: { keyId, fingerprint, publicFile, ...(privateFile ? { privateFile } : {}),
+    const { fingerprint, ...key } = readPublicKey(publicFile);
+    const registered = registeredKeys.find(item => item.publicKeySpkiBase64 === key.publicKeySpkiBase64);
+    const previous = store?.key(fingerprint);
+    // 社区登记优先；旧版缓存可能把新公钥错误地配到已登记的旧 keyId。
+    const reused = value => registeredKeys.some(item => item.keyId === value && item.publicKeySpkiBase64 !== key.publicKeySpkiBase64)
+        || [...Object.values(store?.record.keys ?? {}), remembered]
+            .some(item => item?.keyId === value && item.fingerprint && item.fingerprint !== fingerprint);
+    const knownId = registered?.keyId ?? (previous && !reused(previous.keyId) ? previous.keyId : undefined);
+    const suggestedId = knownId ?? (choice === 'generateKey' ? context.generatedKey.keyId : key.keyId);
+    ui.say('keyIdHelp');
+    key.keyId = await ui.ask('keyId', suggestedId, value => {
+        sdk.invoke({ command: 'field', field: 'keyId', value });
+        if (knownId && value !== knownId) throw new Error('KEY_ID_MISMATCH');
+        if (!registered && reused(value)) throw new Error('KEY_ID_REUSED');
+    }, { identity: fingerprint, remember: false });
+    privateFile = keyLocation(privateFile ?? await ui.ask('privateKey', previous?.privateFile ?? '', value => { keyLocation(value, projectRoot); },
+        { identity: fingerprint, remember: false }), projectRoot);
+    await unlockPrivateKey(context, privateFile, publicFile);
+    if (!await ui.confirm('keyAction', { key, fingerprint, publicFile, privateFile })) throw new Error('CANCELLED');
+    store?.update({ key: { keyId: key.keyId, fingerprint, publicFile, privateFile,
         directory: choice === 'generateKey' ? context.generatedKey.parent : path.dirname(publicFile) } });
     store?.remember('keyAction:0', 'existingKey');
     return { key, fingerprint, privateFile };
@@ -106,7 +121,7 @@ export async function prepareRelease(context, selection, profileId) {
     const owner = await publisherOwner(context, binding);
     const publisherFile = publisherPath(owner);
     const existing = state.read(publisherFile, 'PUBLISHER');
-    const selectedKey = await signingKey(context, existing ? activeKey(existing.value) : null);
+    const selectedKey = await signingKey(context, existing?.value.signingKeys ?? []);
     if (existing && (selectedKey.key.keyId !== activeKey(existing.value).keyId
         || selectedKey.key.publicKeySpkiBase64 !== activeKey(existing.value).publicKeySpkiBase64)) {
         return { rotation: { owner, existing, selectedKey } };

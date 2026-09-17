@@ -301,6 +301,22 @@ test('恢复已拒绝的密钥确认时重新提问，解锁成功不会重放�
     } finally { resumed.close(); }
 });
 
+test('keyId 帮助紧邻输入显示，各语言可直接确认自动标识', async () => {
+    const keyId = 'b57a2983-327b-4a5a-b8a0-76676d154cef';
+    for (const locale of locales) {
+        const tty = consoleStreams(); tty.key('\r');
+        const ui = await terminal(tty.input, tty.output, { resumeLocale: locale });
+        try {
+            ui.say('keyIdHelp');
+            const answer = ui.ask('keyId', keyId);
+            await tty.key('\r');
+            assert.equal(await answer, keyId);
+            assert(tty.rendered().includes(ui.text('keyIdHelp')));
+            assert(tty.rendered().includes(ui.text('keyId')));
+        } finally { ui.close(); }
+    }
+});
+
 test('真实业务线程阻塞期间终端持续刷新，异步字段验证和密码通过线程交接', { timeout: 10000 }, async t => {
     // 此夹具模拟交互终端；Clack 在 CI 日志模式下有意停止重复动画帧。
     const originalCI = process.env.CI;
