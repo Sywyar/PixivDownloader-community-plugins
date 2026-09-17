@@ -5,8 +5,36 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
-import { introducedBy, publicationEnvironment } from '../apply-context.mjs';
+import { introducedBy, publicationEnvironment, publicationExecution } from '../apply-context.mjs';
 import { inputsFrom, waitingProjection } from '../community-publication.mjs';
+
+test('发布与通知分别绑定原生发布工作流，不能借审核通知入口执行', () => {
+    const current = 'a'.repeat(40), workflow = '.github/workflows/community-publication.yml';
+    const repo = { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId, type: 'User' },
+        default_branch: policy.defaultBranch, archived: false, private: false };
+    const actor = { login: policy.repository.split('/')[0] };
+    const env = { GITHUB_REPOSITORY: policy.repository, GITHUB_REPOSITORY_ID: policy.repositoryId,
+        GITHUB_REF: 'refs/heads/master', GITHUB_REF_PROTECTED: 'true', GITHUB_WORKFLOW_SHA: current,
+        GITHUB_WORKFLOW_REF: `${policy.repository}/${workflow}@refs/heads/master`, GITHUB_RUN_ID: '11', GITHUB_RUN_ATTEMPT: '1',
+        GITHUB_ACTOR: actor.login, GITHUB_TRIGGERING_ACTOR: actor.login };
+    const run = { id: 11, run_attempt: 1, repository: repo, head_repository: repo, workflow_id: 12, path: workflow,
+        head_branch: 'master', head_sha: current, event: 'push', actor, triggering_actor: actor };
+    const call = endpoint => {
+        if (endpoint === prefix) return repo;
+        if (endpoint === prefix + '/branches/master') return { commit: { sha: current } };
+        if (endpoint === prefix + '/actions/runs/11/attempts/1') return run;
+        if (endpoint === prefix + '/actions/workflows/12') return { id: 12, path: run.path };
+        throw new Error('Unexpected request ' + endpoint);
+    };
+    const readGit = () => current;
+    for (const event of ['push', 'workflow_dispatch']) {
+        run.event = event;
+        for (const mode of ['finalize', 'finalize-notify']) assert.equal(publicationExecution(mode, env, call, readGit).current, current);
+    }
+    assert.throws(() => publicationExecution('notify', env, call, readGit), /WORKFLOW_EXECUTION_INVALID/);
+    run.path = '.github/workflows/community-review-complete.yml';
+    assert.throws(() => publicationExecution('finalize-notify', env, call, readGit), /WORKFLOW_SOURCE_INVALID/);
+});
 
 test('批准事实绑定真实 release 环境、授权个人、当前运行及唯一主分支', () => {
     const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };

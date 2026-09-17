@@ -116,7 +116,7 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
     const result = makeReceipt({ requestId, operation: version.checked.operation, pr: selected?.pr, current: context.current, run: context.run,
         writes: applied.writes, state, appliedAt, authorization: context.automatic ? 'SIGNED_OWNER' : undefined,
         recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
-        reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
+        reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'pluginId', 'version', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
             'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'requestPath', 'requestId', 'requestSha256', 'recoveryRequired', 'organizationRepresentationRequired']
             .filter(key => version.checked[key] !== undefined).map(key => [key, version.checked[key]])), publicationBindingSha256: version.publicationBindingSha256,
             ...(version.candidate ? { candidate: { inputSha256: version.candidate.inputSha256, evidence: admission.input.evidence,
@@ -150,7 +150,7 @@ export async function storeResult(context, file, bundle, sdk, inputs, { call = a
     const pointer = { schemaVersion: 1, releaseId: id(release.id), size: bytes.length, sha256: hash(bytes) };
     await readReceipt(sdk, pointer, context.current, { call, readGit, verify, ...transport });
     // Release 在原 PR 合并后才公开；此处只追加原分支，不另建结果 PR。
-    try { return appendReviewCommit(receipt, pointer, call); }
+    try { return await appendReviewCommit(receipt, pointer, call); }
     catch (error) {
         if (!['REVIEW_BRANCH_CREDENTIAL_REQUIRED', 'REVIEW_BRANCH_WRITE_DENIED'].includes(error.message)) throw error;
         return { pending: error.message, pr: pull(receipt.prNumber, call) };
@@ -178,20 +178,21 @@ export function waitingProjection(pr, code) {
 
 main(import.meta.url, async () => {
     const mode = process.argv[2];
-    if (!['preflight', 'prepare', 'store', 'finalize', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
+    if (!['preflight', 'prepare', 'store', 'finalize', 'finalize-notify', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
     const privateValue = process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     delete process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     if (privateValue && (mode !== 'prepare' || privateValue.length > 21848)) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
     const privateBytes = Buffer.from(privateValue ?? '', 'base64');
     try {
         const context = publicationExecution(mode);
-        if (mode === 'notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
+        if (mode === 'notify' || mode === 'finalize-notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
         const sdk = prepareSubmission();
         if (mode === 'finalize') {
             const result = await finalizeReleases(context, sdk);
             const numbers = new Set(result.receipts?.flatMap(receipt => [receipt.prNumber, ...receipt.files.filter(file => file.path.startsWith('audits/'))
                 .flatMap(file => JSON.parse(Buffer.from(file.bytes, 'base64')).prEvidence.map(pr => pr.number))]) ?? []);
-            notify([...numbers].map(number => appliedProjection(pull(number), list(`${prefix}/pulls/${number}/files`, null), result)));
+            output({ projections: JSON.stringify([...numbers].map(number =>
+                appliedProjection(pull(number), list(`${prefix}/pulls/${number}/files`, null), result))) });
             return;
         }
         const inputs = inputsFrom(event());
