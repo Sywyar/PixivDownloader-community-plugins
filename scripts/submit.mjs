@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { root } from './sdk.mjs';
-import { main } from './github.mjs';
+import { main, policy } from './github.mjs';
 import { preflight, markerMissing, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { terminal, failureCode } from './submission-ui.mjs';
@@ -14,8 +14,10 @@ import { validateChanges } from './submission-check.mjs';
 import { submitPreview, pendingPrepared } from './submission-write.mjs';
 import { navigation } from './submission-navigation.mjs';
 import { openProject, projectIdentity } from './submission-state.mjs';
+import { publisherKeys } from './submission-publisher-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
 import { sessionLocator, saveSession, savePrepared, restorePrepared } from './submission-session.mjs';
+import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from './submission-emergency.mjs';
 
 function appliedRequest(sdk, state, changes) {
     const kinds = { 'key-rotations': 'ROTATION', 'version-status-requests': 'STATUS_REQUEST', 'ownership-transfers': 'TRANSFER' };
@@ -33,7 +35,7 @@ function appliedRequest(sdk, state, changes) {
     return null;
 }
 
-export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiFactory = terminal, call = github, stateHome } = {}) {
+export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiFactory = terminal, call = github, stateHome, prepare = prepareSubmission } = {}) {
     // 在创建缓存、查询账号或执行工程前检查 SDK 标识。
     const project = preflight(directory);
     let ui = suppliedUi;
@@ -45,6 +47,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         ui ??= await uiFactory({ resumeLocale: saved?.session.locale });
         let history = ui.resume && saved ? saved.session.navigation : [];
         context = { ui, projectRoot: project.gitRoot, call,
+            bindPublisher(owner) {
+                context.publisherOwner = owner;
+                context.keyStore = publisherKeys(owner, context.snapshot.actor.id, { home: stateHome });
+            },
             bindProject(repositoryId, projectDir, pluginId) {
                 const identity = projectIdentity(repositoryId, projectDir, pluginId);
                 if (JSON.stringify(context.store?.identity) === JSON.stringify(identity)) return;
@@ -58,7 +64,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             } };
         const initialize = async () => {
             if (context.state) return;
-            sdk ??= await ui.task('preparing', () => prepareSubmission());
+            sdk ??= await ui.task('preparing', () => prepare());
             const snapshot = await ui.task('loading', () => protectedSnapshot(call));
             Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: context.sign ?? signingTool(sdk) });
         };
@@ -88,24 +94,35 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         }, onBack: () => { context.resumePrepared = false; }, onMenu: () => {
             context.store?.update({ session: null });
             context.store?.close(); context.sign?.close();
-            Object.assign(context, { store: null, state: null, generatedKey: null, resumePrepared: false, operation: undefined });
+            Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, generatedKey: null, resumePrepared: false, operation: undefined });
         } });
         context.ui = navigator.ui;
         context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };
         const outcome = await navigator.run(async ui => {
         await restoreSession();
         if (context.state) unchanged(context.snapshot, call);
-        const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer'], key => ui.text(key));
+        const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer', 'emergency'], key => ui.text(key));
         context.operation = operation;
         await initialize();
+        if (operation === 'emergency' && !context.snapshot.branch) {
+            const target = protectedSnapshot(call, policy.emergencyBranch);
+            if (target.masterBase !== context.snapshot.base) throw new Error('IDENTITY_OR_BASE_CHANGED');
+            context.snapshot = target;
+        }
         const { snapshot, state } = context;
         if (operation === 'withdraw') return withdrawRequest(context);
         let prepared;
         if (context.resumePrepared) {
             prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
+            if (operation === 'emergency') {
+                const original = appliedEmergency(sdk, prepared.changes, call);
+                if (original) { ui.say('original', original); return { original }; }
+                const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
+                if (pending) { unchanged(snapshot, call); ui.say('original', pending); return { original: pending }; }
+            }
             if (prepared.snapshot.base !== snapshot.base) {
                 ui.say('sessionBaseUpdated');
-                const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call));
+                const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
                 if (pending) { unchanged(snapshot, call); ui.say('original', pending); return { original: pending }; }
             }
         }
@@ -124,7 +141,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
                 return { original: prepared.original.value };
             }
             if (prepared.rotation) prepared = await prepareRotation(context, prepared.rotation);
-        } else if (operation === 'rotation') prepared = await prepareRotation(context);
+        } else if (operation === 'emergency') prepared = await prepareEmergency(context);
+        else if (operation === 'rotation') prepared = await prepareRotation(context);
         else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
         // 首次准备先保存原始字节；恢复时须通过当前主线校验后才替换旧快照。
@@ -135,7 +153,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             ui.say('original', original.value);
             return { original: original.value };
         }
-        const validate = () => validateChanges({ sdk, state, changes: prepared.changes, user: snapshot.actor, call, ...(prepared.fetch ? { fetch: prepared.fetch } : {}),
+        const validate = () => (operation === 'emergency' ? validateEmergencySubmission : validateChanges)({ sdk, state, changes: prepared.changes, user: snapshot.actor, call, ...(prepared.fetch ? { fetch: prepared.fetch } : {}),
             authorize: (owner, user) => eligible(owner, user, call) });
         const result = { ...await ui.task('validating', validate), ...(prepared.sourceRelease ? { sourceRelease: prepared.sourceRelease,
             changes: metadataChanges(prepared.previousMarket, prepared.submission?.market) } : {}) };

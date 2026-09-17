@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { api, id, sha, list, prefix, policy } from './github.mjs';
@@ -89,6 +90,7 @@ export function operationAuthority({ request, proposal, approvals, context, inpu
 
 export function currentAdmission(number, sdk, context, version, call = api, readGit = git) {
     const reviewCall = version.completion?.reviewCall ?? call;
+    const emergency = authorizeEmergencyKeys(sdk, version.checked, context.current, pull(number, reviewCall), call);
     const collect = () => {
         const input = facts(number, sdk, context.current, reviewCall, version);
         if (version.publicationBindingSha256) {
@@ -104,6 +106,7 @@ export function currentAdmission(number, sdk, context, version, call = api, read
             || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status))) throw new Error('PUBLICATION_REVIEW_REQUIRED');
     if (context.automatic && result.authorization !== 'SIGNED_OWNER') throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     if (fingerprint(input) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
+    emergency?.unchanged();
     return { input, result };
 }
 

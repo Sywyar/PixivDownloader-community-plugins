@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { root, hash } from '../sdk.mjs';
 
 test('固定 SDK 独立验证真实签名包、描述符、许可证及坏包，插件类不执行', () => {

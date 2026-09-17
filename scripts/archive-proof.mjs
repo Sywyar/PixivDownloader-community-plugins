@@ -6,6 +6,7 @@ import { git } from './platform.mjs';
 import { archivePath, candidateIdentity, candidateSlot } from './candidate.mjs';
 import { hash } from './sdk.mjs';
 import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
+import { signedOwnerOperations } from './status-authorization.mjs';
 
 // 只消费 gh 已验签的证书字段；工作流可自填的 predicate 不能认证执行身份。
 export function archiveCertificate(results, current, readGit = git) {
@@ -44,7 +45,7 @@ export function verifyPublicationProof(file, bundle, current, readGit = git, exe
     if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > API_BYTES) throw new Error('ARCHIVE_PROOF_SIZE');
     const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (receipt.authorization === 'SIGNED_OWNER') {
-        if (!['YANK', 'UNYANK', 'REVOKE'].includes(receipt.operation)) throw new Error('APPLY_RECEIPT_INVALID');
+        if (!signedOwnerOperations.includes(receipt.operation)) throw new Error('APPLY_RECEIPT_INVALID');
         return verifyProof(file, bundle, current, statusPath, (results, current, readGit) => {
             for (const trigger of ['workflow_run', 'workflow_dispatch']) {
                 try { return workflowCertificate(results, current, statusPath, trigger, readGit); }

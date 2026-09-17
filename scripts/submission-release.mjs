@@ -12,10 +12,18 @@ import { exportKey, keyLocation, keyDirectory, unlockPrivateKey } from './submis
 import { licenseFields, marketFields, readFile } from './submission-fields.mjs';
 import { download } from './download.mjs';
 import { saveSession } from './submission-session.mjs';
+import { hash } from './sdk.mjs';
+import { keyLabel } from './submission-emergency.mjs';
 
 export async function signingKey(context, registeredKeys = [], { rotation = false } = {}) {
     const { sdk, sign, ui, projectRoot, store } = context;
-    const remembered = store?.record.key;
+    const keyStore = context.keyStore ?? store;
+    const owner = context.publisherOwner ?? context.keyStore?.identity;
+    if (owner && registeredKeys.length) ui.say('keyContext', registeredKeys.map(key => keyLabel(context, owner, key)));
+    const active = registeredKeys.find(key => key.state === 'ACTIVE');
+    const activeFingerprint = active && hash(Buffer.from(active.publicKeySpkiBase64, 'base64'));
+    const remembered = (!rotation && activeFingerprint && (keyStore?.key(activeFingerprint) ?? store?.key(activeFingerprint)))
+        || keyStore?.record.key || store?.record.key;
     const choice = await ui.select('keyAction', ['existingKey', 'generateKey'], value => ui.text(value));
     let publicFile;
     let privateFile;
@@ -27,7 +35,7 @@ export async function signingKey(context, registeredKeys = [], { rotation = fals
         return exported;
     };
     if (choice === 'generateKey') {
-        const parent = await ui.ask('keyDirectory', remembered?.directory ?? os.homedir(), value => { keyDirectory(value, projectRoot); });
+        const parent = await ui.ask('keyDirectory', remembered?.directory ?? os.homedir(), value => { keyDirectory(value, projectRoot); }, { remember: false });
         const protection = await ui.select('keyProtection', ['protectedKey', 'plainKey'], value => ui.text(value));
         const generated = context.generatedKey;
         if (generated && path.dirname(path.resolve(generated.directory)) !== path.resolve(generated.parent)) throw new Error('PROJECT_SESSION_INVALID');
@@ -47,14 +55,14 @@ export async function signingKey(context, registeredKeys = [], { rotation = fals
             saveSession(context, { generatedKey: context.generatedKey });
         }
     } else {
-        publicFile = keyLocation(await ui.ask('publicKey', remembered?.publicFile ?? '', value => { readPublicKey(value); }), projectRoot);
+        publicFile = keyLocation(await ui.ask('publicKey', remembered?.publicFile ?? '', value => { readPublicKey(value); }, { remember: false }), projectRoot);
     }
     const { fingerprint, ...key } = readPublicKey(publicFile);
     const registered = registeredKeys.find(item => item.publicKeySpkiBase64 === key.publicKeySpkiBase64);
-    const previous = store?.key(fingerprint);
+    const previous = keyStore?.key(fingerprint) ?? store?.key(fingerprint);
     // 社区登记优先；旧版缓存可能把新公钥错误地配到已登记的旧 keyId。
     const reused = value => registeredKeys.some(item => item.keyId === value && item.publicKeySpkiBase64 !== key.publicKeySpkiBase64)
-        || [...Object.values(store?.record.keys ?? {}), remembered]
+        || [...Object.values(keyStore?.record.keys ?? {}), remembered]
             .some(item => item?.keyId === value && item.fingerprint && item.fingerprint !== fingerprint);
     const knownId = registered?.keyId ?? (previous && !reused(previous.keyId) ? previous.keyId : undefined);
     const suggestedId = knownId ?? (choice === 'generateKey' ? context.generatedKey.keyId : key.keyId);
@@ -68,7 +76,7 @@ export async function signingKey(context, registeredKeys = [], { rotation = fals
         { identity: fingerprint, remember: false }), projectRoot);
     await unlockPrivateKey(context, privateFile, publicFile);
     if (!await ui.confirm('keyAction', { key, fingerprint, publicFile, privateFile })) throw new Error('CANCELLED');
-    store?.update({ key: { keyId: key.keyId, fingerprint, publicFile, privateFile,
+    keyStore?.update({ key: { keyId: key.keyId, fingerprint, publicFile, privateFile,
         directory: choice === 'generateKey' ? context.generatedKey.parent : path.dirname(publicFile) } });
     store?.remember('keyAction:0', 'existingKey');
     return { key, fingerprint, privateFile };
@@ -119,6 +127,7 @@ export async function prepareRelease(context, selection, profileId) {
     if (!license) return null;
     if (!await ui.confirm('risk', facts.descriptor)) { ui.say('rebuildPackage'); return null; }
     const owner = await publisherOwner(context, binding);
+    context.bindPublisher?.(owner);
     const publisherFile = publisherPath(owner);
     const existing = state.read(publisherFile, 'PUBLISHER');
     const selectedKey = await signingKey(context, existing?.value.signingKeys ?? []);

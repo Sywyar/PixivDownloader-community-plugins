@@ -1,7 +1,7 @@
 import { Worker } from 'node:worker_threads';
 import { terminal, localizedText, failureCode } from './submission-ui.mjs';
 import { progressReporter } from './submission-progress.mjs';
-import { visible } from './submission-presentation.mjs';
+import { visible, optionText } from './submission-presentation.mjs';
 
 const failure = error => ({ message: failureCode(error), ...(error.downloadStage ? { downloadStage: error.downloadStage } : {}) });
 
@@ -34,7 +34,7 @@ export async function workerTerminal(port, cancelled, options) {
     const ui = { locale, resume, signal: controller.signal, text: key => localizedText(locale, key),
         ask: (key, initial, validate) => request('ask', [key, initial], validate),
         password: (key, validate) => request('password', [key], validate),
-        async select(key, values, label = String, initial) {
+        async select(key, values, label = value => optionText(value, ui.text), initial) {
             const index = await request('select', [key, values.map(label), values.indexOf(initial)]);
             return values[index];
         },

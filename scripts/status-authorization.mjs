@@ -4,7 +4,9 @@ import { stateReader, repositoryTree, readBlob } from './submission-github.mjs';
 import { applySdk } from './apply-sdk.mjs';
 import { applyOperation } from './apply-operations.mjs';
 
-export const signedStatusEligible = checked => ['YANK', 'UNYANK', 'REVOKE'].includes(checked?.operation)
+export const signedOwnerOperations = Object.freeze(['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION']);
+export const signedStatusEligible = checked => signedOwnerOperations.includes(checked?.operation)
+    && (checked.operation !== 'KEY_ROTATION' || checked.reasonCode === 'ROUTINE_ROTATION')
     && checked.recoveryRequired === false && checked.owner?.accountType === 'User'
     && checked.owner.accountId === checked.pr?.user.id && !checked.organizationRepresentationRequired?.length;
 
@@ -32,7 +34,7 @@ export function authorizeStatus(input, sdk, context, version, pr, call = api) {
     if (!signedStatusEligible(version?.checked)) return input;
     const state = statusState(sdk, context.current, version.checked, pr, call);
     const adapter = applySdk(sdk);
-    const request = state.read(version.checked.requestPath, 'STATUS_REQUEST').value;
+    const request = state.read(version.checked.requestPath, version.checked.operation === 'KEY_ROTATION' ? 'ROTATION' : 'STATUS_REQUEST').value;
     const native = { sourceCommit: context.current, runId: id(context.run.id), runAttempt: context.run.run_attempt };
     const authorization = signedStatusAuthority(request, input.after.pr, adapter, native);
     const appliedAt = version.completion?.receipt.appliedAt ?? context.run.created_at;

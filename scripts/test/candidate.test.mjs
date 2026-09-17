@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { root, hash, evidence } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { buildPath, writeCandidate, candidateIdentity } from '../candidate.mjs';

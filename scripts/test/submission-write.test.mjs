@@ -139,7 +139,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
             if (failPr && !lostResponse) throw Object.assign(new Error('SIMULATED_DISCONNECT'), { github: true });
             createdPr = { id: 1717, number: 17, state: 'open', draft: body.draft, title: body.title, body: body.body,
                 html_url: 'https://github.com/' + policy.repository + '/pull/17', user: { id: actor.id },
-                base: { sha: base }, head: { sha: candidate, repo: { id: repositoryId } } };
+                base: { sha: base, ref: body.base }, head: { sha: candidate, repo: { id: repositoryId, full_name: forkName } } };
             if (lostResponse) throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true, method: 'POST' });
             return createdPr;
         }

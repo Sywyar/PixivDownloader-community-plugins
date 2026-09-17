@@ -10,7 +10,7 @@ import { navigation } from '../submission-navigation.mjs';
 import { API_BYTES } from '../github.mjs';
 import { policy, prefix } from '../github.mjs';
 import { git } from '../project.mjs';
-import { runWizard } from '../submit.mjs';
+import { runWizard } from './local-sdk.mjs';
 
 test('新进程按项目恢复语言和已答问题，未签名时仍解锁，完成预览不能清除待提交内容', async t => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-session-'));

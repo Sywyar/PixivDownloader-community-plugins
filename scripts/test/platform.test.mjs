@@ -9,6 +9,7 @@ import { trustedRun, execution, classify, facts, decisionPath, gatePath } from '
 import { createDecision, attachDecisions, loadDecisions } from '../decisions.mjs';
 import { publish, notify, gateRequests } from '../community-gate.mjs';
 import { renewalBranch, renewalFile } from '../community-renewal.mjs';
+import { prepareSubmission, withEmergencyState, withRepositoryFiles } from './local-sdk.mjs';
 
 const head = 'a'.repeat(40), current = 'b'.repeat(40);
 test('主线汇总不读取开放 PR，审核事件只重新检查关联请求', () => {
@@ -257,6 +258,9 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
         if (opts?.method === 'POST' && route.endsWith('/check-runs')) result.app.id = 999;
         return result;
     };
+    const preparationFailed = await publish(7, context, new Error('GATE_TRANSFER_LIMIT'), call, call, readGit);
+    assert.equal(preparationFailed.error, 'GATE_TRANSFER_LIMIT');
+    assert([...state.checks.values()].slice(-4).every(check => check.conclusion === 'failure'));
     assert.equal((await publish(7, context, prepared, call, impostor, readGit)).error, 'CHECK_PUBLISHER_MISMATCH');
     state.files = [{ filename: 'reviews/evidence/forged.json' }];
     assert.equal((await publish(7, context, prepared, call, call, readGit)).error, 'SUBMISSION_EXECUTOR_UNAVAILABLE');
@@ -373,13 +377,23 @@ test('原生撤销必须有真实账号与理由，评论和普通标签不改�
 });
 
 test('版本审核绑定真实报告；误报、补扫、自审和撤销分别生效且旧扫描不放行', async () => {
-    const prepared = prepareSdk();
-    const { state, call, readGit, context } = fixture();
+    const prepared = prepareSubmission();
+    const { state, call: nativeCall, readGit, context } = fixture();
     state.files = [{ filename: `submissions/${policy.repositoryOwnerId}/sample/2.3.4.json`, status: 'added', sha: 'c'.repeat(40) }];
     const checked = { operation: 'FIRST_RELEASE', pr: { head, base: current, user: { id: policy.repositoryOwnerId } },
         submissionSha256: 'd'.repeat(64), submission: { source: { commit: 'e'.repeat(40) } },
         package: { sha256: 'f'.repeat(64) }, descriptor: { riskDeclaration: { present: false, signals: [] } },
-        bindingSha256: '1'.repeat(64), publisherSha256: '2'.repeat(64), owner: { accountId: policy.repositoryOwnerId } };
+        bindingSha256: '1'.repeat(64), publisherSha256: '2'.repeat(64),
+        owner: { accountId: policy.repositoryOwnerId, accountType: 'User', publisherId: 'example' } };
+    const publisher = JSON.parse(fs.readFileSync(path.join(prepared.workspace, 'contracts/community/v1/vectors/structure/publisher.json'), 'utf8'));
+    publisher.githubAccount.id = policy.repositoryOwnerId;
+    const publisherBytes = Buffer.from(JSON.stringify(publisher));
+    checked.submissionPath = state.files[0].filename;
+    const submissionBytes = Buffer.from(JSON.stringify(checked.submission));
+    checked.submissionSha256 = hash(submissionBytes);
+    const registered = new Map([[`publishers/${policy.repositoryOwnerId}/example.json`, publisherBytes]]);
+    const call = withEmergencyState(withRepositoryFiles(nativeCall, policy.repository,
+        new Map([[current, registered], [head, new Map([...registered, [checked.submissionPath, submissionBytes]])]])));
     const raw = evidence(prepared.workspace, { owner: 'java.nio.file.Files', method: 'delete' });
     const report = { schemaVersion: 1, status: 'INCOMPLETE', scannerVersion: 'test-scanner', rulesSha256: '3'.repeat(64),
         runId: '301', runAttempt: 1, headSha: head, sourceCommit: checked.submission.source.commit,

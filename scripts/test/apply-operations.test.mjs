@@ -57,7 +57,32 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
         githubAccount: { id: owner.accountId, type: 'User' }, publisherRecordSha256: hash(records.get(publisherPath)),
         oldKeyId: first.keyId, newKey: publicKey(next), reasonCode: 'KEY_LOST', explanation: 'Replace lost key' } }, { newKey: next });
     const rotationFile = `key-rotations/101/original/${rotation.requestId}.json`;
+    const admitted = (result, file, bindingSha256) => {
+        const snapshot = { repositoryId: 'community-catalog', pr: result.audit.prEvidence[0], version: null,
+            inputSha256: hash(records.get(file)), bindingSha256, policySha256: 'f'.repeat(64), state: 'OPEN', draft: false };
+        const ref = evidence(sdk.workspace, result.audit);
+        const admission = evaluate(sdk, { before: snapshot, after: snapshot, validation: { conclusion: 'SUCCESS', publisherId: '999',
+            headSha: snapshot.pr.headSha, baseSha: snapshot.pr.baseSha, inputSha256: snapshot.inputSha256,
+            bindingSha256: snapshot.bindingSha256, policySha256: snapshot.policySha256 }, publisherId: '999',
+            policy: { reviewerAccountIds: ['999'], dismissalAccountIds: ['999'], decisionWorkflowPath: '.github/workflows/community-review-decision.yml', decisionWorkflowShas: ['c'.repeat(40)] },
+            reviews: [], decisions: [], report: null, declaration: { present: false, signals: [] }, statusAudit: ref, evidence: [ref] });
+        assert.equal(admission.authorization, 'SIGNED_OWNER');
+        assert.equal(admission.flow, 'READY');
+        assert.equal(admission.human.status, 'PENDING');
+    };
     assert.throws(() => execute('KEY_ROTATION', rotation, rotationFile), /RECOVERY_REVIEW_REQUIRED/);
+    const routine = signOperation(sdk, sign, 'ROTATION', { schemaVersion: 1, payload: { ...rotation.payload,
+        reasonCode: 'ROUTINE_ROTATION', explanation: 'Rotate both verified keys' } }, { newKey: next, oldKey: first });
+    const routineFile = `key-rotations/101/original/${routine.requestId}.json`;
+    const automatic = execute('KEY_ROTATION', routine, routineFile, { signed: true });
+    assert.equal(automatic.audit.authorization, 'SIGNED_OWNER');
+    assert.equal(automatic.audit.result, 'PREPARED');
+    assert.deepEqual(automatic.audit.reviewerAccountIds, []);
+    admitted(automatic, routineFile, routine.payload.publisherRecordSha256);
+    for (const reasonCode of ['KEY_LOST', 'KEY_COMPROMISED']) {
+        const manual = signOperation(sdk, sign, 'ROTATION', { schemaVersion: 1, payload: { ...routine.payload, reasonCode } }, { newKey: next, oldKey: first });
+        assert.throws(() => execute('KEY_ROTATION', manual, `key-rotations/101/original/${manual.requestId}.json`, { signed: true }), /APPROVAL_REQUIRED/);
+    }
     const decisionBytes = encode({ requestId: rotation.requestId, approved: true, recovery: true,
         check_runs: Array.from({ length: 256 }, (_, index) => ({ id: index + 1, name: 'community/validation',
             head_sha: 'b'.repeat(40), conclusion: 'success', app: { id: 999 }, output: { summary: 'Verified request evidence. '.repeat(16) } })) });
@@ -87,17 +112,7 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
         assert.equal(result.audit.authorization, 'SIGNED_OWNER');
         assert.equal(result.audit.result, 'PREPARED');
         assert.deepEqual(result.audit.reviewerAccountIds, []);
-        const snapshot = { repositoryId: 'community-catalog', pr: result.audit.prEvidence[0], version: null,
-            inputSha256: hash(records.get(file)), bindingSha256: payload.pluginBindingSha256, policySha256: 'f'.repeat(64), state: 'OPEN', draft: false };
-        const ref = evidence(sdk.workspace, result.audit);
-        const admission = evaluate(sdk, { before: snapshot, after: snapshot, validation: { conclusion: 'SUCCESS', publisherId: '999',
-            headSha: snapshot.pr.headSha, baseSha: snapshot.pr.baseSha, inputSha256: snapshot.inputSha256,
-            bindingSha256: snapshot.bindingSha256, policySha256: snapshot.policySha256 }, publisherId: '999',
-            policy: { reviewerAccountIds: ['999'], dismissalAccountIds: ['999'], decisionWorkflowPath: '.github/workflows/community-review-decision.yml', decisionWorkflowShas: ['c'.repeat(40)] },
-            reviews: [], decisions: [], report: null, declaration: { present: false, signals: [] }, statusAudit: ref, evidence: [ref] });
-        assert.equal(admission.authorization, 'SIGNED_OWNER');
-        assert.equal(admission.flow, 'READY');
-        assert.equal(admission.human.status, 'PENDING');
+        admitted(result, file, payload.pluginBindingSha256);
         result.writes.forEach((bytes, file) => store(file, bytes));
         currentState = { ...currentState, state: action === 'YANK' ? 'YANKED' : action === 'REVOKE' ? 'REVOKED' : 'ACTIVE',
             decisionSha256: action === 'UNYANK' ? null : result.audit.decisionRef.sha256 };

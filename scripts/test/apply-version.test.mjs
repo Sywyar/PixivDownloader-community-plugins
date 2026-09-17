@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepareSubmission } from './local-sdk.mjs';
+import { prepareSubmission, withEmergencyState, withRepositoryFiles } from './local-sdk.mjs';
 import { signingTool } from '../submission-signing.mjs';
 import { applySdk } from '../apply-sdk.mjs';
 import { publishVersion } from '../apply-version.mjs';
@@ -44,10 +44,10 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
         githubAccount: { id: '101', type: 'User', loginAtRegistration: 'example' }, signingKeys: [key] }));
     const current = 'b'.repeat(40), appliedAt = '2026-01-02T00:00:00Z';
     const pr = { number: 7, state: 'open', merged: false, draft: false, merge_commit_sha: null, user: { id: 101, type: 'User' }, changed_files: 1,
-        head: { sha: 'a'.repeat(40), repo: { id: 401 } }, base: { sha: current, ref: policy.defaultBranch, repo: { id: policy.repositoryId } } };
+        head: { sha: 'a'.repeat(40), repo: { id: 401, full_name: 'example/fork' } }, base: { sha: current, ref: policy.defaultBranch, repo: { id: policy.repositoryId } } };
     const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };
     const context = { current, run: { id: 91, run_attempt: 1, event: 'workflow_dispatch', triggering_actor: reviewer } };
-    const call = endpoint => {
+    const call = withEmergencyState(withRepositoryFiles(withRepositoryFiles(endpoint => {
         const route = endpoint.replace(/([?&])per_page=100/u, '');
         if (route === `${prefix}/pulls/7`) return pr;
         if (route === `${prefix}/pulls/7/files`) return [[{ filename: submissionPath, status: 'added', sha: 'd'.repeat(40) }]];
@@ -61,7 +61,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
         if (route === `${prefix}/actions/runs/91/approvals`) return [{ state: 'approved', environments: [{ id: 8, name: 'release' }], user: reviewer }];
         if (route === `${prefix}/releases/501/assets`) return [[{ id: 601, name: 'plugin.jar', size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' }]];
         throw new Error('Unexpected request ' + route);
-    };
+    }, policy.repository, new Map([[current, records]])), 'example/fork', new Map([[pr.head.sha, records]])));
     const compiled = fs.readFileSync(path.join(project, 'Probe.class'));
     const scan = scanBuild(sdk, { artifact, package: inspected, compiledClasses: [{ path: 'target/classes/Probe.class', size: compiled.length, sha256: hash(compiled) }],
         dependencyFiles: [], dependencyMetadata: [], sourceFiles: [], model: { dependencies: [] }, jdkVersion: '17.0.1+1' }, submission,

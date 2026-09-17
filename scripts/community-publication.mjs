@@ -117,7 +117,7 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
         writes: applied.writes, state, appliedAt, authorization: context.automatic ? 'SIGNED_OWNER' : undefined,
         recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
         reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'pluginId', 'version', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
-            'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'requestPath', 'requestId', 'requestSha256', 'recoveryRequired', 'organizationRepresentationRequired']
+            'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'requestPath', 'requestId', 'requestSha256', 'reasonCode', 'recoveryRequired', 'organizationRepresentationRequired']
             .filter(key => version.checked[key] !== undefined).map(key => [key, version.checked[key]])), publicationBindingSha256: version.publicationBindingSha256,
             ...(version.candidate ? { candidate: { inputSha256: version.candidate.inputSha256, evidence: admission.input.evidence,
                 scan: { riskReportRef: version.candidate.scan.riskReportRef } }, report: version.report } : {}) } });

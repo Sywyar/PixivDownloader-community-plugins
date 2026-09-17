@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { promoteReleases, releaseBody, releaseStatus, finalizeReleases } from '../publication-releases.mjs';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { publicationCertificate, publicationPath, statusPath, verifyPublicationProof } from '../archive-proof.mjs';
 import { makeReceipt, readReceipt } from '../apply-result.mjs';
 import { encoded, formalTag, packageName } from '../apply-generation.mjs';
@@ -60,16 +60,23 @@ test('候选提升为正式 Release 后响应丢失可恢复，原资产和签�
     const completion = { receipt, pr: { merged: true, state: 'closed', head: { sha: 'd'.repeat(40) }, merge_commit_sha: 'b'.repeat(40) },
         commit: { sha: 'd'.repeat(40), parents: [{ sha: receipt.headSha }] },
         merge: { sha: 'b'.repeat(40), parents: [{ sha: receipt.baseSha }, { sha: 'd'.repeat(40) }] } };
-    let confirmations = 0;
-    const transport = { ...f, confirm: (_expected, file) => { assert.deepEqual(fs.readFileSync(file), packageBytes); confirmations++; } };
+    let confirmations = 0, blocked = true, authorizations = 0;
+    const transport = { ...f, authorize: () => { authorizations++; if (blocked) throw new Error('KEY_DECLARED_COMPROMISED'); },
+        confirm: (_expected, file) => { assert.deepEqual(fs.readFileSync(file), packageBytes); confirmations++; } };
     await assert.rejects(promoteReleases({ ...completion, pr: { ...completion.pr, merged: false } }, f.workspace, transport), /REVIEW_MERGE_CHANGED/);
     assert.equal(f.release.draft, true);
+    await assert.rejects(promoteReleases(completion, f.workspace, transport), /KEY_DECLARED_COMPROMISED/);
+    assert.equal(f.release.draft, true);
+    blocked = false;
     f.loseResponse();
     await promoteReleases(completion, f.workspace, transport);
-    assert.equal(confirmations, 1);
+    assert.equal(confirmations, 2);
     assert.equal(f.release.draft, false); assert.equal(f.release.prerelease, true);
     assert.equal(f.release.tag_name, receipt.releases[0].tag); assert.deepEqual(f.bodies.get('701'), packageBytes);
+    blocked = true;
+    const authorized = authorizations;
     const count = f.writes(); await promoteReleases(completion, f.workspace, transport); assert.equal(f.writes(), count);
+    assert.equal(authorizations, authorized);
     f.assets[0].id = 999;
     await assert.rejects(promoteReleases(completion, f.workspace, transport), /PUBLICATION_ASSET_CHANGED/);
     assert.equal(f.writes(), count);
@@ -214,6 +221,9 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
     certificate.buildTrigger = 'pull_request_target';
     assert.throws(() => verify(file, bundle, current, readGit), /ARCHIVE_ATTESTATION_SOURCE_INVALID/);
     fs.writeFileSync(file, encoded({ ...result.value, operation: 'KEY_ROTATION', authorization: 'SIGNED_OWNER' }));
+    certificate.buildTrigger = 'workflow_run';
+    assert.deepEqual(verify(file, bundle, current, readGit), certificate);
+    fs.writeFileSync(file, encoded({ ...result.value, operation: 'OWNERSHIP_TRANSFER', authorization: 'SIGNED_OWNER' }));
     assert.throws(() => verify(file, bundle, current, readGit), /APPLY_RECEIPT_INVALID/);
     assert.throws(() => makeReceipt({ ...result.value, current: source, pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } }, run: { id: 7, run_attempt: 1 },
         writes: new Map([['tools/sdk-tools.jar', Buffer.from('replacement')]]), state: { raw: () => null } }), /APPLY_WRITE_FORBIDDEN/);

@@ -4,6 +4,8 @@
   "repositoryId": "1347624983",
   "repositoryOwnerId": "83223374",
   "defaultBranch": "master",
+  "emergencyBranch": "emergency-state",
+  "emergencyContext": "community/emergency",
   "gateApp": {
     "id": 4837005,
     "clientId": "Iv23lixorUs94dx1xEvB",

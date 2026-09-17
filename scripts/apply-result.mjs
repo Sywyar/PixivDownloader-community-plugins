@@ -8,6 +8,7 @@ import { git, pull, protectedSource } from './platform.mjs';
 import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
 import { verifyPublicationProof } from './archive-proof.mjs';
 import { readBlob, repositoryTree, stateReader } from './submission-github.mjs';
+import { signedOwnerOperations } from './status-authorization.mjs';
 
 export const receiptPath = requestId => {
     if (!/^[a-f0-9]{64}$/u.test(requestId)) throw new Error('APPLY_REQUEST_ID_INVALID');
@@ -31,7 +32,7 @@ export function resultPath(file) {
 }
 
 export function makeReceipt({ requestId, operation, pr, current, run, writes, state, releases, appliedAt, reviewContext, inputFiles, recordOnly = false, authorization }) {
-    if (authorization !== undefined && (authorization !== 'SIGNED_OWNER' || !['YANK', 'UNYANK', 'REVOKE'].includes(operation) || recordOnly)) throw new Error('APPLY_RECEIPT_INVALID');
+    if (authorization !== undefined && (authorization !== 'SIGNED_OWNER' || !signedOwnerOperations.includes(operation) || recordOnly)) throw new Error('APPLY_RECEIPT_INVALID');
     const files = [...writes].filter(([file, bytes]) => !state.raw(file)?.equals(bytes)).sort(([a], [b]) => a.localeCompare(b)).map(([file, bytes]) => {
         if (!resultPath(file) || file === receiptPath(requestId)) throw new Error('APPLY_WRITE_FORBIDDEN');
         const before = state.raw(file);

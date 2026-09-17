@@ -38,7 +38,8 @@ export function githubRequest(work, { method = 'GET', timeout = API_TIMEOUT, now
 }
 
 export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
-    if (!/^(?:user(?:\/[1-9][0-9]*|\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
+    if (endpoint.startsWith('orgs/') && method !== 'GET') throw new Error('GITHUB_METHOD_FORBIDDEN');
+    if (!/^(?:user(?:\/[1-9][0-9]*|\/orgs(?:\?per_page=100)?|\/memberships\/orgs\/[A-Za-z0-9-]+)?|users\/[A-Za-z0-9-]+|organizations\/[1-9][0-9]*|orgs\/[A-Za-z0-9-]+\/memberships\/[A-Za-z0-9-]+|repos\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+(?:\/[^\s\\]*)?)$/u.test(endpoint)
         || endpoint.split('/').some(part => part === '..' || part === '.')) throw new Error('GITHUB_TARGET_MISMATCH');
     const withdrawal = endpoint.startsWith(`repos/${policy.repository}/pulls/`) && /^repos\/[^/]+\/[^/]+\/pulls\/[1-9][0-9]*$/u.test(endpoint)
         && body?.state === 'closed' && Object.keys(body).length === 1;
@@ -83,16 +84,20 @@ export function checkedRepository(name, call = github) {
     return repository;
 }
 
-export function protectedSnapshot(call = github) {
+export function protectedSnapshot(call = github, branch = policy.defaultBranch) {
+    if (![policy.defaultBranch, policy.emergencyBranch].includes(branch)) throw new Error('GITHUB_TARGET_MISMATCH');
     const repository = checkedRepository(policy.repository, call);
     if (id(repository.id) !== policy.repositoryId || id(repository.owner.id) !== policy.repositoryOwnerId
         || repository.default_branch !== policy.defaultBranch) throw new Error('GITHUB_REPOSITORY_MISMATCH');
     const base = sha(call(`repos/${policy.repository}/git/ref/heads/${policy.defaultBranch}`).object.sha);
-    return { repositoryId: id(repository.id), base, actor: actor(call) };
+    if (branch === policy.defaultBranch) return { repositoryId: id(repository.id), base, actor: actor(call) };
+    const emergency = call(`repos/${policy.repository}/branches/${branch}`);
+    if (emergency.name !== branch || emergency.protected !== true) throw new Error('EMERGENCY_BRANCH_UNPROTECTED');
+    return { repositoryId: id(repository.id), base: sha(emergency.commit.sha), actor: actor(call), branch, masterBase: base };
 }
 
 export function unchanged(expected, call = github) {
-    const current = protectedSnapshot(call);
+    const current = protectedSnapshot(call, expected.branch);
     if (JSON.stringify(current) !== JSON.stringify(expected)) throw new Error('IDENTITY_OR_BASE_CHANGED');
     return current;
 }

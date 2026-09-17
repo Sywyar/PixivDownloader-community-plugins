@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { signOperation } from '../submission-signing.mjs';
 import { stateReader, bytesReference } from '../submission-github.mjs';
 import { root } from '../sdk.mjs';

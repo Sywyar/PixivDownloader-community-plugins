@@ -6,18 +6,19 @@ import os from 'node:os';
 import { PassThrough, Writable } from 'node:stream';
 import { Worker } from 'node:worker_threads';
 import { setImmediate, setTimeout } from 'node:timers/promises';
-import { terminal, locales } from '../submission-ui.mjs';
+import { terminal, locales, localizedText } from '../submission-ui.mjs';
 import { licenseFields, marketFields } from '../submission-fields.mjs';
-import { prepareSubmission } from '../submission-sdk.mjs';
+import { prepareSubmission } from './local-sdk.mjs';
 import { root, hash } from '../sdk.mjs';
 import { git } from '../project.mjs';
 import { httpsUrl } from '../download.mjs';
-import { runWizard } from '../submit.mjs';
+import { runWizard } from './local-sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { navigation, unavailable } from '../submission-navigation.mjs';
 import { publisherOwner } from '../submission-release.mjs';
 import { unlockPrivateKey } from '../submission-signing.mjs';
-import { errors } from '../submission-messages.mjs';
+import { errors, optionNames } from '../submission-messages.mjs';
+import { optionText, formatMetadata } from '../submission-presentation.mjs';
 import { connectTerminal } from '../submission-terminal.mjs';
 
 const originalTerm = process.env.TERM;
@@ -301,6 +302,43 @@ test('恢复已拒绝的密钥确认时重新提问，解锁成功不会重放�
     } finally { resumed.close(); }
 });
 
+test('所有语言的原因与转移选项显示名称并返回原协议值，预览保留原始标识', async () => {
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/catalogs.json'), 'utf8'));
+    for (const value of [...catalog.categories, ...catalog.tags, ...catalog.riskSignals]) {
+        if (!['pixiv', 'smtp'].includes(value)) assert(Object.hasOwn(optionNames, value), value);
+    }
+    for (const locale of locales) {
+        const tty = consoleStreams(); tty.key('\r');
+        const ui = await terminal(tty.input, tty.output, { resumeLocale: locale });
+        try {
+            for (const [key, values] of [['reason', ['ROUTINE_ROTATION', 'KEY_LOST', 'KEY_COMPROMISED']], ['mode', ['REGULAR', 'RECOVERY']]]) {
+                const selected = ui.select(key, values);
+                await tty.key('\x1b[B\r');
+                assert.equal(await selected, values[1]);
+                for (const value of values) assert(tty.rendered().includes(optionText(value, ui.text)));
+            }
+            const tags = ui.multiselect('tags', ['download', 'metadata']);
+            await tty.key(' \r');
+            assert.deepEqual(await tags, ['download']);
+            assert(tty.rendered().includes(optionText('download', ui.text)));
+            const output = formatMetadata({ role: 'FROM', protection: 'protectedKey', reasonCode: 'ROUTINE_ROTATION',
+                signals: ['FILE_READ'], keyId: 'FILE_READ', present: true }, ui.text);
+            assert(output.includes(optionText('FROM', ui.text)));
+            assert(output.includes(optionText('FILE_READ', ui.text)));
+            assert(output.includes(ui.text('yes')));
+            assert(output.includes('keyId: FILE_READ'));
+            for (const value of Object.keys(optionNames)) {
+                assert.notEqual(localizedText(locale, 'option.' + value), 'option.' + value);
+                assert.notEqual(optionText(value, ui.text), value);
+            }
+            for (const code of ['PUBLISHER_IDENTITY_INVALID', 'PUBLISHER_STATE_INVALID', 'PUBLISHER_STATE_LOCKED', 'PUBLISHER_STATE_SIZE_EXCEEDED']) {
+                assert.equal(errors[code].length, locales.length);
+                assert(errors[code][locales.indexOf(locale)]?.trim());
+            }
+        } finally { ui.close(); }
+    }
+});
+
 test('keyId 帮助紧邻输入显示，各语言可直接确认自动标识', async () => {
     const keyId = 'b57a2983-327b-4a5a-b8a0-76676d154cef';
     for (const locale of locales) {
@@ -335,6 +373,7 @@ test('真实业务线程阻塞期间终端持续刷新，异步字段验证和�
         await ui.task('preparing', () => observe('checkingPath', '', () => Atomics.wait(workerData.blocked, 0, 0, 5000)));
         const value = await ui.ask('name', '', value => { wait(100); if (value !== 'Example') throw new Error('FIELD_PLACEHOLDER'); });
         const password = await ui.password('password', value => { if (value !== 'secret') throw new Error('KEY_PASSWORD_INVALID'); });
+        const reason = await ui.select('reason', ['ROUTINE_ROTATION', 'KEY_LOST']);
         let attempts = 0;
         const nav = navigation(ui, undefined, { onFailure: async error => {
             ui.say('requestFailed', { code: error.message, stage: error.downloadStage, attempts: error.attempts });
@@ -344,7 +383,7 @@ test('真实业务线程阻塞期间终端持续刷新，异步字段验证和�
             if (++attempts === 1) throw Object.assign(new Error('DOWNLOAD_CONNECTION_RESET'), { download: true, retryable: true, downloadStage: 'PROXY_CONNECT', attempts: 3 });
         }));
         ui.close();
-        parentPort.postMessage({ method: 'result', args: [{ value, passwordLength: password.length, attempts }] });
+        parentPort.postMessage({ method: 'result', args: [{ value, passwordLength: password.length, reason, attempts }] });
         parentPort.close();
     `)), { workerData: { cancelled, blocked } });
     t.after(() => worker.terminate());
@@ -358,8 +397,9 @@ test('真实业务线程阻塞期间终端持续刷新，异步字段验证和�
     Atomics.store(blocked, 0, 1); Atomics.notify(blocked, 0);
     await until('Plugin display name'); await tty.key('Example\r');
     await until('Private key password'); await tty.key('secret\r');
+    await until(optionText('ROUTINE_ROTATION', key => localizedText('en-US', key))); await tty.key('\x1b[B\r');
     await until('DOWNLOAD_CONNECTION_RESET'); await until('Save and exit'); await tty.key('\r');
-    assert.deepEqual(await result, { value: 'Example', passwordLength: 6, attempts: 2 });
+    assert.deepEqual(await result, { value: 'Example', passwordLength: 6, reason: 'KEY_LOST', attempts: 2 });
     assert(!tty.rendered().includes('secret'));
 });
 
