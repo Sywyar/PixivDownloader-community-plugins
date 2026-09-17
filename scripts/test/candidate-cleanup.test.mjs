@@ -90,10 +90,22 @@ test('社区所有者同仓投稿与普通 fork 投稿使用相同清理规则',
     }
 });
 
+test('草稿可见时缺少仓库 push 角色不阻断清理，空列表不声称删除成功', async t => {
+    for (const permissions of [undefined, { push: false }]) {
+        const f = fixture(t);
+        f.repository.permissions = permissions;
+        assert.deepEqual((await f.run()).deleted, ['1']);
+        assert.deepEqual(await f.run(), { deleted: [], retained: [] });
+        assert.equal(f.writes.length, 1);
+    }
+});
+
 test('无草稿读取权限或归属证据无效时拒绝删除', async t => {
     for (const mode of ['permissions', 'slot', 'legacy']) {
         const f = fixture(t);
-        if (mode === 'permissions') f.repository.permissions.push = false;
+        if (mode === 'permissions') f.intercept(endpoint => {
+            if (endpoint.endsWith('/releases?per_page=100')) throw Object.assign(new Error('Forbidden'), { status: 403 });
+        });
         if (mode === 'slot') f.release.body = f.marker({ ...f.reservation, slot: 'candidate/' + '0'.repeat(64) });
         if (mode === 'legacy') { f.release.tag_name = candidateIdentity(f.candidate).replace(f.head, 'e'.repeat(40)); f.release.body = ''; }
         await assert.rejects(f.run(), /CANDIDATE_(?:ARCHIVE_READ_FORBIDDEN|RELEASE_CHANGED|TAG_CHANGED)/);

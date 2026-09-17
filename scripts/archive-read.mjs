@@ -51,14 +51,20 @@ export async function readArchivedCandidate(sdk, release, current, { call = api,
     return { candidate, directory, certificate, releaseId: id(release.id), tag: release.tag_name, url: release.html_url };
 }
 
-export function archivedCandidates(checked, call = api, { optional = false } = {}) {
-    // 空列表不能证明草稿不存在。源码构建的可选复用保持只读，其余审核入口明确报告权限缺失。
-    if (call(prefix).permissions?.push !== true) {
+export function draftReleases(call = api, { optional = false } = {}) {
+    // Installation token 的仓库角色投影不代表 Contents 权限；只消费实际可见的草稿。
+    try {
+        return list(`${prefix}/releases`, null, call).filter(release => release.draft === true);
+    } catch (error) {
+        if (![401, 403].includes(error.status) && !/\(HTTP (?:401|403)\)/u.test(String(error.stderr ?? ''))) throw error;
         if (optional) return [];
-        throw new Error('CANDIDATE_ARCHIVE_READ_FORBIDDEN');
+        throw new Error('CANDIDATE_ARCHIVE_READ_FORBIDDEN', { cause: error });
     }
+}
+
+export function archivedCandidates(checked, call = api, options = {}) {
     const slot = candidateSlot(checked);
-    return list(`${prefix}/releases`, null, call).filter(release => release.draft
-        && (release.tag_name === slot || release.tag_name.startsWith(`candidate/pr-${id(checked.pr.number)}/`)))
+    return draftReleases(call, options).filter(release => release.tag_name === slot
+        || release.tag_name.startsWith(`candidate/pr-${id(checked.pr.number)}/`))
         .sort((a, b) => Number(b.tag_name === slot) - Number(a.tag_name === slot) || Date.parse(b.created_at) - Date.parse(a.created_at));
 }

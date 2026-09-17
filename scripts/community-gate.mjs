@@ -123,17 +123,17 @@ export async function publish(number, context, prepared, call = api, write = api
         const failures = [];
         for (const checkId of checks) {
             try { patch(checkId, pending ? 'pending' : 'failure', pending
-                ? 'Waiting for the verified candidate archive.' : 'Admission could not be verified. See the trusted workflow log.'); }
+                ? 'No complete verified candidate is visible. Check candidate archival and Draft Release access.' : 'Admission could not be verified. See the trusted workflow log.'); }
             catch (failure) { failures.push(failure.message); }
         }
         console.error('PR #' + number + ': ' + error.message);
         if (failures.length) throw new Error('CHECK_REVOCATION_FAILED: ' + failures.join(', '));
-        if (pending) return { ...identity, labels: ['review:pending'], summary: 'Waiting for the verified candidate archive. Admission remains pending.' };
+        if (pending) return { ...identity, labels: ['review:pending'], summary: 'No complete verified candidate is visible. Check that candidate archival has finished and the trusted workflow token can read Draft Releases. Admission remains pending.' };
         if (pr.state === 'closed' && pr.merged) return { ...identity, labels: ['state:apply-failed'], error: error.message,
             summary: 'Protected state or release readback failed. Admission checks retain their original results; inspect the publication workflow before retrying.' };
         return { ...identity, labels: ['ci:blocked', 'review:pending'], error: error.message,
             summary: error.message === 'CANDIDATE_ARCHIVE_READ_FORBIDDEN'
-                ? 'The trusted workflow token cannot read Draft Releases. Its archive-reading job requires Contents write permission. Admission remains blocked.'
+                ? 'GitHub rejected the Draft Release listing request with HTTP 401 or 403. Check the trusted workflow token, job permissions and API limits. Admission remains blocked.'
                 : 'Admission could not be verified. See the trusted workflow log. This PR is not ready.' };
     }
 }

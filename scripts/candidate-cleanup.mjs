@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { api, id, sha, list, prefix, policy, repository, main } from './github.mjs';
 import { cleanupPath, event, execution } from './platform.mjs';
 import { candidateReservation, requireDraft } from './archive.mjs';
+import { draftReleases } from './archive-read.mjs';
 
 const missing = error => error.status === 404 || /\(HTTP 404\)/u.test(String(error.stderr ?? ''));
 const assetIdentity = assets => assets.map(({ id, name, state, size, digest }) => ({ id, name, state, size, digest }))
@@ -21,8 +22,8 @@ export async function cleanupCandidates(number, expectedHead, workspace, { call 
     };
     const result = { deleted: [], retained: [] };
     if (!requestClosed()) return result;
-    if (!repository(call, { publicOnly: true }).permissions?.push) throw new Error('CANDIDATE_ARCHIVE_READ_FORBIDDEN');
-    for (const release of list(`${prefix}/releases`, null, call)) {
+    repository(call, { publicOnly: true });
+    for (const release of draftReleases(call)) {
         if (release.draft !== true || release.published_at !== null) continue;
         const stable = /^candidate\/[a-f0-9]{64}$/u.test(release.tag_name);
         const legacy = /^candidate\/pr-([1-9][0-9]*)\/[a-f0-9]{40}\/[a-f0-9]{64}$/u.exec(release.tag_name);
