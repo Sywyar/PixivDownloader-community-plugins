@@ -11,7 +11,7 @@ import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from './submission-operations.mjs';
 import { withdrawRequest } from './submission-withdraw.mjs';
 import { validateChanges } from './submission-check.mjs';
-import { submitPreview } from './submission-write.mjs';
+import { submitPreview, pendingPrepared } from './submission-write.mjs';
 import { navigation } from './submission-navigation.mjs';
 import { openProject, projectIdentity } from './submission-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
@@ -101,7 +101,14 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         const { snapshot, state } = context;
         if (operation === 'withdraw') return withdrawRequest(context);
         let prepared;
-        if (context.resumePrepared) prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
+        if (context.resumePrepared) {
+            prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
+            if (prepared.snapshot.base !== snapshot.base) {
+                ui.say('sessionBaseUpdated');
+                const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call));
+                if (pending) { unchanged(snapshot, call); ui.say('original', pending); return { original: pending }; }
+            }
+        }
         else if (operation === 'publish') {
             const projects = sdk.invoke({ command: 'projects', gitRoot: project.gitRoot })
                 .filter(item => project.candidates.some(candidate => candidate.projectDir === item.projectDir));
@@ -120,7 +127,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         } else if (operation === 'rotation') prepared = await prepareRotation(context);
         else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
-        savePrepared(context, prepared);
+        // 首次准备先保存原始字节；恢复时须通过当前主线校验后才替换旧快照。
+        if (!context.resumePrepared) savePrepared(context, prepared);
         const original = appliedRequest(sdk, state, prepared.changes);
         if (original) {
             unchanged(snapshot, call);
@@ -131,6 +139,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             authorize: (owner, user) => eligible(owner, user, call) });
         const result = { ...await ui.task('validating', validate), ...(prepared.sourceRelease ? { sourceRelease: prepared.sourceRelease,
             changes: metadataChanges(prepared.previousMarket, prepared.submission?.market) } : {}) };
+        if (context.resumePrepared) savePrepared(context, prepared);
         return submitPreview({ sdk, snapshot, changes: prepared.changes, title: prepared.title, result, call,
             actions: prepared.actions, beforeWrite: async () => { navigator.seal(); await prepared.beforeWrite?.(); },
             confirm: async preview => {

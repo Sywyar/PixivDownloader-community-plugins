@@ -78,6 +78,7 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
     saveSession(context, { operation: 'publish' });
     savePrepared(context, { changes: changes(), title: 'feat(plugin): example 2.3.4' });
     session.close(); sign.close(); fs.unlinkSync(path.join(keyDirectory, 'private-key.pem'));
+    const refreshedSnapshot = { ...snapshot, base: 'b'.repeat(40) };
     const restored = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', `
         import { openProject } from ${JSON.stringify(new URL('../submission-state.mjs', import.meta.url).href)};
         import { restorePrepared } from ${JSON.stringify(new URL('../submission-session.mjs', import.meta.url).href)};
@@ -85,7 +86,7 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
         const prepared = await restorePrepared({ store, snapshot: JSON.parse(process.argv[3]),
             ui: { password() { throw Error('unexpected unlock'); } }, sign() { throw Error('unexpected signing'); } });
         process.stdout.write(JSON.stringify([...prepared.changes].map(([file, bytes]) => [file, bytes.toString('base64')])));
-        store.close();`, sdk.workspace, JSON.stringify(identity), JSON.stringify(snapshot)], { encoding: 'utf8', windowsHide: true }));
+        store.close();`, sdk.workspace, JSON.stringify(identity), JSON.stringify(refreshedSnapshot)], { encoding: 'utf8', windowsHide: true }));
     const restoredChanges = new Map(restored.map(([file, bytes]) => [file, Buffer.from(bytes, 'base64')]));
     assert.deepEqual(restoredChanges, changes());
     assert.equal((await validateChanges({ ...input, changes: restoredChanges })).publisherKeyFingerprint, fingerprint);
@@ -183,26 +184,41 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
     savePrepared(resumedContext, { changes: rotationChanges, title: 'feat(publisher): rotate example signing key' });
     sessionLocator(project, stateHome).bind(session, '101'); session.close();
     const publisherPath = 'publishers/101/example.json';
-    const blobId = crypto.createHash('sha1').update(Buffer.from(`blob ${publisherRecord.bytes.length}\0`)).update(publisherRecord.bytes).digest('hex');
     let previews = 0; const priorExitCode = process.exitCode;
+    let base = snapshot.base;
+    let changedPublisher = false;
+    const spoken = [];
     try {
-        const outcome = await runWizard(project, { stateHome, ui: { resume: true, locale: 'en-US', text: key => key,
-            select() { assert.fail('completed form must not repeat'); }, password() { assert.fail('completed signature must not unlock'); },
-            confirm(key) { assert.equal(key, 'preview'); previews++; return false; },
-            task: (_key, work) => work(), say() {}, close() {} }, call(endpoint, options = {}) {
-            assert(!options.method || options.method === 'GET');
-            if (endpoint === 'user') return snapshot.actor;
-            if (endpoint === `repos/${policy.repository}`) return { full_name: policy.repository, id: policy.repositoryId,
-                owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
-            if (endpoint === 'repos/example/plugin') return { full_name: 'example/plugin', id: 100, owner: { id: 101 } };
-            if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch)) return { object: { sha: snapshot.base } };
-            if (endpoint.includes('/git/trees/')) return { tree: [{ path: publisherPath, sha: blobId, type: 'blob', mode: '100644', size: publisherRecord.bytes.length }] };
-            if (endpoint.includes('/git/blobs/')) return { sha: blobId, size: publisherRecord.bytes.length, encoding: 'base64', content: publisherRecord.bytes.toString('base64') };
-            if (endpoint === `repos/example/${policy.repository.split('/')[1]}`) throw new Error('GITHUB_NOT_FOUND');
-            if (endpoint.includes('/pulls?')) return [[]];
-            assert.fail(endpoint);
-        } });
-        assert.deepEqual(outcome, { cancelled: true }); assert.equal(previews, 1);
+        for (const mode of ['unchanged', 'advanced', 'publisher-changed']) {
+            if (mode !== 'unchanged') base = mode === 'advanced' ? 'd'.repeat(40) : 'e'.repeat(40);
+            changedPublisher = mode === 'publisher-changed';
+            const latestBytes = changedPublisher ? Buffer.from(JSON.stringify({ ...publisher, displayName: 'Updated Publisher' })) : publisherRecord.bytes;
+            const latestBlob = crypto.createHash('sha1').update(Buffer.from(`blob ${latestBytes.length}\0`)).update(latestBytes).digest('hex');
+            const outcome = await runWizard(project, { stateHome, ui: { resume: true, locale: 'en-US', text: key => key,
+                select() { assert.fail('completed form must not repeat'); }, password() { assert.fail('completed signature must not unlock'); },
+                confirm(key, preview) { assert.equal(key, 'preview'); assert.equal(preview.base, base); previews++; return false; },
+                task: (_key, work) => work(), say: key => spoken.push(key), close() {} }, call(endpoint, options = {}) {
+                assert(!options.method || options.method === 'GET');
+                if (endpoint === 'user') return snapshot.actor;
+                if (endpoint === `repos/${policy.repository}`) return { full_name: policy.repository, id: policy.repositoryId,
+                    owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
+                if (endpoint === 'repos/example/plugin') return { full_name: 'example/plugin', id: 100, owner: { id: 101 } };
+                if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch)) return { object: { sha: base } };
+                if (endpoint.includes('/git/trees/')) {
+                    assert(endpoint.includes(base));
+                    return { tree: [{ path: publisherPath, sha: latestBlob, type: 'blob', mode: '100644', size: latestBytes.length }] };
+                }
+                if (endpoint.includes('/git/blobs/')) return { sha: latestBlob, size: latestBytes.length, encoding: 'base64', content: latestBytes.toString('base64') };
+                if (endpoint === `repos/example/${policy.repository.split('/')[1]}`) throw new Error('GITHUB_NOT_FOUND');
+                if (endpoint.includes('/pulls?')) return [[]];
+                assert.fail(endpoint);
+            } });
+            assert.deepEqual(outcome, changedPublisher ? { failed: 'PUBLISHER_CHANGED' } : { cancelled: true });
+            assert.equal(previews, mode === 'unchanged' ? 1 : 2);
+            assert.equal(sessionLocator(project, stateHome).read().session.prepared.snapshot.base,
+                changedPublisher ? 'd'.repeat(40) : base);
+        }
+        assert.equal(spoken.filter(key => key === 'sessionBaseUpdated').length, 2);
     } finally { process.exitCode = priorExitCode; }
     publisherRecord.sha256 = 'b'.repeat(64);
     await assert.rejects(validateChanges({ ...input, changes: rotationChanges }), /PUBLISHER_CHANGED/u);

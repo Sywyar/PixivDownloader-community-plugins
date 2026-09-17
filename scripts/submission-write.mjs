@@ -5,7 +5,31 @@ import { createHash, randomUUID } from 'node:crypto';
 import { policy, id, sha } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { git } from './project.mjs';
-import { github, checkedRepository, unchanged, paged, recoverableRequest } from './submission-github.mjs';
+import { github, checkedRepository, unchanged, paged, recoverableRequest, repositoryTree, readBlob } from './submission-github.mjs';
+
+// 恢复到新主线前回读已创建的请求，避免按新 base 计算分支后重复投稿。
+export function pendingPrepared(snapshot, changes, call = github) {
+    const requests = [...changes.keys()].filter(file => /^(?:submissions|key-rotations|version-status-requests|ownership-transfers)\//u.test(file));
+    const matches = [];
+    for (const pull of paged(`repos/${policy.repository}/pulls?state=open`, call)) {
+        const files = paged(`repos/${policy.repository}/pulls/${id(pull.number)}/files`, call);
+        if (!files.some(file => requests.includes(file.filename))) continue;
+        const target = forkTarget(snapshot, call);
+        if (target.create || pull.state !== 'open' || id(pull.user.id) !== snapshot.actor.id
+            || id(pull.base.repo.id) !== snapshot.repositoryId || pull.base.ref !== policy.defaultBranch
+            || id(pull.head?.repo?.id) !== target.id || pull.head.repo.full_name !== target.name
+            || files.length !== changes.size || files.some(file => file.status !== 'added' || !changes.has(file.filename))) {
+            throw new Error('EXISTING_PR_CONFLICT');
+        }
+        const tree = repositoryTree(target.name, sha(pull.head.sha), call);
+        for (const [file, bytes] of changes) {
+            if (!readBlob(target.name, tree.get(file), call).equals(bytes)) throw new Error('EXISTING_PR_CONFLICT');
+        }
+        matches.push({ url: pull.html_url, head: pull.head.sha, reused: true });
+    }
+    if (matches.length > 1) throw new Error('EXISTING_PR_CONFLICT');
+    return matches[0] ?? null;
+}
 
 export function forkTarget(snapshot, call = github) {
     const owner = snapshot.actor.id === policy.repositoryOwnerId;
@@ -121,7 +145,6 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
         const actual = paged(`repos/${policy.repository}/pulls/${existing[0].number}/files`, call);
         if (actual.length !== preview.files.length || actual.some(file => file.status !== 'added'
             || !preview.files.some(expected => expected.path === file.filename))) throw new Error('EXISTING_PR_CONFLICT');
-        const { repositoryTree, readBlob } = await import('./submission-github.mjs');
         const tree = repositoryTree(fork.name, sha(existing[0].head.sha), call);
         for (const file of preview.files) if (hash(readBlob(fork.name, tree.get(file.path), call)) !== file.sha256) throw new Error('EXISTING_PR_CONFLICT');
         return { url: existing[0].html_url, head: sha(existing[0].head.sha), reused: true };
