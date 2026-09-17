@@ -129,7 +129,7 @@ export function restoreReview(sdk, state, receipt) {
 }
 
 export const publicationExecution = (mode, env, call, readGit) => {
-    const context = execution(mode === 'finalize' ? '.github/workflows/community-publication.yml' : publicationPath, env, call, readGit);
+    const context = execution(['finalize', 'finalize-notify'].includes(mode) ? '.github/workflows/community-publication.yml' : publicationPath, env, call, readGit);
     if (!['workflow_dispatch', 'push'].includes(context.run.event)) throw new Error('PUBLICATION_EXECUTION_INVALID');
     return context;
 };

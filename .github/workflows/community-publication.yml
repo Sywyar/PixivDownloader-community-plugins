@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
       actions: read
-      pull-requests: read
+      pull-requests: write
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -33,6 +33,13 @@ jobs:
           distribution: temurin
           java-version: '17'
           verify-signature: true
-      - run: node scripts/community-publication.mjs finalize
+      - name: Finalize merged releases
+        id: finalize
+        run: node scripts/community-publication.mjs finalize
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Update pull request labels and summary
+        run: node scripts/community-publication.mjs finalize-notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_PROJECTIONS: ${{ steps.finalize.outputs.projections }}

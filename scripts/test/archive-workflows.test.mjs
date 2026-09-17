@@ -7,7 +7,7 @@ import { archivedCandidates } from '../archive-read.mjs';
 import { candidateSlot } from '../candidate.mjs';
 import { prefix } from '../github.mjs';
 
-test('真实 YAML 的归档读权限只授予受保护审核作业，投稿构建保持只读', () => {
+test('真实 YAML 按社区操作核对全部作业权限、令牌来源和受保护执行边界', () => {
     // 使用固定 SDK 已包含的 YAML 解析器，断言实际配置而非匹配源码文本。
     const sdk = prepareSdk(), source = path.join(sdk.workspace, 'WorkflowJson.java');
     fs.writeFileSync(source, `import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
@@ -20,6 +20,82 @@ public class WorkflowJson {
 }`, 'utf8');
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath, '-d', path.join(sdk.workspace, 'runtime'), source]);
     const read = file => JSON.parse(sdk.run('java', ['-cp', sdk.classpath, 'WorkflowJson', path.join(root, '.github/workflows', file + '.yml')]));
+    // 合同按实际 API 操作定义；遍历所有入口，新增带令牌的命令必须登记其职责。
+    const inspect = { contents: 'write', actions: 'read', 'pull-requests': 'read' };
+    const notify = { contents: 'read', actions: 'read', 'pull-requests': 'write' };
+    const commands = {
+        'community-gate.mjs': inspect,
+        'community-gate.mjs notify': notify,
+        'decisions.mjs': inspect,
+        'community-publication.mjs preflight': inspect,
+        'community-publication.mjs prepare': inspect,
+        'community-publication.mjs store': inspect,
+        'community-publication.mjs finalize': inspect,
+        'community-publication.mjs finalize-notify': notify,
+        'community-publication.mjs notify': notify,
+        'community-status.mjs preflight': inspect,
+        'community-status.mjs prepare': inspect,
+        'community-status.mjs store': inspect,
+        'community-status.mjs merge': { contents: 'write', actions: 'write', 'pull-requests': 'read' },
+        'community-status.mjs notify': notify,
+        'community-renewal.mjs': { contents: 'write', actions: 'write', 'pull-requests': 'write' },
+        'archive-run.mjs': inspect,
+        'archive-run.mjs attestation': inspect,
+        'candidate-cleanup.mjs': inspect,
+        'candidate-run.mjs': { contents: 'read', 'pull-requests': 'read' },
+        'submission-build.mjs': { contents: 'read', actions: 'read', 'pull-requests': 'read' },
+    };
+    const levels = { none: 0, read: 1, write: 2 }, exercised = new Set();
+    for (const file of fs.readdirSync(path.join(root, '.github/workflows')).filter(file => /\.ya?ml$/u.test(file))) {
+        const workflow = read(file.replace(/\.ya?ml$/u, ''));
+        assert(Object.values(workflow.permissions).every(value => value === 'read'), `${file}: default token must remain read-only`);
+        const protectedJob = name => {
+            const job = workflow.jobs[name], dependencies = [].concat(job.needs ?? []);
+            return job.if?.includes('refs/heads/master') || dependencies.length > 0 && dependencies.every(protectedJob);
+        };
+        for (const [jobName, job] of Object.entries(workflow.jobs)) {
+            const permissions = job.permissions ?? workflow.permissions;
+            const require = (required, operation) => {
+                for (const [permission, level] of Object.entries(required)) {
+                    assert((levels[permissions[permission] ?? 'none'] ?? -1) >= levels[level], `${file}/${jobName}: ${operation} requires ${permission}:${level}`);
+                }
+            };
+            const checkout = job.steps.find(step => step.uses?.startsWith('actions/checkout@'));
+            if (checkout) {
+                require({ contents: 'read' }, 'checkout');
+                assert.equal(checkout.with['persist-credentials'], false);
+            }
+            if (Object.values(permissions).includes('write')) {
+                assert(protectedJob(jobName), `${file}/${jobName}: protected branch required`);
+                assert.equal(checkout.with.ref, '${{ github.workflow_sha }}');
+            }
+            for (const step of job.steps) {
+                if (step.env?.GH_TOKEN) {
+                    assert.equal(step.env.GH_TOKEN, '${{ github.token }}');
+                    const command = /^node scripts\/(.+)$/u.exec(step.run)?.[1];
+                    assert(commands[command], `${file}/${jobName}: unaudited token operation ${step.run}`);
+                    require(commands[command], command); exercised.add(command);
+                }
+                if (step.uses?.startsWith('actions/attest@')) require({ 'id-token': 'write', attestations: 'write' }, 'attestation');
+                if (step.uses?.startsWith('actions/create-github-app-token@')) {
+                    assert.equal(step.with['permission-checks'], 'write');
+                    assert.equal(step.with.repositories, 'PixivDownloader-community-plugins');
+                    assert.equal(job.steps.find(row => row.env?.GATE_TOKEN)?.env.GATE_TOKEN, '${{ steps.app.outputs.token }}');
+                }
+                if (step.env?.COMMUNITY_REVIEW_BRANCH_TOKEN) {
+                    assert(['release', 'community-status'].includes(job.environment));
+                    assert.equal(step.env.COMMUNITY_REVIEW_BRANCH_TOKEN, '${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}');
+                }
+            }
+        }
+    }
+    assert.deepEqual(exercised, new Set(Object.keys(commands)));
+    const publication = read('community-publication').jobs.finalize.steps;
+    const finish = publication.find(step => step.run === 'node scripts/community-publication.mjs finalize');
+    const notification = publication.find(step => step.run === 'node scripts/community-publication.mjs finalize-notify');
+    assert(publication.indexOf(notification) > publication.indexOf(finish));
+    assert.equal(notification.env.COMMUNITY_PROJECTIONS, '${{ steps.' + finish.id + '.outputs.projections }}');
+    assert.equal(notification['continue-on-error'], undefined);
     const checked = { owner: { accountId: '101', accountType: 'User', publisherId: 'example' },
         submission: { pluginId: 'demo', version: '2.3.4' }, pr: { number: 7 } };
     const release = { id: 1, draft: true, tag_name: candidateSlot(checked) };

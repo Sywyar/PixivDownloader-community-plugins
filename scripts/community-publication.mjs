@@ -178,20 +178,21 @@ export function waitingProjection(pr, code) {
 
 main(import.meta.url, async () => {
     const mode = process.argv[2];
-    if (!['preflight', 'prepare', 'store', 'finalize', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
+    if (!['preflight', 'prepare', 'store', 'finalize', 'finalize-notify', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
     const privateValue = process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     delete process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     if (privateValue && (mode !== 'prepare' || privateValue.length > 21848)) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
     const privateBytes = Buffer.from(privateValue ?? '', 'base64');
     try {
         const context = publicationExecution(mode);
-        if (mode === 'notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
+        if (mode === 'notify' || mode === 'finalize-notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
         const sdk = prepareSubmission();
         if (mode === 'finalize') {
             const result = await finalizeReleases(context, sdk);
             const numbers = new Set(result.receipts?.flatMap(receipt => [receipt.prNumber, ...receipt.files.filter(file => file.path.startsWith('audits/'))
                 .flatMap(file => JSON.parse(Buffer.from(file.bytes, 'base64')).prEvidence.map(pr => pr.number))]) ?? []);
-            notify([...numbers].map(number => appliedProjection(pull(number), list(`${prefix}/pulls/${number}/files`, null), result)));
+            output({ projections: JSON.stringify([...numbers].map(number =>
+                appliedProjection(pull(number), list(`${prefix}/pulls/${number}/files`, null), result))) });
             return;
         }
         const inputs = inputsFrom(event());
