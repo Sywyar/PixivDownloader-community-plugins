@@ -259,7 +259,8 @@ public final class CommunityApply {
             case "verify-generation" -> tool.verifyGeneration();
             default -> throw new IllegalArgumentException("APPLY_COMMAND");
         };
-        byte[] bytes = CommunityJson.encode(result);
+        // Base64 证据属于传输封装；业务字段已经在各命令的 SDK 合同入口校验。
+        byte[] bytes = JSON.writeValueAsBytes(result);
         if (bytes.length > MAX_BYTES) throw new IllegalArgumentException("APPLY_OUTPUT_BUDGET");
         System.out.println(new String(bytes, StandardCharsets.UTF_8));
     }

@@ -9,6 +9,7 @@ import { applySdk } from '../apply-sdk.mjs';
 import { applyOperation } from '../apply-operations.mjs';
 import { hash, evaluate, evidence } from '../sdk.mjs';
 import { signedStatusAuthority } from '../status-authorization.mjs';
+import { API_BYTES } from '../github.mjs';
 
 test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺少批准和重复覆盖', () => {
     const sdk = prepareSubmission(), sign = signingTool(sdk);
@@ -33,16 +34,17 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
     const publisherPath = 'publishers/101/original.json';
     store(publisherPath, { schemaVersion: 1, publisherId: 'original', displayName: 'Original',
         githubAccount: { id: '101', type: 'User', loginAtRegistration: 'original' }, signingKeys: [{ ...publicKey(first), state: 'ACTIVE' }] });
+    assert.throws(() => sdk.document('PUBLISHER', { ...JSON.parse(records.get(publisherPath)), displayName: 'x'.repeat(16385) }, publisherPath), /LIMIT_EXCEEDED/);
     store('plugin-bindings/demo.json', { schemaVersion: 1, pluginId: 'demo', owner, effectiveRequestId: null, updatedAt: '2026-01-01T00:00:00Z' });
     store('revocations.json', { schemaVersion: 1, repositoryId: 'pixivdownloader-community', sequence: 1,
         generatedTime: '2026-01-01T00:00:00Z', nextUpdate: '2026-02-01T00:00:00Z', entries: [] });
     store('revocations/restrictions.json', []);
     const pr = (author, number) => ({ githubRepositoryId: '300', number, authorAccountId: author,
         headRepositoryId: '400', headSha: 'b'.repeat(40), baseSha: 'c'.repeat(40), mergeSha: 'd'.repeat(40) });
-    const execute = (operation, request, file, { recovery = false, author = '101', approvals = [], signed = false } = {}) => {
+    const execute = (operation, request, file, { recovery = false, author = '101', approvals = [], signed = false, decisionBytes } = {}) => {
         const adapter = applySdk(sdk);
         store(file, request);
-        const decision = adapter.archive({ requestId: request.requestId, approved: true, recovery });
+        const decision = adapter.archive(decisionBytes ?? { requestId: request.requestId, approved: true, recovery });
         let authority = { proposalPr: { ...pr(author, 1), mergeSha: null }, actualAuthor: { id: author, type: 'User' }, representations: [],
             approval: { requestId: request.requestId, headSha: 'b'.repeat(40), reviewerAccountIds: ['999'],
                 recoveryApproved: recovery, evidence: adapter.evidence(decision) }, authorizedReviewers: ['999'] };
@@ -56,8 +58,19 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
         oldKeyId: first.keyId, newKey: publicKey(next), reasonCode: 'KEY_LOST', explanation: 'Replace lost key' } }, { newKey: next });
     const rotationFile = `key-rotations/101/original/${rotation.requestId}.json`;
     assert.throws(() => execute('KEY_ROTATION', rotation, rotationFile), /RECOVERY_REVIEW_REQUIRED/);
-    const rotated = execute('KEY_ROTATION', rotation, rotationFile, { recovery: true });
+    const decisionBytes = encode({ requestId: rotation.requestId, approved: true, recovery: true,
+        check_runs: Array.from({ length: 256 }, (_, index) => ({ id: index + 1, name: 'community/validation',
+            head_sha: 'b'.repeat(40), conclusion: 'success', app: { id: 999 }, output: { summary: 'Verified request evidence. '.repeat(16) } })) });
+    assert.ok(decisionBytes.length > 16384);
+    const rotated = execute('KEY_ROTATION', rotation, rotationFile, { recovery: true, decisionBytes });
     assert.equal(rotated.audit.action, 'PUBLISHER_KEY_ROTATION');
+    assert.equal(rotated.audit.decisionRef.sha256, hash(decisionBytes));
+    assert.equal(rotated.audit.decisionRef.size, decisionBytes.length);
+    assert.deepEqual(rotated.writes.get(rotated.audit.decisionRef.path), decisionBytes);
+    // 原始证据仍在输入预算内，Base64 扩张后的封装必须受输出总预算约束。
+    const oversized = Buffer.alloc(API_BYTES * 3 / 4, 0x20);
+    decisionBytes.copy(oversized);
+    assert.throws(() => execute('KEY_ROTATION', rotation, rotationFile, { recovery: true, decisionBytes: oversized }), /APPLY_OUTPUT_BUDGET/);
     rotated.writes.forEach((bytes, file) => store(file, bytes));
     const updated = state.read(publisherPath, 'PUBLISHER').value;
     assert.equal(updated.signingKeys.find(key => key.keyId === first.keyId).state, 'RETIRED');
