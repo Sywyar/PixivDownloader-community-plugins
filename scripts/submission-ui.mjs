@@ -92,7 +92,6 @@ const messages = {
     preview: ['核对完整预览；确认后创建提交、普通推送并创建 Ready PR。', 'Review the complete preview. Confirmation creates a commit, pushes normally and opens a Ready PR.', '核對完整預覽；確認後建立提交、一般推送及 Ready PR。', 'プレビュー全体を確認してください。確認後にコミット、通常の push、Ready PR の作成を行います。', '전체 미리 보기를 확인하세요. 확인하면 커밋, 일반 push 및 Ready PR을 생성합니다.'],
     cancelled: ['已取消', 'Cancelled', '已取消', 'キャンセルしました', '취소됨'],
     cleanupFailed: ['临时工作目录清理失败，操作结果保持有效；请关闭占用程序后删除此目录。', 'Temporary workspace cleanup failed. The operation result is still valid; close programs using this folder, then delete it.', '暫存工作目錄清理失敗，操作結果仍有效；請關閉占用程式後刪除此目錄。', '一時フォルダーを削除できませんでした。操作結果は有効です。使用中のプログラムを閉じてから削除してください。', '임시 폴더를 삭제하지 못했습니다. 작업 결과는 유효합니다. 폴더를 사용 중인 프로그램을 닫고 삭제하세요.'],
-    original: ['已存在相同请求或已发布的相同包，返回原记录。', 'The same request or package was already processed. Returning the original record.', '相同請求或套件已處理，傳回原紀錄。', '同じ申請またはパッケージは処理済みです。元の記録を返します。', '동일한 요청 또는 패키지가 처리되어 원본 기록을 반환합니다.'],
     submitted: ['PR 已创建，请在 PR 页面查看检查和处理进度。', 'The PR is ready. Follow checks and processing on its page.', 'PR 已建立，請在 PR 頁面查看檢查及處理進度。', 'PR を作成しました。PR ページでチェックと処理の進捗を確認できます。', 'PR을 만들었습니다. PR 페이지에서 검사 및 처리 진행 상황을 확인하세요.'],
     failed: ['向导已停止，请根据错误码检查输入后重试。', 'The wizard stopped. Check the input using this error code, then retry.', '精靈已停止，請依錯誤碼檢查輸入後重試。', 'ウィザードを停止しました。エラーコードを確認し、入力を修正して再実行してください。', '마법사가 중지되었습니다. 오류 코드를 확인하고 입력을 수정한 뒤 다시 시도하세요.'],
     downloadFailed: ['下载失败。请根据错误码检查网络、代理或文件摘要后重试。', 'Download failed. Use the error code to check the network, proxy or file digest, then retry.', '下載失敗。請依錯誤碼檢查網路、代理或檔案摘要後重試。', 'ダウンロードに失敗しました。エラーコードに従ってネットワーク、プロキシ、ファイルのダイジェストを確認してください。', '다운로드하지 못했습니다. 오류 코드에 따라 네트워크, 프록시 또는 파일 다이제스트를 확인하고 다시 시도하세요.'],
@@ -136,7 +135,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
             if (value.code && errors[value.code]) prompts.log.error(errors[value.code][index], common);
             prompts.note(formatMetadata(value, text), '', common);
         }
-        if (['submitted', 'withdrawn', 'original', 'cancelled', 'saved', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
+        if (['submitted', 'withdrawn', 'requestPending', 'requestApplied', 'versionACTIVE', 'versionYANKED', 'versionREVOKED', 'cancelled', 'saved', 'failed', 'downloadFailed', 'rebuild', 'rebuildPackage', 'demoFinished'].includes(key)) {
             (['cancelled', 'failed', 'downloadFailed'].includes(key) ? prompts.cancel : prompts.outro)(text(key), common);
         } else if (value === undefined) prompts.log.info(text(key), common);
     };

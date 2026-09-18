@@ -10,6 +10,7 @@ import { isDeepStrictEqual } from 'node:util';
 import path from 'node:path';
 import { keyLabel } from './submission-emergency.mjs';
 import { emergencyState, keyFingerprint } from './emergency-state.mjs';
+import { versionState, canChangeVersion, transferVersionNotice } from './submission-version-state.mjs';
 
 const encoded = value => Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
 
@@ -53,6 +54,7 @@ export async function prepareRotation(context, rotation) {
     }
     const { owner, existing } = rotation;
     context.bindPublisher?.(owner);
+    ui.say('rotationVersionNotice');
     const reasonCode = await ui.select('reason', ['ROUTINE_ROTATION', 'KEY_LOST', 'KEY_COMPROMISED']);
     if (reasonCode === 'KEY_COMPROMISED' && !(context.emergency ?? emergencyState(sdk, context.call ?? github))
         .readBlock(keyFingerprint(activeKey(existing.value)))) unavailable(ui, 'KEY_COMPROMISE_DECLARATION_REQUIRED');
@@ -111,12 +113,15 @@ export async function prepareStatus(context, action) {
     const binding = await selectBinding(context);
     const { owner, pluginId } = binding.value;
     context.bindPublisher?.(owner);
-    const versions = state.published(pluginId).filter(record => {
-        const current = state.currentStatus(pluginId, record.value.version, record.value.package.sha256).state;
-        return action === 'UNYANK' ? current === 'YANKED' : action === 'YANK' ? current === 'ACTIVE' : current !== 'REVOKED';
-    });
-    if (!versions.length) unavailable(ui, 'NO_ELIGIBLE_VERSIONS', { pluginId, action });
-    const published = await ui.select('version', versions, record => `${record.value.version} (${record.value.package.sha256})`);
+    const all = state.published(pluginId);
+    if (!all.length) unavailable(ui, 'NO_PUBLISHED_VERSIONS', { pluginId });
+    const histories = new Map(all.map(record => [record, state.currentStatus(pluginId, record.value.version, record.value.package.sha256)]));
+    const states = new Map(all.map(record => [record, versionState(state, record, histories.get(record))]));
+    const versions = all.filter(record => canChangeVersion(action, states.get(record).currentState, histories.get(record).state));
+    ui.say('effect' + action);
+    if (!versions.length) unavailable(ui, 'NO_ELIGIBLE_VERSIONS', { pluginId, operation: action, versions: [...states.values()] });
+    const published = await ui.select('version', versions, record => `${record.value.version} · ${ui.text('option.' + states.get(record).currentState)} (${states.get(record).currentState}) · ${record.value.package.sha256}`);
+    ui.say('selectedVersionState', states.get(published));
     const reasons = { YANK: ['FUNCTIONAL_DEFECT', 'COMPATIBILITY_PROBLEM', 'MAINTAINER_WITHDRAWAL', 'LICENSE_ISSUE', 'OTHER'],
         UNYANK: ['ISSUE_RESOLVED', 'YANK_IN_ERROR', 'OTHER'], REVOKE: ['MALICIOUS_CODE', 'KEY_COMPROMISE', 'CRITICAL_VULNERABILITY', 'ARTIFACT_TAMPERING', 'OTHER'] };
     const payload = { owner, requester: { id: snapshot.actor.id, type: 'User' }, pluginBindingSha256: binding.sha256, pluginId,
@@ -134,6 +139,8 @@ export async function prepareStatus(context, action) {
 
 // 在最终预览重新确认，包含从本地保存的已签名请求恢复的路径。
 export async function confirmRevocation(ui, result, changes) {
+    if (!['YANK', 'UNYANK', 'REVOKE'].includes(result.operation)) return;
+    ui.say('effect' + result.operation);
     if (result.operation !== 'REVOKE') return;
     const { pluginId, version, packageSha256 } = JSON.parse(changes.get(result.requestPath).toString('utf8')).payload;
     ui.say('revokeWarning', { pluginId, version, packageSha256 });
@@ -159,14 +166,16 @@ export async function prepareTransfer(context) {
         : record ? `${record.value.payload.pluginId} · ${record.value.payload.from.publisherId} → ${record.value.payload.to.publisherId} (${record.value.requestId})` : ui.text('newProposal'));
     if (proposal === 'handoff') {
         const binding = await selectBinding(context);
+        transferVersionNotice(context, binding.value.pluginId);
         ui.say('transferHandoffHelp', { pluginId: binding.value.pluginId, from: binding.value.owner });
         throw new Error('WIZARD_MENU');
     }
     const changes = new Map();
     let request;
-    if (proposal) { request = proposal.value; bindHistory(context, request.payload.pluginId); }
+    if (proposal) { request = proposal.value; bindHistory(context, request.payload.pluginId); transferVersionNotice(context, request.payload.pluginId); }
     else {
         const binding = await selectBinding(context, false);
+        transferVersionNotice(context, binding.value.pluginId);
         ui.say('transferRecipientHelp', { pluginId: binding.value.pluginId, from: binding.value.owner });
         const to = await publisherOwner(context, null, { ownerLabel: 'recipientOwner', publisherLabel: 'recipientPublisher' });
         if (isDeepStrictEqual(binding.value.owner, to)) unavailable(ui, 'TRANSFER_SAME_OWNER');

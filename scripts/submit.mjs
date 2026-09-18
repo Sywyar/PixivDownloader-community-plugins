@@ -18,6 +18,7 @@ import { publisherKeys } from './submission-publisher-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
 import { sessionLocator, saveSession, savePrepared, restorePrepared } from './submission-session.mjs';
 import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from './submission-emergency.mjs';
+import { presentOriginal, versionState } from './submission-version-state.mjs';
 
 function appliedRequest(sdk, state, changes) {
     const kinds = { 'key-rotations': 'ROTATION', 'version-status-requests': 'STATUS_REQUEST', 'ownership-transfers': 'TRANSFER' };
@@ -116,14 +117,14 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
             if (operation === 'emergency') {
                 const original = appliedEmergency(sdk, prepared.changes, call);
-                if (original) { ui.say('original', original); return { original }; }
+                if (original) { presentOriginal(context, original); return { original }; }
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
-                if (pending) { unchanged(snapshot, call); ui.say('original', pending); return { original: pending }; }
+                if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
             if (prepared.snapshot.base !== snapshot.base) {
                 ui.say('sessionBaseUpdated');
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
-                if (pending) { unchanged(snapshot, call); ui.say('original', pending); return { original: pending }; }
+                if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
         }
         else if (operation === 'publish') {
@@ -135,28 +136,33 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             ui.say('detected', { projectDir: selected.projectDir, profile: profileLabel(profile) });
             prepared = await prepareRelease(context, { ...selected, project: path.resolve(project.gitRoot, selected.projectDir) }, profile);
             if (!prepared) return { sourceChangeRequired: true };
-            if (prepared.original) {
-                unchanged(snapshot, call);
-                ui.say('original', prepared.original.value);
-                return { original: prepared.original.value };
-            }
             if (prepared.rotation) prepared = await prepareRotation(context, prepared.rotation);
         } else if (operation === 'emergency') prepared = await prepareEmergency(context);
         else if (operation === 'rotation') prepared = await prepareRotation(context);
         else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
+        if (prepared.original) {
+            unchanged(snapshot, call);
+            presentOriginal(context, prepared.original);
+            return { original: prepared.original.value };
+        }
         // 首次准备先保存原始字节；恢复时须通过当前主线校验后才替换旧快照。
         if (!context.resumePrepared) savePrepared(context, prepared);
         const original = appliedRequest(sdk, state, prepared.changes);
         if (original) {
             unchanged(snapshot, call);
-            ui.say('original', original.value);
+            presentOriginal(context, original);
             return { original: original.value };
         }
         const validate = () => (operation === 'emergency' ? validateEmergencySubmission : validateChanges)({ sdk, state, changes: prepared.changes, user: snapshot.actor, call, ...(prepared.fetch ? { fetch: prepared.fetch } : {}),
             authorize: (owner, user) => eligible(owner, user, call) });
         const result = { ...await ui.task('validating', validate), ...(prepared.sourceRelease ? { sourceRelease: prepared.sourceRelease,
             changes: metadataChanges(prepared.previousMarket, prepared.submission?.market) } : {}) };
+        if (['YANK', 'UNYANK', 'REVOKE'].includes(result.operation)) {
+            const record = state.published(result.pluginId).find(row => row.value.version === result.version);
+            result.currentState = versionState(state, record).currentState;
+            result.requestedState = { YANK: 'YANKED', UNYANK: 'ACTIVE', REVOKE: 'REVOKED' }[result.operation];
+        }
         if (context.resumePrepared) savePrepared(context, prepared);
         return submitPreview({ sdk, snapshot, changes: prepared.changes, title: prepared.title, result, call,
             actions: prepared.actions, beforeWrite: async () => { navigator.seal(); await prepared.beforeWrite?.(); },
@@ -175,7 +181,11 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         if (outcome.original) { context.store?.complete(outcome); return outcome; }
         if (outcome.sourceChangeRequired) return outcome;
         if (!outcome.cancelled) context.store?.complete({ ...(context.store.record.receipt ?? {}), ...outcome });
-        ui.say(outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : 'submitted', outcome);
+        if (!outcome.cancelled && !outcome.withdrawn && ['YANK', 'UNYANK', 'REVOKE'].includes(context.operation)) {
+            ui.say('statusRequestSubmitted');
+            ui.say('effect' + context.operation);
+        }
+        ui.say(outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : outcome.reused ? 'requestPending' : 'submitted', outcome);
         return outcome;
     } catch (error) {
         if (error.message === 'WIZARD_SAVE') {

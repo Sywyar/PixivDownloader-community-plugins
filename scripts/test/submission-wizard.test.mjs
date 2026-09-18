@@ -19,6 +19,7 @@ import { publisherOwner } from '../submission-release.mjs';
 import { unlockPrivateKey } from '../submission-signing.mjs';
 import { errors, optionNames } from '../submission-messages.mjs';
 import { optionText, formatMetadata } from '../submission-presentation.mjs';
+import { presentOriginal } from '../submission-version-state.mjs';
 import { connectTerminal } from '../submission-terminal.mjs';
 
 const originalTerm = process.env.TERM;
@@ -120,6 +121,34 @@ test('密钥格式和算法错误在各语言保留独立提示，不误报为�
                 assert(tty.rendered().includes(code));
             }
             assert(!tty.rendered().includes(errors.KEY_PASSWORD_INVALID[index]));
+        } finally { ui.close(); }
+    }
+});
+
+test('五种语言在终端展示版本状态、操作影响和下一步，错误码保留具体说明', async () => {
+    for (const locale of locales) {
+        const tty = consoleStreams(); tty.key('\r');
+        const ui = await terminal(tty.input, tty.output, { resumeLocale: locale });
+        try {
+            for (const currentState of ['ACTIVE', 'YANKED', 'REVOKED']) {
+                const record = { value: { pluginId: 'example', version: '2.3.4', package: { sha256: 'a'.repeat(64) } } };
+                presentOriginal({ ui, state: { tree: new Map(), currentStatus: () => ({ state: currentState }) } }, record);
+                assert.notEqual(ui.text('version' + currentState), 'version' + currentState);
+                assert(tty.rendered().includes(ui.text('version' + currentState)));
+                assert(tty.rendered().includes(optionText(currentState, ui.text)));
+                assert(!tty.rendered().includes(ui.text('statusLabel') + ': ' + currentState));
+            }
+            for (const key of ['effectYANK', 'effectUNYANK', 'effectREVOKE', 'requestPending', 'requestApplied',
+                'statusRequestApplied', 'statusRequestSubmitted', 'transferVersionStates', 'rotationVersionNotice', 'revokedRequestState']) {
+                assert.notEqual(ui.text(key), key);
+                ui.say(key);
+                assert(tty.rendered().includes(ui.text(key)));
+            }
+            for (const code of ['VERSION_DIGEST_CONFLICT', 'VERSION_ALREADY_PUBLISHED', 'VERSION_SUBMISSION_OCCUPIED',
+                'INVALID_STATE_TRANSITION', 'BASELINE_CHANGED', 'APPEND_ONLY_REQUIRED', 'NO_PUBLISHED_VERSIONS']) {
+                ui.say('failed', { code });
+                assert(tty.rendered().includes(errors[code][locales.indexOf(locale)]));
+            }
         } finally { ui.close(); }
     }
 });

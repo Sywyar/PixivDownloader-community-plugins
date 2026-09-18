@@ -227,6 +227,11 @@
       "sha256": "32f1606169c0ff504ad1c0fe1dfe34532e8c4af1ac117a04459510c03982ba2b"
     },
     {
+      "path": "scripts/apply-generation.mjs",
+      "size": 10591,
+      "sha256": "776f87aebd84e32d8d741aa9c8b9bf1159cba1be7ae43e8124789d188182bd3c"
+    },
+    {
       "path": "scripts/apply-operations.mjs",
       "size": 4090,
       "sha256": "b7745093474cba345ad215aeeae4f295eb4c1b2f62aa8c00bae60ea5105aa9e2"
@@ -353,8 +358,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 79893,
-      "sha256": "e9c7a7d216e7c0bcafff4ac1d58cdf5d5d489e60c98ada0178eaaf966fdf4274"
+      "size": 100864,
+      "sha256": "c435253f17a43711694ed411a9df6dc3214d3838510602b6a56d57042995ad66"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -363,13 +368,13 @@
     },
     {
       "path": "scripts/submission-operations.mjs",
-      "size": 16619,
-      "sha256": "74bc2c0944dac461ea018efb981cf9f091886b97713986885559788c6878e807"
+      "size": 17481,
+      "sha256": "770d67124445a9cfbb53e395de3c8405176f390cd907da7fda6c7e5f4e328ff1"
     },
     {
       "path": "scripts/submission-presentation.mjs",
-      "size": 4137,
-      "sha256": "66119495a82ad08ccabe1c72a9f43b4742d9be051bb8ab1cf22f508abbc9b644"
+      "size": 4320,
+      "sha256": "ef81647f5464a72e1fb82060906c92c36aae71b60c2701c08a5d4b1b5e67447b"
     },
     {
       "path": "scripts/submission-progress.mjs",
@@ -413,8 +418,13 @@
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 31088,
-      "sha256": "8461d6adb305f71d3dc65cdf4bf9c657e39e4aeb0bc6b57762cb115d3856c1fb"
+      "size": 30757,
+      "sha256": "a0e3815725353778139fb4ce9954cb0d14105387196a9eb4acc0bd52f8e1cc88"
+    },
+    {
+      "path": "scripts/submission-version-state.mjs",
+      "size": 3730,
+      "sha256": "e0d6ad72ba1e024b582fe6cf6a20fd23a0ba9d6e1620ef7ca2497cbf688a8548"
     },
     {
       "path": "scripts/submission-withdraw.mjs",
@@ -433,8 +443,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 13906,
-      "sha256": "ab5e5027ff5d0e38678f79af26dcb4472b252d7b58f1c17bd74ca0bac6910976"
+      "size": 14657,
+      "sha256": "18d7af31decd89f78ccf110ba23d085e701f4537766f98711e4325769682c37e"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

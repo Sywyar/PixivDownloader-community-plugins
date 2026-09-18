@@ -37,7 +37,7 @@ test('无发布者、无插件及无适用版本分别给出原因并返回菜�
     for (const action of ['YANK', 'UNYANK', 'REVOKE']) {
         const f = context();
         await assert.rejects(prepareStatus(f.result, action), /WIZARD_MENU/);
-        assert.equal(f.notices.at(-1).value.code, 'NO_ELIGIBLE_VERSIONS');
+        assert.equal(f.notices.at(-1).value.code, 'NO_PUBLISHED_VERSIONS');
         f.values.clear();
         await assert.rejects(prepareStatus(f.result, action), /WIZARD_MENU/);
         assert.equal(f.notices.at(-1).value.code, 'NO_OWNED_PLUGINS');
@@ -45,7 +45,7 @@ test('无发布者、无插件及无适用版本分别给出原因并返回菜�
     const f = context();
     await assert.rejects(prepareRotation(f.result), /WIZARD_MENU/);
     assert.equal(f.notices.at(-1).value.code, 'NO_OWNED_PUBLISHERS');
-    for (const code of ['NO_OWNED_PUBLISHERS', 'NO_OWNED_PLUGINS', 'NO_REGISTERED_PLUGINS', 'NO_ELIGIBLE_VERSIONS', 'NO_WITHDRAWABLE_REQUESTS',
+    for (const code of ['NO_OWNED_PUBLISHERS', 'NO_OWNED_PLUGINS', 'NO_REGISTERED_PLUGINS', 'NO_PUBLISHED_VERSIONS', 'NO_ELIGIBLE_VERSIONS', 'NO_WITHDRAWABLE_REQUESTS',
         'TRANSFER_SAME_OWNER', 'TRANSFER_RECIPIENT_START_REQUIRED', 'RECOVERY_EVIDENCE_REQUIRED', 'RECOVERY_EVIDENCE_DUPLICATED', 'KEY_ID_REUSED']) {
         assert.equal(errors[code].length, locales.length); assert.ok(errors[code].every(value => typeof value === 'string' && value.length > 0));
     }
@@ -83,12 +83,45 @@ test('版本操作只列出允许迁移的状态', async () => {
         f.result.state.currentStatus = (_plugin, version) => ({ state: versions[Number(version)].state });
         // bindHistory 也查询最新版本，此处返回无历史的单次查询。
         let calls = 0; f.result.state.published = () => ++calls === 1 ? [] : versions;
-        f.result.ui.select = async (key, values) => {
-            if (key === 'version') { assert.deepEqual(values.map(row => row.state), expected); throw new Error('SELECTION_VERIFIED'); }
+        f.result.ui.select = async (key, values, label) => {
+            if (key === 'version') {
+                assert.deepEqual(values.map(row => row.state), expected);
+                for (const row of values) assert(label(row).includes('(' + row.state + ')'));
+                assert(f.notices.some(notice => notice.key === 'effect' + action));
+                throw new Error('SELECTION_VERIFIED');
+            }
             return values[0];
         };
         await assert.rejects(prepareStatus(f.result, action), /SELECTION_VERIFIED/);
     }
+});
+
+test('无可操作版本时展示实际状态，社区独立撤销不能被恢复选项忽略', async () => {
+    for (const action of ['YANK', 'UNYANK', 'REVOKE']) {
+        const f = context();
+        const record = { value: { pluginId: 'demo', version: '2.0.0', package: { sha256: 'a'.repeat(64) } } };
+        let calls = 0; f.result.state.published = () => ++calls === 1 ? [] : [record];
+        f.result.state.currentStatus = () => ({ state: 'YANKED' });
+        f.values.set('revocations.json', {});
+        f.result.state.raw = () => Buffer.from(JSON.stringify({ entries: [{ packageSha256: record.value.package.sha256, action: 'REVOKED' }] }));
+        await assert.rejects(prepareStatus(f.result, action), /WIZARD_MENU/);
+        const notice = f.notices.at(-1).value;
+        assert.equal(notice.code, 'NO_ELIGIBLE_VERSIONS');
+        assert.equal(notice.operation, action);
+        assert.equal(notice.versions[0].currentState, 'REVOKED');
+        assert(!f.choices.some(choice => choice.key === 'version'));
+    }
+});
+
+test('社区独立隐藏而非作者隐藏的版本不提供 UNYANK', async () => {
+    const f = context();
+    let calls = 0;
+    f.result.state.published = () => ++calls === 1 ? [] : [{ value: { pluginId: 'demo', version: '2.0.0', package: { sha256: 'a'.repeat(64) } } }];
+    f.values.set('revocations.json', {});
+    f.result.state.raw = () => Buffer.from(JSON.stringify({ entries: [{ pluginId: 'demo', action: 'YANKED' }] }));
+    await assert.rejects(prepareStatus(f.result, 'UNYANK'), /WIZARD_MENU/);
+    assert.equal(f.notices.at(-1).value.versions[0].currentState, 'YANKED');
+    assert(!f.choices.some(choice => choice.key === 'version'));
 });
 
 test('原维护者不被要求取得接收方私钥，目标身份变化的旧请求不再列出', async () => {
