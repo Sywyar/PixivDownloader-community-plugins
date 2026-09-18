@@ -51,6 +51,31 @@ test('无发布者、无插件及无适用版本分别给出原因并返回菜�
     }
 });
 
+test('泄露恢复先核对紧急声明，未生效时不准备新密钥或询问说明', async () => {
+    for (const fromRelease of [false, true]) for (const declared of [false, true]) {
+        const f = context(), owner = f.binding.value.owner;
+        const key = { keyId: 'current', publicKeySpkiBase64: Buffer.from('public-key').toString('base64'), state: 'ACTIVE' };
+        const existing = { sha256: 'a'.repeat(64), value: { publisherId: owner.publisherId,
+            githubAccount: { id: owner.accountId, type: owner.accountType }, signingKeys: [key] } };
+        f.values.set('publishers/101/original.json', existing);
+        let checked = false;
+        f.result.emergency = { readBlock: () => { checked = true; return declared ? {} : null; } };
+        f.result.ui.ask = async () => assert.fail('紧急声明检查前不应询问说明或密钥路径');
+        f.result.ui.select = async (field, values) => {
+            if (field === 'selectPublisher') return values[0];
+            if (field === 'reason') return 'KEY_COMPROMISED';
+            assert.equal(field, 'keyAction');
+            assert.equal(checked, true);
+            assert.equal(declared, true);
+            throw new Error('KEY_SELECTION_REACHED');
+        };
+        const rotation = fromRelease ? { owner, existing, selectedKey: { key } } : undefined;
+        await assert.rejects(prepareRotation(f.result, rotation), declared ? /KEY_SELECTION_REACHED/ : /WIZARD_MENU/);
+        assert.equal(checked, true);
+        if (!declared) assert.equal(f.notices.at(-1).value.code, 'KEY_COMPROMISE_DECLARATION_REQUIRED');
+    }
+});
+
 test('版本操作只列出允许迁移的状态', async () => {
     const versions = ['ACTIVE', 'YANKED', 'REVOKED'].map((state, index) => ({ value: { version: String(index), package: { sha256: String(index) } }, state }));
     for (const [action, expected] of [['YANK', ['ACTIVE']], ['UNYANK', ['YANKED']], ['REVOKE', ['ACTIVE', 'YANKED']]]) {
@@ -68,14 +93,35 @@ test('版本操作只列出允许迁移的状态', async () => {
 
 test('原维护者不被要求取得接收方私钥，目标身份变化的旧请求不再列出', async () => {
     const f = context();
+    f.result.ui.select = async (key, items) => key === 'proposal' ? 'handoff' : items[0];
+    f.result.ui.ask = async () => assert.fail('转出指引不询问接收方身份或私钥');
     await assert.rejects(prepareTransfer(f.result), /WIZARD_MENU/);
-    assert.equal(f.notices.at(-1).value.code, 'TRANSFER_RECIPIENT_START_REQUIRED');
+    assert.equal(f.notices.at(-1).key, 'transferHandoffHelp');
+    assert.equal(f.notices.at(-1).value.pluginId, 'demo');
     const request = { requestId: 'a'.repeat(64), payload: { pluginId: 'demo', from: f.binding.value.owner,
         to: { accountId: '101', accountType: 'User', publisherId: 'next' }, pluginBindingSha256: f.binding.sha256, targetPublisherRecordSha256: 'c'.repeat(64) } };
     f.values.set(`ownership-transfers/demo/${request.requestId}/proposal.json`, { value: request });
     f.values.set('publishers/101/next.json', { sha256: 'd'.repeat(64) });
     f.result.ui.select = async (key, items) => {
-        assert.equal(key, 'proposal'); assert.deepEqual(items, [null]); throw new Error('STALE_REQUEST_FILTERED');
+        assert.equal(key, 'proposal'); assert.deepEqual(items, [null, 'handoff']); throw new Error('STALE_REQUEST_FILTERED');
     };
     await assert.rejects(prepareTransfer(f.result), /STALE_REQUEST_FILTERED/);
+});
+
+test('接收申请复用本人账号和已登记发布者标识，不允许代填第三方账号', async () => {
+    const f = context();
+    f.result.snapshot.actor = { id: '202', type: 'User', login: 'recipient' };
+    f.values.set('publishers/202/registered.json', { value: { publisherId: 'registered', signingKeys: [] } });
+    let asked = false;
+    f.result.ui.ask = async (key, suggestion) => {
+        assert.equal(key, 'recipientPublisher'); assert.equal(suggestion, 'registered'); asked = true; return suggestion;
+    };
+    f.result.ui.select = async (key, items) => {
+        if (key === 'keyAction') { assert.equal(asked, true); throw new Error('RECIPIENT_KEY_REACHED'); }
+        return items[0];
+    };
+    f.result.bindPublisher = owner => assert.deepEqual(owner, { accountId: '202', accountType: 'User', publisherId: 'registered' });
+    await assert.rejects(prepareTransfer(f.result), /RECIPIENT_KEY_REACHED/);
+    assert(f.notices.some(row => row.key === 'transferHelp'));
+    assert(f.notices.some(row => row.key === 'transferRecipientHelp'));
 });

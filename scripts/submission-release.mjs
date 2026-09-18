@@ -82,14 +82,14 @@ export async function signingKey(context, registeredKeys = [], { rotation = fals
     return { key, fingerprint, privateFile };
 }
 
-export async function publisherOwner(context, binding) {
+export async function publisherOwner(context, binding, { ownerLabel = 'owner', publisherLabel = 'publisher' } = {}) {
     const { ui, state, snapshot, call = github } = context;
     if (binding) {
         if (!eligible(binding.value.owner, snapshot.actor, call)) throw new Error('BINDING_CONFLICT');
         if (binding.value.owner.accountType === 'Organization' && !await ui.confirm('representation', binding.value.owner)) throw new Error('CANCELLED');
         return binding.value.owner;
     }
-    const choice = await ui.select('owner', ['personal', 'organization'], value => ui.text(value));
+    const choice = await ui.select(ownerLabel, ['personal', 'organization'], value => ui.text(value));
     let account = { id: snapshot.actor.id, type: 'User', login: snapshot.actor.login };
     if (choice === 'organization') {
         const organizations = paged('user/orgs', call);
@@ -102,9 +102,9 @@ export async function publisherOwner(context, binding) {
     }
     const publishers = [...state.tree.keys()].filter(file => file.startsWith(`publishers/${account.id}/`) && file.endsWith('.json'));
     const suggestion = publishers.length === 1 ? state.read(publishers[0], 'PUBLISHER').value.publisherId : account.login.toLowerCase();
-    const publisherId = await ui.ask('publisher', suggestion, value => context.sdk.invoke({ command: 'field', field: 'publisher', value }));
+    const publisherId = await ui.ask(publisherLabel, suggestion, value => context.sdk.invoke({ command: 'field', field: 'publisher', value }));
     const owner = { accountId: account.id, accountType: account.type, publisherId };
-    if (!await ui.confirm('publisher', owner)) throw new Error('CANCELLED');
+    if (!await ui.confirm(publisherLabel, owner)) throw new Error('CANCELLED');
     return owner;
 }
 

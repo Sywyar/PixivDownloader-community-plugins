@@ -1,11 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { API_BYTES, id, sha, policy } from './github.mjs';
+import { API_BYTES, api, id, sha, policy, prefix, list } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { fileSnapshot } from './build-files.mjs';
 
 export const buildPath = '.github/workflows/submission-check.yml';
 export const archivePath = '.github/workflows/community-archive.yml';
+// 只用于定位本次构建的交接物；真正归档仍独立验证执行来源和候选原字节。
+export function buildArtifact(run, call = api) {
+    if (id(run.repository.id) !== policy.repositoryId || run.path !== buildPath
+        || !['pull_request_target', 'workflow_dispatch'].includes(run.event)
+        || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('ARCHIVE_TRIGGER_INVALID');
+    const runId = id(run.id), attempt = id(run.run_attempt);
+    const artifacts = list(`${prefix}/actions/runs/${runId}/artifacts`, 'artifacts', call)
+        .filter(artifact => artifact.name.startsWith(`community-build-${runId}-${attempt}-`));
+    if (!artifacts.length) return null;
+    if (artifacts.length !== 1) throw new Error('BUILD_ARTIFACT_AMBIGUOUS');
+    const artifact = artifacts[0];
+    if (artifact.expired || id(artifact.workflow_run.id) !== runId
+        || !/^sha256:[a-f0-9]{64}$/u.test(artifact.digest)) throw new Error('BUILD_ARTIFACT_INVALID');
+    return artifact;
+}
 export const candidateName = (number, head, digest) => `candidate/pr-${id(number)}/${sha(head)}/${digest}`;
 // 草稿槽位按发布身份复用；PR、head 和构建摘要继续保留在签名清单中。
 export function candidateSlot({ owner, submission }) {

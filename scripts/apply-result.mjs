@@ -9,6 +9,7 @@ import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
 import { verifyPublicationProof } from './archive-proof.mjs';
 import { readBlob, repositoryTree, stateReader } from './submission-github.mjs';
 import { signedOwnerOperations } from './status-authorization.mjs';
+import { reference, hydrateReceipt, originalReceipt, readReferencedBlob, receiptProofs, legacyPath, verifyBytes } from './receipt-storage.mjs';
 
 export const receiptPath = requestId => {
     if (!/^[a-f0-9]{64}$/u.test(requestId)) throw new Error('APPLY_REQUEST_ID_INVALID');
@@ -26,6 +27,7 @@ export function receiptExpired(receipt, now = Date.now()) {
 
 // 生成结果只有固定路径集合；普通投稿不能通过声明“生成结果”取得写入权限。
 export function resultPath(file) {
+    if (/^generated\/proofs\/[a-f0-9]{64}\.json$/u.test(file)) return true;
     return /^(?:publishers\/[1-9][0-9]*\/[^/]+|plugin-bindings\/[^/]+|published\/[^/]+\/[^/]+|audits\/[a-f0-9]{64}|records\/[a-f0-9]{64}|reviews\/(?:evidence\/[a-f0-9]{64}|[^/]+\/[^/]+)|revocations\/restrictions|generated\/(?:current|community-key|receipts\/[a-f0-9]{64})|revocations)\.json$/u.test(file)
         || /^generated\/generations\/[1-9][0-9]*\/(?:(?:catalog|repository|revocations|directory)\.json(?:\.sig)?|shards\/[a-f0-9]{64}\.json)$/u.test(file)
         || /^(?:generated\/(?:catalog\.json(?:\.sig)?|repository\.json)|revocations\.json\.sig)$/u.test(file);
@@ -37,14 +39,14 @@ export function makeReceipt({ requestId, operation, pr, current, run, writes, st
         if (!resultPath(file) || file === receiptPath(requestId)) throw new Error('APPLY_WRITE_FORBIDDEN');
         const before = state.raw(file);
         if (before && /^(?:records|audits|published|reviews|generated\/generations)\//u.test(file) && !before.equals(bytes)) throw new Error('IMMUTABLE_RESULT_CONFLICT');
-        return { path: file, size: bytes.length, sha256: hash(bytes), before: before ? hash(before) : null, bytes: bytes.toString('base64') };
+        return { path: file, ...reference(bytes), before: before ? hash(before) : null, bytes: bytes.toString('base64') };
     }).filter(file => file.before !== file.sha256);
     if (!pr || pr.state !== 'open' || pr.merged || pr.draft || pr.base.sha !== current) throw new Error('REVIEW_OPEN_REQUEST_REQUIRED');
-    const value = { schemaVersion: 2, repositoryId: policy.repositoryId, requestId, operation, prNumber: pr.number,
+    const value = { schemaVersion: 3, repositoryId: policy.repositoryId, requestId, operation, prNumber: pr.number,
         headSha: sha(pr.head.sha), baseSha: sha(current), runId: id(run.id), ...(authorization === undefined ? {} : { authorization }),
         runAttempt: run.run_attempt, appliedAt, files, releases, reviewContext, originalPr: pr, inputFiles, recordOnly,
         expiresAt: new Date(Date.parse(appliedAt) + 30 * 24 * 60 * 60 * 1000).toISOString() };
-    const bytes = Buffer.from(JSON.stringify(value) + '\n');
+    const bytes = originalReceipt(value);
     if (bytes.length > API_BYTES) throw new Error('APPLY_RECEIPT_BUDGET');
     return { value, bytes };
 }
@@ -69,9 +71,40 @@ export async function immutableAsset(releaseId, file, name, { call = api, downlo
     return asset;
 }
 
-export async function readReceipt(sdk, pointer, current, { call = api, readGit = git, download = downloadCandidate, verify = verifyPublicationProof } = {}) {
+export async function readReceipt(sdk, pointer, current, { call = api, readGit = git, download = downloadCandidate, verify = verifyPublicationProof,
+    repositoryName = policy.repository } = {}) {
+    if (pointer.schemaVersion === 2) {
+        const directory = fs.mkdtempSync(path.join(sdk.workspace, 'publication-'));
+        const [manifest, bundle] = receiptProofs(pointer).map(([name, ref]) => {
+            const file = path.join(directory, path.basename(name));
+            fs.writeFileSync(file, readReferencedBlob(ref, call, repositoryName), { flag: 'wx' });
+            return file;
+        });
+        const certificate = verify(manifest, bundle, current, readGit);
+        const value = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+        if (value.schemaVersion !== 3 || value.repositoryId !== policy.repositoryId || value.baseSha !== certificate.sourceRepositoryDigest
+            || !Array.isArray(value.files) || value.files.some(file => file.bytes !== undefined)) throw new Error('APPLY_RECEIPT_INVALID');
+        receiptPath(value.requestId);
+        return hydrateReceipt(value, ref => readReferencedBlob(ref, call, repositoryName));
+    }
     if (pointer.schemaVersion !== 1 || !Number.isSafeInteger(pointer.size) || pointer.size < 1 || pointer.size > API_BYTES
         || !/^[a-f0-9]{64}$/u.test(pointer.sha256)) throw new Error('APPLY_RECEIPT_INVALID');
+    const migrated = legacyPath(pointer.sha256);
+    const object = readGit(['ls-tree', '--format=%(objectname) %(objectsize)', sha(current), '--', migrated]).trim();
+    if (object) {
+        const [objectId, size] = object.split(' ');
+        const projection = JSON.parse(readBlob(policy.repository, { sha: sha(objectId), size: Number(size), type: 'blob', mode: '100644' }, call));
+        const receipt = hydrateReceipt(projection.receipt, ref => readReferencedBlob(ref, call));
+        const bytes = verifyBytes(originalReceipt(receipt), pointer);
+        const directory = fs.mkdtempSync(path.join(sdk.workspace, 'publication-'));
+        const manifest = path.join(directory, 'publication.json'), bundle = path.join(directory, 'publication-attestation.json');
+        fs.writeFileSync(manifest, bytes, { flag: 'wx' });
+        fs.writeFileSync(bundle, readReferencedBlob(projection.attestation, call), { flag: 'wx' });
+        const certificate = verify(manifest, bundle, current, readGit);
+        if (receipt.schemaVersion !== 2 || receipt.repositoryId !== policy.repositoryId || receipt.baseSha !== certificate.sourceRepositoryDigest) throw new Error('APPLY_RECEIPT_INVALID');
+        receiptPath(receipt.requestId);
+        return { ...receipt, files: receipt.files.map(({ blob, ...file }) => file) };
+    }
     const release = call(`${prefix}/releases/${id(pointer.releaseId)}`);
     const assets = list(`${prefix}/releases/${id(release.id)}/assets`, null, call);
     const directory = fs.mkdtempSync(path.join(sdk.workspace, 'publication-'));
@@ -135,6 +168,16 @@ export function verifyGeneratedTree(receipt, pointer, parentTree, generatedTree,
     const expected = new Map(receipt.files.map(file => [file.path, file]));
     if (expected.size !== receipt.files.length || expected.has(receiptPath(receipt.requestId))) throw new Error('APPLY_RECEIPT_INVALID');
     expected.set(receiptPath(receipt.requestId), { bytes: Buffer.from(JSON.stringify(pointer) + '\n').toString('base64'), before: null });
+    for (const [file, ref] of receiptProofs(pointer)) {
+        if (expected.has(file)) throw new Error('APPLY_RECEIPT_INVALID');
+        if (generatedTree.get(file)?.mode !== '100644' || generatedTree.get(file)?.type !== 'blob') throw new Error('APPLY_WRITE_FORBIDDEN');
+        const bytes = verifyBytes(read(generatedTree.get(file)), ref);
+        if (parentTree.has(file)) {
+            if (!read(parentTree.get(file)).equals(bytes)) throw new Error('APPLY_BASE_CHANGED');
+            continue;
+        }
+        expected.set(file, { ...ref, before: null, bytes: bytes.toString('base64') });
+    }
     const changed = [...new Set([...parentTree.keys(), ...generatedTree.keys()])].filter(file => {
         const a = parentTree.get(file), b = generatedTree.get(file);
         if (a?.type === 'tree' || b?.type === 'tree') return false;
@@ -161,7 +204,7 @@ export async function checkResult(number, sdk, current, options = {}) {
     const scoped = merged ? call : forkApi(pr, call), name = merged ? policy.repository : pr.head.repo.full_name;
     const tree = repositoryTree(name, pr.head.sha, scoped);
     const pointer = JSON.parse(readBlob(name, tree.get(pointers[0].filename), scoped).toString('utf8'));
-    const receipt = await readReceipt(sdk, pointer, current, options);
+    const receipt = await readReceipt(sdk, pointer, current, { ...options, call: scoped, repositoryName: name });
     if (!merged) protectedSource(receipt.baseSha, current, readGit);
     if (!merged && receiptExpired(receipt)) throw new Error('APPLY_RESULT_EXPIRED');
     const original = receipt.originalPr;
@@ -198,7 +241,7 @@ export function requestSubject(receipt) {
         : publisher ? `发布者 ${publisher}` : receipt.operation === 'RENEWAL' ? '社区撤销清单' : `PR #${receipt.prNumber}`;
 }
 
-export async function appendReviewCommit(receipt, pointer, call = api, { wait = delay } = {}) {
+export async function appendReviewCommit(receipt, pointer, call = api, { wait = delay, proofs = new Map() } = {}) {
     repository(call, { publicOnly: true });
     const current = () => sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha);
     if (current() !== receipt.baseSha) throw new Error('APPLY_BASE_CHANGED');
@@ -207,6 +250,7 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
     if (prerequisite) return { pending: prerequisite, pr };
     const scoped = forkApi(pr, call), target = `repos/${pr.head.repo.full_name}`;
     const writes = new Map(receipt.files.map(file => [file.path, Buffer.from(file.bytes, 'base64')]));
+    for (const [file, ref] of receiptProofs(pointer)) writes.set(file, verifyBytes(proofs.get(file), ref));
     writes.set(receiptPath(receipt.requestId), Buffer.from(JSON.stringify(pointer) + '\n'));
     const tree = [];
     for (const [file, bytes] of writes) {

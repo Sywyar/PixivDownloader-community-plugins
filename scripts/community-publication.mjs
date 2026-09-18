@@ -11,7 +11,8 @@ import { applyOperation } from './apply-operations.mjs';
 import { publishVersion } from './apply-version.mjs';
 import { generateState, encoded } from './apply-generation.mjs';
 import { publicationExecution, publicationEnvironment, introducedBy, operationAuthority, currentAdmission, archiveAdmission, restoreReview } from './apply-context.mjs';
-import { makeReceipt, receiptPath, receiptExpired, readReceipt, immutableAsset, appendReviewCommit, reviewPrerequisite, checkResult } from './apply-result.mjs';
+import { makeReceipt, receiptPath, receiptExpired, appendReviewCommit, reviewPrerequisite, checkResult } from './apply-result.mjs';
+import { reference, proofPath, saveReceiptFiles, readReceiptFiles } from './receipt-storage.mjs';
 import { verifyPublicationProof } from './archive-proof.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 import { notify, appliedProjection } from './community-gate.mjs';
@@ -123,14 +124,17 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
                 scan: { riskReportRef: version.candidate.scan.riskReportRef } }, report: version.report } : {}) } });
     const file = path.join(sdk.workspace, 'publication.json');
     fs.writeFileSync(file, result.bytes, { flag: 'wx' });
+    saveReceiptFiles(result.value, path.join(sdk.workspace, 'publication-files'));
     return { ...result, file };
 }
 
-export async function storeResult(context, file, bundle, sdk, inputs, { call = api, checkCall = github, readGit, verify = verifyPublicationProof, ...transport } = {}) {
+export async function storeResult(context, file, bundle, sdk, inputs, { call = api, checkCall = github, readGit, verify = verifyPublicationProof } = {}) {
     publicationEnvironment(context, inputs, call);
     if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > API_BYTES) throw new Error('APPLY_RECEIPT_BUDGET');
     verify(file, bundle, context.current, readGit);
-    const bytes = fs.readFileSync(file), receipt = JSON.parse(bytes.toString('utf8'));
+    const bytes = fs.readFileSync(file), document = JSON.parse(bytes.toString('utf8'));
+    if (document.schemaVersion !== 3) throw new Error('APPLY_RECEIPT_INVALID');
+    const receipt = readReceiptFiles(document, path.join(path.dirname(file), 'publication-files'));
     if (receiptExpired(receipt)) throw new Error('APPLY_RESULT_EXPIRED');
     if (receipt.baseSha !== context.current || receipt.runId !== id(context.run.id) || receipt.runAttempt !== context.run.run_attempt
         || inputs.prNumber !== receipt.prNumber || inputs.expectedHeadSha !== receipt.headSha) throw new Error('APPLY_EXECUTION_CHANGED');
@@ -139,18 +143,11 @@ export async function storeResult(context, file, bundle, sdk, inputs, { call = a
     if (pending) return { pending, pr };
     const state = stateReader(sdk, pr.head.sha, checkCall, pr.head.repo.full_name);
     currentAdmission(pr.number, sdk, context, restoreReview(sdk, state, receipt), call, readGit);
-    const tag = `operation/${receipt.requestId}/${receipt.runId}-${receipt.runAttempt}`;
-    const matches = list(`${prefix}/releases`, null, call).filter(release => release.tag_name === tag);
-    if (matches.length > 1) throw new Error('APPLY_ARCHIVE_CONFLICT');
-    const release = matches[0] ?? call(`${prefix}/releases`, { method: 'POST', body: { tag_name: tag, target_commitish: context.current,
-        name: `${receipt.operation} / ${receipt.requestId}`, draft: true, prerelease: true, body: 'Verified preparation for the original submission PR. Publication requires merge confirmation.' } });
-    if (!release.draft || release.target_commitish !== context.current) throw new Error('APPLY_ARCHIVE_CONFLICT');
-    await immutableAsset(release.id, file, 'publication.json', { call, ...transport });
-    await immutableAsset(release.id, bundle, 'publication-attestation.json', { call, ...transport });
-    const pointer = { schemaVersion: 1, releaseId: id(release.id), size: bytes.length, sha256: hash(bytes) };
-    await readReceipt(sdk, pointer, context.current, { call, readGit, verify, ...transport });
-    // Release 在原 PR 合并后才公开；此处只追加原分支，不另建结果 PR。
-    try { return await appendReviewCommit(receipt, pointer, call); }
+    const bundleBytes = fs.readFileSync(bundle);
+    const pointer = { schemaVersion: 2, manifest: reference(bytes), attestation: reference(bundleBytes) };
+    const proofs = new Map([[proofPath(pointer.manifest.sha256), bytes], [proofPath(pointer.attestation.sha256), bundleBytes]]);
+    // 审核正文和证明随原 PR 提交；仅安装包等大产物使用 Release。
+    try { return await appendReviewCommit(receipt, pointer, call, { proofs }); }
     catch (error) {
         if (!['REVIEW_BRANCH_CREDENTIAL_REQUIRED', 'REVIEW_BRANCH_WRITE_DENIED'].includes(error.message)) throw error;
         return { pending: error.message, pr: pull(receipt.prNumber, call) };

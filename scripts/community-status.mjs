@@ -37,7 +37,9 @@ main(import.meta.url, async () => {
         const sdk = prepareSubmission();
         if (mode === 'merge') {
             const result = await mergeStatus(context, sdk, inputs.prNumber, process.env.COMMUNITY_STATUS_HEAD);
-            output({ merged: String(result.merged === true), projections: JSON.stringify(result.pending ? [waitingProjection(result.pr, result.pending)] : []) });
+            output({ merged: String(result.merged === true), projections: JSON.stringify(result.pending
+                ? [{ ...result.projection, ...waitingProjection(result.pr, result.pending) }]
+                : result.projection ? [result.projection] : []) });
             return;
         }
         if (mode === 'store') {

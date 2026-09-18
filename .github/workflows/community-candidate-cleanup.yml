@@ -1,5 +1,8 @@
 name: Community candidate cleanup
 on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
   pull_request_target:
     branches: [master]
     types: [closed]
@@ -12,7 +15,8 @@ jobs:
   cleanup:
     if: >-
       github.repository == 'Sywyar/PixivDownloader-community-plugins' &&
-      github.ref == 'refs/heads/master' && github.event.pull_request.merged == false
+      github.ref == 'refs/heads/master' &&
+      (github.event_name != 'pull_request_target' || github.event.pull_request.merged == false)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

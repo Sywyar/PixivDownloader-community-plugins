@@ -13,6 +13,7 @@ import { formalTag, packageName, encoded, releaseStatus } from './apply-generati
 export { releaseStatus };
 import { download as publicDownload } from './download.mjs';
 import { emergencyState } from './emergency-state.mjs';
+import { archivedPackage, archiveRevokedPackage } from './revoked-packages.mjs';
 
 function tagCommit(tag, call) {
     const refs = list(`${prefix}/git/matching-refs/tags/${tag}`, null, call).filter(ref => ref.ref === 'refs/tags/' + tag);
@@ -167,13 +168,16 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
         if (release.tag_name !== formalTag(record) || release.draft
             || tagCommit(formalTag(record), call) !== completion.merge.sha) throw new Error('PUBLICATION_RELEASE_CHANGED');
         const assets = list(`${prefix}/releases/${id(release.id)}/assets`, null, call);
+        const status = releaseStatus(record, revocations);
+        const storedPackage = status === 'REVOKED' ? archivedPackage(record, call) : null;
         for (const asset of original[0].originalAssets) {
             const matches = assets.filter(row => row.name === asset.name);
+            if (!matches.length && asset.name === packageName(record) && storedPackage) continue;
             if (matches.length !== 1 || !isDeepStrictEqual(assetIdentity(matches[0]), asset)) throw new Error('PUBLICATION_ASSET_CHANGED');
         }
         const expected = assets.filter(asset => asset.name === packageName(record));
-        if (expected.length !== 1 || expected[0].state !== 'uploaded' || expected[0].size !== record.package.expectedSize
-            || expected[0].digest !== `sha256:${record.package.sha256}`) throw new Error('PUBLICATION_PACKAGE_CHANGED');
+        if (!(expected.length === 0 && storedPackage) && (expected.length !== 1 || expected[0].state !== 'uploaded' || expected[0].size !== record.package.expectedSize
+            || expected[0].digest !== `sha256:${record.package.sha256}`)) throw new Error('PUBLICATION_PACKAGE_CHANGED');
         const review = JSON.parse(state.reference(record.reviewRef).toString('utf8'));
         for (const [name, bytes] of [['review.json', state.reference(record.reviewRef)], ['community-signature.json', encoded(record.communitySignature)]]) {
             const matches = assets.filter(asset => asset.name === name);
@@ -181,7 +185,6 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
                 || matches[0].digest !== `sha256:${hash(bytes)}`) throw new Error('PUBLICATION_ASSET_CHANGED');
         }
         const manager = state.read(`plugin-bindings/${record.pluginId}.json`, 'BINDING').value.owner;
-        const status = releaseStatus(record, revocations);
         const name = `${record.owner.publisherId} / ${record.pluginId}-v${record.version}${status === 'ACTIVE' ? '' : ` [${status}]`}`;
         const body = releaseBody(release.body, { record, manager, status, sequence: current.sequence, review });
         if (release.name !== name || release.body !== body) {
@@ -191,6 +194,10 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
             catch (error) { const actual = call(`${prefix}/releases/${id(release.id)}`); if (actual.name !== name || actual.body !== body) throw error; }
             const actual = call(`${prefix}/releases/${id(release.id)}`);
             if (actual.name !== name || actual.body !== body || actual.tag_name !== release.tag_name || actual.draft) throw new Error('RELEASE_STATUS_READBACK_FAILED');
+        }
+        if (status === 'REVOKED' && expected.length) {
+            if (!write) pending = true;
+            else await archiveRevokedPackage(context.current, record, release.id, expected[0], sdk.workspace, { call, download, ...transport });
         }
     }
     if (sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== context.current) throw new Error('APPLY_BASE_CHANGED');

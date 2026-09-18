@@ -233,8 +233,8 @@
     },
     {
       "path": "scripts/apply-result.mjs",
-      "size": 18277,
-      "sha256": "00d144acc1b93b94c18235b0bb5d09056b93842d6307151ca02ad1e8fd736d74"
+      "size": 21555,
+      "sha256": "0888bfd8f2684c24827b2df963ef2d25eea70eec6806c79cad76e10015771971"
     },
     {
       "path": "scripts/apply-sdk.mjs",
@@ -258,8 +258,8 @@
     },
     {
       "path": "scripts/candidate.mjs",
-      "size": 5151,
-      "sha256": "97a9c22c431688f918f6a8262b497ce31e7a1f18328d7d09ed8439e7a2679d78"
+      "size": 6189,
+      "sha256": "1fdd4ba50b1f17677fc76ba1cab38f2eac2083657be527373a9b25146c24335d"
     },
     {
       "path": "scripts/community-renewal.mjs",
@@ -278,8 +278,8 @@
     },
     {
       "path": "scripts/emergency-request.mjs",
-      "size": 6705,
-      "sha256": "f6119f72da140b52913abaa8a21f639764d7504842cc805a3b481586ca4d92f1"
+      "size": 6738,
+      "sha256": "c012ec8a0a47b7e9690d212e55bea9199cd3ccf6d2599a048cadfde527bf32ba"
     },
     {
       "path": "scripts/emergency-state.mjs",
@@ -293,13 +293,18 @@
     },
     {
       "path": "scripts/platform.mjs",
-      "size": 12759,
-      "sha256": "84c0d8c89a4bf623a35456633dff33e9ff3451219b4d4fb9d2ce5b3c05d58731"
+      "size": 12886,
+      "sha256": "e29ccd0c9869c60e88fa4d6d28a48fa4dd63c14d0b974397d5c413b3fbef684d"
     },
     {
       "path": "scripts/project.mjs",
       "size": 3460,
       "sha256": "2553b7fa197f4967e989bc414fa530b0009a8c7ea3e1a5464cb6903eba26f982"
+    },
+    {
+      "path": "scripts/receipt-storage.mjs",
+      "size": 4522,
+      "sha256": "b800db60b5a6f3949e9b1e326bdfa6dbb9f02516186fd0784bc595e6998178a8"
     },
     {
       "path": "scripts/repository-policy.json",
@@ -313,8 +318,8 @@
     },
     {
       "path": "scripts/status-authorization.mjs",
-      "size": 3507,
-      "sha256": "4e4b8950f45e8433c25d734c6c471bc1db78fd6c72daf909a2ba2aee472a47ce"
+      "size": 4353,
+      "sha256": "0c8d2647b4d067026c5e184d3710cc347d7c28a7e1be28f656da0f6a3b32efae"
     },
     {
       "path": "scripts/submission-candidate.mjs",
@@ -333,8 +338,8 @@
     },
     {
       "path": "scripts/submission-emergency.mjs",
-      "size": 5305,
-      "sha256": "ef8dc621f4d42a1f617a2c43ac4cd8e952187e40b4fee12bc07abb5d305fb47c"
+      "size": 5729,
+      "sha256": "5acc01d8b70fd7d0501167aa9b6a382bf287ea9263ae1408da7ffb7103960c27"
     },
     {
       "path": "scripts/submission-fields.mjs",
@@ -348,8 +353,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 74765,
-      "sha256": "c046301b5167a22ea8a7c43426aa11e228620374ba44ec36f85a5e23350517f9"
+      "size": 79893,
+      "sha256": "e9c7a7d216e7c0bcafff4ac1d58cdf5d5d489e60c98ada0178eaaf966fdf4274"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -358,13 +363,13 @@
     },
     {
       "path": "scripts/submission-operations.mjs",
-      "size": 16708,
-      "sha256": "f1c80fbd196328cc0a32bff750e9dd4225da55972e73c025b945e8f31443b689"
+      "size": 16619,
+      "sha256": "74bc2c0944dac461ea018efb981cf9f091886b97713986885559788c6878e807"
     },
     {
       "path": "scripts/submission-presentation.mjs",
-      "size": 4095,
-      "sha256": "32aeb6b62f3a11a94046447e29e0721cc3731b3aef96db75cf7507d78395db36"
+      "size": 4137,
+      "sha256": "66119495a82ad08ccabe1c72a9f43b4742d9be051bb8ab1cf22f508abbc9b644"
     },
     {
       "path": "scripts/submission-progress.mjs",
@@ -378,8 +383,8 @@
     },
     {
       "path": "scripts/submission-release.mjs",
-      "size": 15344,
-      "sha256": "27579844208e6861d2fed768f30cfcb292295db642c91c85897d154a29684802"
+      "size": 15414,
+      "sha256": "25dac97b16aa8137973508bf480ee941e4a965d9dfe4c817af16ae664d099d2c"
     },
     {
       "path": "scripts/submission-sdk.mjs",
@@ -408,8 +413,8 @@
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 31059,
-      "sha256": "f4f0cd954f63bce701627afcd32147a96356aea687b9d1306232c371d9cb2d2f"
+      "size": 31088,
+      "sha256": "8461d6adb305f71d3dc65cdf4bf9c657e39e4aeb0bc6b57762cb115d3856c1fb"
     },
     {
       "path": "scripts/submission-withdraw.mjs",
@@ -428,8 +433,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 13889,
-      "sha256": "af7c18ec87440c7c0cc72fff88e0318b30411f566ef683322486ebdadcbabb8b"
+      "size": 13906,
+      "sha256": "ab5e5027ff5d0e38678f79af26dcb4472b252d7b58f1c17bd74ca0bac6910976"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

@@ -6,17 +6,40 @@ on:
     types: [completed]
 permissions:
   contents: read
-concurrency:
-  group: community-publication
-  queue: max
 jobs:
-  archive:
+  preflight:
     if: >-
       github.repository == 'Sywyar/PixivDownloader-community-plugins' &&
       github.ref == 'refs/heads/master' && github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      candidate: ${{ steps.preflight.outputs.candidate }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - id: preflight
+        run: node scripts/archive-run.mjs preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+  archive:
+    needs: preflight
+    if: needs.preflight.outputs.candidate == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: community-gate
+    concurrency:
+      group: community-publication
+      queue: max
     permissions:
       contents: write
       actions: read

@@ -2,7 +2,7 @@ name: Community gate
 on:
   pull_request_target:
     branches: [master]
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, closed]
   workflow_run:
     workflows: [Community review event, Community review decision, Submission static check, Community candidate archive, Complete community review]
     types: [completed]
@@ -25,6 +25,7 @@ jobs:
       pull-requests: read
     outputs:
       artifact: ${{ steps.upload.outputs.artifact-id }}
+      requests: ${{ steps.prepare.outputs.requests }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -53,7 +54,7 @@ jobs:
           retention-days: 1
   gate:
     needs: prepare
-    if: always() && !cancelled() && github.repository == 'Sywyar/PixivDownloader-community-plugins' && github.ref == 'refs/heads/master'
+    if: always() && !cancelled() && (needs.prepare.result != 'success' || needs.prepare.outputs.requests != 'false') && github.repository == 'Sywyar/PixivDownloader-community-plugins' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: community-gate

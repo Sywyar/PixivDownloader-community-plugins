@@ -104,6 +104,7 @@ jobs:
       - if: steps.prepare.outputs.manifest != ''
         run: |
           install -D -- "$MANIFEST" target/review-handoff/publication.json
+          cp -R -- "$(dirname "$MANIFEST")/publication-files" target/review-handoff/publication-files
           install -D -- "$BUNDLE" target/review-handoff/publication-attestation.json
         env:
           MANIFEST: ${{ steps.prepare.outputs.manifest }}

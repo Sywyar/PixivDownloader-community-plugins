@@ -107,6 +107,9 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
     const made = makeReceipt({ requestId: 'd'.repeat(64), operation: 'FIRST_RELEASE', pr: originalPr,
         current: source, inputFiles, run: { id: 7, run_attempt: 1 }, writes: new Map(records), state: { raw: () => null }, appliedAt: '2026-01-01T00:00:00Z',
         releases: [{ id: 801, tag: formal.tag_name, targetCommit: current, originalAssets }] });
+    made.value.schemaVersion = 2;
+    made.value.files = made.value.files.map(({ blob, ...file }) => file);
+    made.bytes = Buffer.from(JSON.stringify(made.value) + '\n');
     const parentRecords = new Map([[inputFiles[0].filename, encoded({ request: true })]]);
     for (const [file, bytes] of parentRecords) records.set(file, bytes);
     f.release.tag_name = `operation/${made.value.requestId}/7-1`;
@@ -140,7 +143,9 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
             return { sha, size: bytes.length, encoding: 'base64', content: bytes.toString('base64') };
         }
         if (route === `${prefix}/branches/master`) return { commit: { sha: tip } };
-        if (route === `${prefix}/releases`) return [[structuredClone(formal), f.release]];
+        if (route === `${prefix}/releases`) return [[structuredClone(formal), f.release,
+            { id: 901, tag_name: 'archive/revoked-packages', draft: true, published_at: null }]];
+        if (route === `${prefix}/releases/901/assets`) return [[{ ...originalAssets[0], id: 902, name: record.package.sha256 + '.jar' }]];
         if (route === `${prefix}/releases/801/assets`) return [assets];
         if (route.startsWith(`${prefix}/git/matching-refs/tags/`)) return [[{ ref: 'refs/tags/' + formal.tag_name, object: { type: 'commit', sha: current } }]];
         if (route === `${prefix}/releases/801`) {
@@ -154,14 +159,17 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
     assert.equal(patches, 0);
     for (const state of ['ACTIVE', 'YANKED', 'REVOKED']) {
         revocations.entries = state === 'ACTIVE' ? [] : [{ pluginId: record.pluginId, action: state }]; snapshot();
+        if (state === 'REVOKED') assets.shift();
         assert.equal((await finalizeReleases({ current }, sdk, options)).applied, true);
         assert.match(formal.body, new RegExp(`State: ${state}`));
         assert.ok(formal.body.startsWith('Manual notes')); assert.match(formal.body, /Current maintainer: next/);
-        assert.equal(formal.tag_name, formalTag(record)); assert.deepEqual(assets.slice(0, 1), originalAssets);
+        assert.equal(formal.tag_name, formalTag(record));
+        if (state === 'REVOKED') assert(!assets.some(asset => asset.name === packageName(record)));
+        else assert.deepEqual(assets.slice(0, 1), originalAssets);
         const before = patches;
         assert.equal((await finalizeReleases({ current }, sdk, { ...options, write: false })).applied, true); assert.equal(patches, before);
     }
-    assets[0] = { ...assets[0], id: 900 };
+    assets.unshift({ ...originalAssets[0], id: 900 });
     await assert.rejects(finalizeReleases({ current }, sdk, options), /PUBLICATION_ASSET_CHANGED/);
     assets[0] = originalAssets[0]; tip = 'e'.repeat(40);
     await assert.rejects(finalizeReleases({ current }, sdk, options), /PR_OR_BASE_CHANGED/);
@@ -187,6 +195,10 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
     const result = makeReceipt({ requestId: 'd'.repeat(64), operation: 'YANK', pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } },
         current: source, run: { id: 7, run_attempt: 1 }, writes: new Map([['generated/current.json', encoded({ sequence: 1 })]]),
         state: { raw: () => null }, inputFiles: [], releases: [], appliedAt: '2026-01-01T00:00:00Z', reviewContext: { checked: { operation: 'YANK' } } });
+    // 已发布的旧格式仍按原签名字节读取。
+    result.value.schemaVersion = 2;
+    result.value.files = result.value.files.map(({ blob, ...file }) => file);
+    result.bytes = Buffer.from(JSON.stringify(result.value) + '\n');
     f.release.tag_name = `operation/${result.value.requestId}/7-1`;
     const file = path.join(f.workspace, 'publication.json'), bundle = path.join(f.workspace, 'publication-attestation.json');
     fs.writeFileSync(file, result.bytes); fs.writeFileSync(bundle, '{}');
@@ -196,7 +208,7 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
         buildSignerURI: workflow, buildConfigURI: workflow, sourceRepositoryRef: 'refs/heads/master', runnerEnvironment: 'github-hosted',
         buildTrigger: 'workflow_dispatch', buildSignerDigest: source, sourceRepositoryDigest: source };
     const verified = [{ verificationResult: { signature: { certificate } } }];
-    const readGit = args => { assert.deepEqual(args, ['merge-base', '--is-ancestor', source, current]); return ''; };
+    const readGit = args => { if (args[0] !== 'ls-tree') assert.deepEqual(args, ['merge-base', '--is-ancestor', source, current]); return ''; };
     let expectedPath = publicationPath;
     const verify = (file, bundle, current, readGit) => verifyPublicationProof(file, bundle, current, readGit, (command, args, options) => {
         assert.equal(command, 'gh'); assert.ok(args.includes('--deny-self-hosted-runners'));

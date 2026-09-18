@@ -54,8 +54,14 @@ jobs:
           owner: Sywyar
           repositories: PixivDownloader-community-plugins
           permission-checks: write
-      - run: node scripts/community-emergency.mjs
+      - id: apply
+        run: node scripts/community-emergency.mjs
         env:
           GH_TOKEN: ${{ github.token }}
           GATE_TOKEN: ${{ steps.app.outputs.token }}
           COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
+      - if: steps.apply.outputs.requestInfo != ''
+        run: node scripts/community-emergency.mjs notify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMUNITY_REQUEST_INFO: ${{ steps.apply.outputs.requestInfo }}

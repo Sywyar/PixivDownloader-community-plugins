@@ -41,6 +41,7 @@ public class WorkflowJson {
     const notify = { contents: 'read', actions: 'read', 'pull-requests': 'write' };
     const commands = {
         'community-emergency.mjs': { contents: 'write', actions: 'write', 'pull-requests': 'write' },
+        'community-emergency.mjs notify': notify,
         'community-gate.mjs prepare': inspect,
         'community-gate.mjs publish': inspect,
         'community-gate.mjs notify': notify,
@@ -58,10 +59,12 @@ public class WorkflowJson {
         'community-status.mjs notify': notify,
         'community-renewal.mjs': { contents: 'write', actions: 'write', 'pull-requests': 'write' },
         'archive-run.mjs': inspect,
+        'archive-run.mjs preflight': { contents: 'read', actions: 'read' },
         'archive-run.mjs attestation': inspect,
         'candidate-cleanup.mjs': inspect,
         'candidate-run.mjs': { contents: 'read', 'pull-requests': 'read' },
         'submission-build.mjs': { contents: 'read', actions: 'read', 'pull-requests': 'read' },
+        'submission-build.mjs previous': inspect,
     };
     const levels = { none: 0, read: 1, write: 2 }, exercised = new Set();
     for (const file of fs.readdirSync(path.join(root, '.github/workflows')).filter(file => /\.ya?ml$/u.test(file))) {
@@ -133,9 +136,27 @@ public class WorkflowJson {
         }), [release]);
     }
     const build = read('submission-check');
-    for (const job of Object.values(build.jobs)) assert.equal((job.permissions ?? build.permissions).contents, 'read');
-    assert.equal(read('community-archive').concurrency.group, read('community-review-complete').jobs.store.concurrency.group);
-    assert.equal(read('community-archive').concurrency.group, read('community-publication').concurrency.group);
+    assert.equal((build.jobs.submission.permissions ?? build.permissions).contents, 'read');
+    assert.equal(build.jobs.submission.needs, 'previous');
+    const previous = build.jobs.previous;
+    assert.deepEqual(previous.permissions, { contents: 'write', actions: 'read', 'pull-requests': 'read' });
+    assert.deepEqual(previous.steps.filter(step => step.run).map(step => step.run), ['node scripts/submission-build.mjs previous']);
+    const previousCheckout = previous.steps.find(step => step.uses?.startsWith('actions/checkout@'));
+    assert.equal(previousCheckout.with.ref, '${{ github.workflow_sha }}');
+    assert.equal(previousCheckout.with['persist-credentials'], false);
+    assert.equal(previous.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')).with['retention-days'], 1);
+    const previousDownload = build.jobs.submission.steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
+    assert.equal(previousDownload.with['artifact-ids'], '${{ needs.previous.outputs.artifact }}');
+    assert.equal(previousDownload.with['run-id'], undefined);
+    assert.equal(previousDownload.with.repository, undefined);
+    const archive = read('community-archive');
+    assert.equal(archive.concurrency, undefined);
+    assert.equal(archive.jobs.preflight.concurrency, undefined);
+    assert.deepEqual(archive.jobs.preflight.permissions, { contents: 'read', actions: 'read' });
+    for (const candidate of ['false', '', undefined, 'true']) assert.equal(
+        runInNewContext(archive.jobs.archive.if, { needs: { preflight: { outputs: { candidate } } } }), candidate === 'true');
+    assert.equal(archive.jobs.archive.concurrency.group, read('community-review-complete').jobs.store.concurrency.group);
+    assert.equal(archive.jobs.archive.concurrency.group, read('community-publication').concurrency.group);
     const cleanup = read('community-candidate-cleanup');
     const emergency = read('community-emergency');
     assert.deepEqual(emergency.on.pull_request_target.branches, ['emergency-state']);
@@ -145,6 +166,14 @@ public class WorkflowJson {
     const finalGate = read('community-gate').jobs.gate;
     assert(finalGate.if.includes('always()'));
     assert(finalGate.if.includes('!cancelled()'));
+    const shouldGate = (result, requests) => runInNewContext(finalGate.if, { always: () => true, cancelled: () => false,
+        github: { repository: 'Sywyar/PixivDownloader-community-plugins', ref: 'refs/heads/master' },
+        needs: { prepare: { result, outputs: { requests } } } });
+    assert.equal(shouldGate('success', 'false'), false);
+    for (const result of ['failure', 'skipped']) assert.equal(shouldGate(result, 'false'), true);
+    assert.equal(shouldGate('success', undefined), true);
+    assert(!read('community-gate').on.pull_request_target.types.includes('labeled'));
+    assert(!read('community-gate').on.pull_request_target.types.includes('unlabeled'));
     assert.equal(finalGate.steps.find(step => step.uses?.startsWith('actions/download-artifact@'))['continue-on-error'], true);
     assert.equal(finalGate.steps.find(step => step.id === 'gate')['continue-on-error'], undefined);
     // 等待人工批准、长校验和签名不占用最终授权队列。
@@ -162,9 +191,11 @@ public class WorkflowJson {
         assert.equal(download.with['repository'], undefined);
     }
     assert.equal(emergency.concurrency.group, read('community-publication').concurrency.group);
-    assert.equal(cleanup.concurrency.group, read('community-archive').concurrency.group);
+    assert.equal(cleanup.concurrency.group, archive.jobs.archive.concurrency.group);
     assert.equal(cleanup.concurrency.queue, 'max');
     assert.deepEqual(cleanup.on.pull_request_target, { branches: ['master'], types: ['closed'] });
+    assert.equal(cleanup.on.schedule.length, 1);
+    assert(Object.hasOwn(cleanup.on, 'workflow_dispatch'));
     assert.equal(cleanup.permissions.contents, 'read');
     assert.deepEqual(cleanup.jobs.cleanup.permissions, { contents: 'write', actions: 'read', 'pull-requests': 'read' });
     assert(cleanup.jobs.cleanup.if.includes('github.event.pull_request.merged == false'));

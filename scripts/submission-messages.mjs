@@ -1,6 +1,7 @@
 // 展示名称与协议值分离；选项和预览使用同一词表，不改写签名数据。
 export const optionNames = {
     ACTIVE: ['活动', 'Active', '有效', '有効', '활성'],
+    DECLARED_COMPROMISED: ['声明泄露', 'Declared compromised', '已宣告外洩', '漏えい申告済み', '유출 신고됨'],
     RETIRED: ['已退役', 'Retired', '已停用', '退役済み', '교체됨'],
     REVOKED: ['已撤销', 'Revoked', '已撤銷', '失効済み', '철회됨'],
     NEW: ['未登记', 'Unregistered', '未登記', '未登録', '미등록'],
@@ -76,6 +77,13 @@ export const optionNames = {
 };
 
 export const additions = {
+    transferHelp: ['接收方先以自己的 GitHub 身份和密钥提交申请；申请审核入库后，原所有者在此选择已有请求确认。正常转移须双方确认并经人工审核才生效，无需交换私钥。', 'The recipient submits a request using their own GitHub identity and key. After that request is reviewed and recorded, the current owner selects it here to confirm. A regular transfer requires both parties and human review; never exchange private keys.', '接收方先以自己的 GitHub 身分與金鑰提交申請；申請審核入庫後，原擁有者在此選擇既有請求確認。正常移轉須雙方確認並經人工審核才生效，無需交換私鑰。', '受取側が自身の GitHub アカウントと鍵で申請します。審査後に記録された申請を、現在の所有者がここで選んで確認します。通常の移管には双方の確認と人による審査が必要です。秘密鍵は共有しないでください。', '받는 사람이 자신의 GitHub 계정과 키로 신청합니다. 검토 후 기록된 요청을 현재 소유자가 여기서 선택해 확인합니다. 일반 이전은 양측 확인과 수동 검토 후 적용되며 개인 키를 교환하지 않습니다.'],
+    transferHandoff: ['我是原所有者：查看转出指引', 'I am the current owner: view handoff instructions', '我是原擁有者：查看轉出指引', '現在の所有者として譲渡手順を表示', '현재 소유자: 양도 안내 보기'],
+    transferHandoffHelp: ['请将下方插件 ID 告知接收方，请其登录自己的 GitHub 账号，选择“申请接收插件”。待申请审核入库后，您再选择该请求确认转出。当前不会提交转移请求，也不需要对方私钥。', 'Give the plugin ID below to the recipient. They must sign in to their own GitHub account and choose to request plugin ownership. After their request is reviewed and recorded, select it here to confirm the handoff. This step submits nothing and needs no recipient private key.', '請將下方外掛 ID 告知接收方，請其登入自己的 GitHub 帳號並選擇申請接收。待申請審核入庫後，您再選擇該請求確認轉出。目前不會提交請求，也不需要對方私鑰。', '下のプラグイン ID を受取側に伝え、自身の GitHub アカウントで受取申請を行うよう依頼してください。審査後に記録された申請をここで確認します。この操作では申請せず、相手の秘密鍵も不要です。', '아래 플러그인 ID를 받는 사람에게 전달하고 자신의 GitHub 계정으로 인수를 요청하도록 안내하세요. 요청이 검토되어 기록되면 여기서 선택해 양도를 확인하세요. 이 단계에서는 요청을 제출하지 않으며 상대방 개인 키도 필요하지 않습니다.'],
+    transferRecipientHelp: ['下方填写的是接收方身份。只能选择当前登录的个人账号或您有权代表的组织；publisherId 是接收方的社区发布者标识，不是插件 ID 或 GitHub 数字账号 ID。已有标识请继续使用。', 'The following fields identify the recipient: your signed-in account or an organization you represent. publisherId is the recipient’s community publisher identifier, not the plugin ID or numeric GitHub account ID. Reuse an existing identifier when registered.', '下方填寫的是接收方身分。只能選擇目前登入的個人帳號或您有權代表的組織；publisherId 是接收方的社群發布者識別碼，不是外掛 ID 或 GitHub 數字帳號 ID。已登記者請沿用原標識。', '以下は受取側の情報です。ログイン中の個人アカウントか、代表権限のある組織を選んでください。publisherId は受取側のコミュニティ発行者識別子で、プラグイン ID や GitHub の数値 ID ではありません。登録済みなら同じ識別子を使ってください。', '아래 항목은 받는 사람의 정보입니다. 로그인한 개인 계정이나 대표 권한이 있는 조직을 선택하세요. publisherId는 받는 사람의 커뮤니티 게시자 식별자이며 플러그인 ID나 GitHub 숫자 ID가 아닙니다. 등록된 식별자가 있으면 그대로 사용하세요.'],
+    recipientOwner: ['接收方 GitHub 账号', 'Recipient GitHub account', '接收方 GitHub 帳號', '受取側の GitHub アカウント', '받는 사람의 GitHub 계정'],
+    recipientPublisher: ['接收方的社区发布者标识 publisherId', 'Recipient community publisher identifier (publisherId)', '接收方的社群發布者識別碼 publisherId', '受取側のコミュニティ発行者識別子 publisherId', '받는 사람의 커뮤니티 게시자 식별자 publisherId'],
+    recipientDisplay: ['接收方发布者显示名称', 'Recipient publisher display name', '接收方發布者顯示名稱', '受取側の発行者表示名', '받는 사람의 게시자 표시 이름'],
     emergency: ['声明签名密钥泄露', 'Declare a signing key compromised', '宣告簽章金鑰外洩', '署名鍵の漏えいを申告', '서명 키 유출 신고'],
     emergencyHelp: ['请选择确已泄露的密钥。受保护流程核对 GitHub 身份后自动合并；合并生效后，这些公钥不能再授权社区操作。已发布版本不受影响，此声明不能撤回。', 'Select compromised keys. Protected automation verifies GitHub authority and merges the request. Once merged, these public keys cannot authorize further community operations. Published versions are unchanged. This declaration cannot be undone.', '請選擇確已外洩的金鑰。受保護流程核對 GitHub 身分後自動合併；生效後，這些公鑰不能再授權社群操作。已發布版本不受影響，宣告無法撤回。', '漏えいした鍵を選択してください。保護された処理が GitHub の権限を検証して自動マージします。マージ後、その公開鍵ではコミュニティ操作を承認できません。公開済みの版は変わりません。この申告は取り消せません。', '유출된 키를 선택하세요. 보호된 절차가 GitHub 권한을 검증한 후 자동 병합합니다. 병합 후에는 해당 공개 키로 커뮤니티 작업을 승인할 수 없습니다. 이미 게시된 버전에는 영향이 없으며 신고는 취소할 수 없습니다.'],
     compromisedKeys: ['选择泄露密钥（可多选）', 'Select compromised keys (multiple allowed)', '選擇外洩金鑰（可複選）', '漏えいした鍵を選択（複数可）', '유출된 키 선택 (여러 개 가능)'],

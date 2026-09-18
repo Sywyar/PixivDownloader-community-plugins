@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { api, id, sha, list, prefix, policy, main } from './github.mjs';
-import { execution, emergencyPath, event } from './platform.mjs';
+import { execution, notificationExecution, emergencyPath, event } from './platform.mjs';
 import { forkApi, REVIEW_READBACK_ATTEMPTS } from './apply-result.mjs';
 import { checkEmergency, emergencyPull } from './emergency-request.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
@@ -10,6 +10,14 @@ import { emergencyState, keyFingerprint } from './emergency-state.mjs';
 import { repositoryTree, readBlob, stateReader } from './submission-github.mjs';
 import { publisherPath } from './submission-check.mjs';
 import { automaticEnvironment } from './status-execution.mjs';
+import { hash } from './sdk.mjs';
+import { formatRequestInfo, notifyRequestInfo } from './community-comments.mjs';
+
+function requestProjection(pr, request, requestPath, bytes) {
+    return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged, baseRef: policy.emergencyBranch,
+        requestInfo: formatRequestInfo({ operation: 'DECLARE_KEY_COMPROMISE', owner: request.payload.owner,
+            requestPath, requestSha256: hash(bytes) }, request, pr) };
+}
 
 export function emergencyCheck(context, pr, conclusion, summary, call = api, token = process.env.GATE_TOKEN) {
     const result = call(`${prefix}/check-runs`, { method: 'POST', token, body: {
@@ -131,7 +139,8 @@ export async function applyEmergency(context, sdk, number, head, { call = api, w
         for (const key of request.payload.keys) if (!state.readBlock(key.fingerprint)) throw new Error('EMERGENCY_RECORDS_MISSING');
         const affected = invalidatePending(context, new Set(request.payload.keys.map(key => key.fingerprint)), sdk, call);
         state.unchanged();
-        return { merged: true, merge: initial.merge_commit_sha, affected, pendingRefresh: refresh(affected) };
+        return { merged: true, merge: initial.merge_commit_sha, affected, pendingRefresh: refresh(affected),
+            projection: requestProjection(initial, request, files[0].filename, raw) };
     }
     emergencyCheck(context, initial, 'pending', 'Verifying native identity, registered keys and exact request bytes.', call);
     let checked;
@@ -159,7 +168,8 @@ export async function applyEmergency(context, sdk, number, head, { call = api, w
         const merge = call(`${prefix}/git/commits/${sha(actual.merge_commit_sha)}`);
         if (merge.parents?.length !== 2 || merge.parents[0].sha !== checked.pr.base.sha || merge.parents[1].sha !== preparedHead) throw new Error('REVIEW_MERGE_CHANGED');
         // 不依赖 job token 写入自然触发事件，显式唤醒被撤回的各原申请检查。
-        return { merged: true, merge: actual.merge_commit_sha, affected, pendingRefresh: refresh(affected) };
+        return { merged: true, merge: actual.merge_commit_sha, affected, pendingRefresh: refresh(affected),
+            projection: requestProjection(actual, checked.request.value, checked.request.path, checked.request.bytes) };
     } catch (error) {
         const latest = emergencyPull(number, call);
         if (!latest.merged && latest.state === 'open') emergencyCheck(context, latest, 'failure',
@@ -169,6 +179,11 @@ export async function applyEmergency(context, sdk, number, head, { call = api, w
 }
 
 main(import.meta.url, async () => {
+    if (process.argv.length === 3 && process.argv[2] === 'notify') {
+        notificationExecution(emergencyPath);
+        notifyRequestInfo(JSON.parse(process.env.COMMUNITY_REQUEST_INFO));
+        return;
+    }
     if (process.argv.length !== 2) throw new Error('EMERGENCY_ARGUMENTS');
     const context = execution(emergencyPath);
     automaticEnvironment();
@@ -176,6 +191,7 @@ main(import.meta.url, async () => {
     const payload = event(), pr = payload.pull_request;
     const number = Number(id(pr?.number ?? payload.inputs?.prNumber));
     const head = sha(pr?.head.sha ?? payload.inputs?.expectedHeadSha);
-    const result = await applyEmergency(context, prepareSubmission(), number, head);
+    const { projection, ...result } = await applyEmergency(context, prepareSubmission(), number, head);
+    if (projection) fs.appendFileSync(process.env.GITHUB_OUTPUT, 'requestInfo=' + JSON.stringify(projection) + '\n', 'utf8');
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, JSON.stringify(result) + '\n', 'utf8');
 });
