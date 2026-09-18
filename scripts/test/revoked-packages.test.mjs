@@ -3,11 +3,17 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { archiveRevokedPackage, archivedPackage, revokedPackageTag } from '../revoked-packages.mjs';
 import { hash } from '../sdk.mjs';
 import { prefix } from '../github.mjs';
 
 test('撤销包完成归档回读后才删除公开附件，中断重试复用同一归档', async t => {
+    let upload;
+    const execute = t.mock.method(childProcess, 'execFileSync', (...args) => upload(...args));
+    syncBuiltinESMExports();
+    t.after(() => { execute.mock.restore(); syncBuiltinESMExports(); });
     for (const failure of [false, true]) {
         const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'revoked-package-'));
         t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -35,10 +41,16 @@ test('撤销包完成归档回读后才删除公开附件，中断重试复用�
             assert.equal(expected.sha256, hash(bytes)); assert(bytes.length <= maximum);
             if (endpoint.endsWith('/20')) { if (interrupted) throw new Error('ARCHIVE_READBACK_FAILED'); readback = true; }
             fs.writeFileSync(file, bytes, { flag: 'wx' });
-        }, upload: (id, file, name) => {
-            assert.equal(id, 2); assert.equal(name, hash(bytes) + '.jar'); assert.deepEqual(fs.readFileSync(file), bytes);
-            uploads++; const asset = { ...original, id: 20, name }; archived.push(asset); return asset;
         } };
+        upload = (command, args, options) => {
+            const name = hash(bytes) + '.jar';
+            assert.equal(command, 'gh');
+            assert(args.includes('POST'));
+            assert(args.includes(`https://uploads.github.com/${prefix}/releases/2/assets?name=${name}`));
+            assert.deepEqual(fs.readFileSync(args.at(-1)), bytes);
+            assert.deepEqual(options.stdio, ['ignore', 'pipe', 'pipe']);
+            uploads++; const asset = { ...original, id: 20, name }; archived.push(asset); return JSON.stringify(asset);
+        };
         if (failure) {
             await assert.rejects(archiveRevokedPackage(current, record, 1, original, workspace, transport), /ARCHIVE_READBACK_FAILED/);
             assert.equal(deletes, 0); assert.equal(packages.length, 1); interrupted = false;

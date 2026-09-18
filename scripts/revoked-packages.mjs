@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { immutableAsset } from './apply-result.mjs';
-import { downloadCandidate } from './candidate-transfer.mjs';
+import { downloadCandidate, uploadGithubBinary } from './candidate-transfer.mjs';
 
 export const revokedPackageTag = 'archive/revoked-packages';
 
@@ -21,7 +21,8 @@ export function archivedPackage(record, call = api) {
     return { release, asset };
 }
 
-export async function archiveRevokedPackage(current, record, releaseId, original, workspace, { call = api, download = downloadCandidate, upload } = {}) {
+export async function archiveRevokedPackage(current, record, releaseId, original, workspace, { call = api, download = downloadCandidate,
+    upload = (releaseId, file, name) => uploadGithubBinary(prefix, releaseId, file, name) } = {}) {
     const unchanged = () => {
         if (sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== current) throw new Error('APPLY_BASE_CHANGED');
         const release = call(`${prefix}/releases/${id(releaseId)}`);
