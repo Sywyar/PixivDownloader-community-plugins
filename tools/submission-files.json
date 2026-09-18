@@ -398,8 +398,8 @@
     },
     {
       "path": "scripts/submission-session.mjs",
-      "size": 7110,
-      "sha256": "16e8ae482645a53a5c48b210b7340647bc66f448a15c7c15064c2de5a12b935b"
+      "size": 7343,
+      "sha256": "da76353dbd852514e3818ab8f748389f701a88f24d9daab27702d2d8bde378cd"
     },
     {
       "path": "scripts/submission-signing.mjs",
@@ -443,8 +443,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 14657,
-      "sha256": "18d7af31decd89f78ccf110ba23d085e701f4537766f98711e4325769682c37e"
+      "size": 15386,
+      "sha256": "daa5a30a7e99737c62871a779f3b6799e79c8675bab91b24b388fe401157b684"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

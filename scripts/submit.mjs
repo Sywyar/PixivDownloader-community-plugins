@@ -10,7 +10,7 @@ import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from './submission-operations.mjs';
 import { withdrawRequest } from './submission-withdraw.mjs';
-import { validateChanges } from './submission-check.mjs';
+import { validateChanges, versionAvailable } from './submission-check.mjs';
 import { submitPreview, pendingPrepared } from './submission-write.mjs';
 import { navigation } from './submission-navigation.mjs';
 import { openProject, projectIdentity } from './submission-state.mjs';
@@ -18,7 +18,7 @@ import { publisherKeys } from './submission-publisher-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
 import { sessionLocator, saveSession, savePrepared, restorePrepared } from './submission-session.mjs';
 import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from './submission-emergency.mjs';
-import { presentOriginal, versionState } from './submission-version-state.mjs';
+import { presentOriginal, requestVersionNotice, versionState } from './submission-version-state.mjs';
 
 function appliedRequest(sdk, state, changes) {
     const kinds = { 'key-rotations': 'ROTATION', 'version-status-requests': 'STATUS_REQUEST', 'ownership-transfers': 'TRANSFER' };
@@ -115,13 +115,21 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         let prepared;
         if (context.resumePrepared) {
             prepared = await ui.task('restoringSubmission', () => restorePrepared(context));
+            if (operation === 'publish' && !prepared.sourceRelease) {
+                const files = [...prepared.changes.keys()].filter(file => file.startsWith('submissions/'));
+                if (files.length > 1) throw new Error('PROJECT_SESSION_INVALID');
+                if (files.length) {
+                    const submission = sdk.document('SUBMISSION', prepared.changes.get(files[0]), files[0]).value;
+                    prepared.original = versionAvailable(state, submission.pluginId, submission.version, submission.package.sha256);
+                }
+            }
             if (operation === 'emergency') {
                 const original = appliedEmergency(sdk, prepared.changes, call);
                 if (original) { presentOriginal(context, original); return { original }; }
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
                 if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
-            if (prepared.snapshot.base !== snapshot.base) {
+            if (!prepared.original && prepared.snapshot.base !== snapshot.base) {
                 ui.say('sessionBaseUpdated');
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
                 if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
@@ -154,6 +162,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             presentOriginal(context, original);
             return { original: original.value };
         }
+        if (context.resumePrepared) requestVersionNotice(context, prepared.changes, true);
         const validate = () => (operation === 'emergency' ? validateEmergencySubmission : validateChanges)({ sdk, state, changes: prepared.changes, user: snapshot.actor, call, ...(prepared.fetch ? { fetch: prepared.fetch } : {}),
             authorize: (owner, user) => eligible(owner, user, call) });
         const result = { ...await ui.task('validating', validate), ...(prepared.sourceRelease ? { sourceRelease: prepared.sourceRelease,

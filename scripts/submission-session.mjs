@@ -8,6 +8,7 @@ import { readFile } from './submission-fields.mjs';
 import { projectFolder, projectIdentity, submissionHome, STATE_BYTES, writeState } from './submission-state.mjs';
 import { sourceCandidate } from './submission-candidate.mjs';
 import { locales } from './submission-ui.mjs';
+import { versionAvailable } from './submission-check.mjs';
 
 // 启动目录只定位上次使用的项目；恢复前仍须用 GitHub 数字身份和当前源码核对。
 export function sessionLocator(directory, home = submissionHome()) {
@@ -95,6 +96,8 @@ export async function restorePrepared(context) {
     const files = [...prepared.changes.keys()].filter(file => file.startsWith('submissions/'));
     if (files.length !== 1) throw new Error('PROJECT_SESSION_INVALID');
     const submission = context.sdk.document('SUBMISSION', prepared.changes.get(files[0]), files[0]).value;
+    const original = versionAvailable(context.state, submission.pluginId, submission.version, submission.package.sha256);
+    if (original) return { ...prepared, original };
     const candidate = await sourceCandidate({ ...context, resumeCandidateId: prepared.sourceRelease.id, resumeCandidateTag: prepared.sourceRelease.tag }, source,
         { projectDir: submission.buildProfile.projectDir }, submission.buildProfile.id);
     if (candidate.sourceRelease.repository !== prepared.sourceRelease.repository || candidate.sourceRelease.tag !== prepared.sourceRelease.tag
