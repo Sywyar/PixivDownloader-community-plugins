@@ -32,13 +32,16 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
     let launcher = source.replaceAll('https://raw.githubusercontent.com/', `${options.tls ? 'https' : 'http'}://bootstrap.invalid/`)
         .replace(/(\$ChannelPublicKey = ')[^']+(')/u, '$1' + spki + '$2');
     if (options.deadline) launcher = launcher.replace('[Threading.CancellationTokenSource]::new(60000)', `[Threading.CancellationTokenSource]::new(${options.deadline})`);
+    if (options.idle) launcher = launcher.replaceAll('.CancelAfter(15000)', `.CancelAfter(${options.idle})`);
+    // 使用真实 PowerShell 提示和管道输入，仅替换测试进程的终端可用性检测。
+    if (options.input !== undefined) launcher = launcher.replace('[Console]::IsInputRedirected', '$false');
     const script = path.join(folder, 'submit.ps1');
     fs.writeFileSync(script, launcher);
     const runtime = Buffer.from(`console.log(JSON.stringify(process.argv.slice(2))); process.exit(${exitCode}); // ${crypto.randomUUID()}`);
     const manifest = Buffer.from(JSON.stringify({ schemaVersion: 1, files: [{ path: 'scripts/submit.mjs', size: runtime.length, sha256: hash(runtime) }] }));
     const now = Math.floor(Date.now() / 1000);
     const initial = { schemaVersion: 1, channel: channel.CHANNEL, repository: channel.REPOSITORY, sequence: 1,
-        runtimeCommit: crypto.randomBytes(20).toString('hex'), manifestSha256: hash(manifest), issuedAt: now, expiresAt: now + 3600 };
+        runtimeCommit: crypto.randomBytes(20).toString('hex'), manifestSha256: hash(manifest), issuedAt: now, expiresAt: now + (options.lifetime ?? 3600) };
     const state = { scenario: 'success', bytes: channel.signChannel(initial, privateKey), requests: [], faults: new Map(), tunnels: [], tlsDrops: 0, reached: Promise.withResolvers() };
     const handleRequest = (request, response) => {
         const url = new URL(request.url, 'http://bootstrap.invalid');
@@ -53,6 +56,24 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
             return;
         }
         if (fault === 'timeout') { response.writeHead(200); response.flushHeaders(); return; }
+        if (fault === 'headers-timeout') return;
+        if (fault === 'partial-timeout') { response.writeHead(200); response.write(runtime.subarray(0, 4)); return; }
+        if (fault === 'expire') {
+            response.writeHead(200); response.flushHeaders();
+            const timer = setTimeout(() => response.end(runtime), Math.max(0, initial.expiresAt * 1000 - Date.now() + 100));
+            response.on('close', () => clearTimeout(timer));
+            return;
+        }
+        if (fault === 'slow') {
+            response.writeHead(200, { 'Content-Length': runtime.length });
+            let offset = 0;
+            const timer = setInterval(() => {
+                response.write(runtime.subarray(offset, offset + 16)); offset += 16;
+                if (offset >= runtime.length) { clearInterval(timer); response.end(); }
+            }, 100);
+            response.on('close', () => clearInterval(timer));
+            return;
+        }
         if (Number.isInteger(fault)) { response.writeHead(fault); response.end(); return; }
         if (state.scenario === 'redirect') { response.writeHead(302, { Location: 'http://elsewhere.invalid/changed' }); response.end(); return; }
         if (state.scenario === 'unavailable') { response.writeHead(503); response.end(); return; }
@@ -121,14 +142,76 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
             + (mode === 'file' ? `& ${quote(script)} -ProjectDirectory ${quote(directory)}; exit $LASTEXITCODE`
                 : `try { irm '${proxy}/submit.ps1' | iex } catch { [Console]::Error.WriteLine($_.Exception.Message) }; [Console]::WriteLine('CALLER_ALIVE'); exit $LASTEXITCODE`);
         try {
-            return { code: 0, ...await promisify(execFile)(shell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
-                { cwd: directory, encoding: 'utf8', windowsHide: true, timeout: 90000 }) };
+            const running = promisify(execFile)(shell, ['-NoLogo', '-NoProfile', ...(options.input === undefined ? ['-NonInteractive'] : []),
+                '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')],
+                { cwd: directory, encoding: 'utf8', windowsHide: true, timeout: 90000 });
+            running.child.stdin.end(options.input ?? '');
+            return { code: 0, ...await running };
         } catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
     };
     return { ...state, state, folder, project, invoke, stateFile, cachedRuntime, initial, privateKey, runtime };
 }
 
 for (const shell of shells) {
+    test(`${shell} 下载等待期间渠道过期不能执行已下载工具`, async t => {
+        const f = await fixture(t, shell, 0, { lifetime: 12 });
+        f.state.faults.set('submit.mjs', ['expire']);
+        const result = await f.invoke('pipeline');
+        assert.equal(result.code, 1, result.stderr);
+        assert.match(result.stderr, /BOOTSTRAP_CHANNEL_EXPIRED/u);
+        assert.deepEqual(fs.readFileSync(f.cachedRuntime), f.runtime);
+        assert(!result.stdout.includes(JSON.stringify([f.project])));
+    });
+
+    test(`${shell} 响应头或正文停滞提前重试，持续传输重置空闲期限`, async t => {
+        const f = await fixture(t, shell, 0, { idle: 500 });
+        f.state.faults.set('submission-channel.json', ['headers-timeout']);
+        f.state.faults.set('submission-files.json', ['timeout']);
+        f.state.faults.set('submit.mjs', ['partial-timeout', 'slow']);
+        const result = await f.invoke('pipeline');
+        assert.equal(result.code, 0, result.stderr);
+        assert.match(result.stderr, /IDLE_TIMEOUT/u);
+        for (const name of ['submission-channel.json', 'submission-files.json', 'submit.mjs']) {
+            assert.equal(f.state.requests.filter(request => request.url.endsWith('/' + name)).length, 2);
+        }
+        assert.deepEqual(fs.readFileSync(f.cachedRuntime), f.runtime);
+        assert(!fs.readdirSync(path.dirname(f.cachedRuntime)).some(name => name.endsWith('.tmp')));
+    });
+
+    test(`${shell} 首次耗尽总期限后明确原因，手动重试只下载失败文件`, async t => {
+        const f = await fixture(t, shell, 0, { deadline: 1200, input: 'R\n' });
+        f.state.faults.set('submit.mjs', ['timeout']);
+        const result = await f.invoke('pipeline');
+        assert.equal(result.code, 0, result.stderr);
+        assert.match(result.stderr, /reason=TIMEOUT, attempts=1, maximum per round=3/u);
+        assert.match(result.stderr, /stopped: [^\r\n]+/u);
+        assert.equal(f.state.requests.filter(request => request.url.endsWith('/submit.mjs')).length, 2);
+        for (const name of ['submission-channel.json', 'submission-files.json']) {
+            assert.equal(f.state.requests.filter(request => request.url.endsWith('/' + name)).length, 1);
+        }
+        assert.deepEqual(fs.readFileSync(f.stateFile), f.state.bytes);
+        assert.deepEqual(fs.readFileSync(f.cachedRuntime), f.runtime);
+        assert.equal(result.stdout.split(JSON.stringify([f.project])).length - 1, 1);
+    });
+
+    test(`${shell} 三次自动重试耗尽可手动继续，回车退出保留缓存且安全错误不询问`, async t => {
+        for (const [faults, input, expectedCode, count] of [
+            [[503, 503, 503], 'R\n', 0, 4],
+            [['timeout'], '\n', 1, 1],
+            [[403], 'R\n', 1, 1],
+        ]) {
+            const f = await fixture(t, shell, 0, { deadline: faults[0] === 'timeout' ? 1200 : 60000, input });
+            f.state.faults.set('submit.mjs', [...faults]);
+            const result = await f.invoke();
+            assert.equal(result.code, expectedCode, result.stderr);
+            assert.equal(f.state.requests.filter(request => request.url.endsWith('/submit.mjs')).length, count);
+            assert.deepEqual(fs.readFileSync(f.stateFile), f.state.bytes);
+            assert.equal(fs.existsSync(f.cachedRuntime), expectedCode === 0);
+            assert(!fs.readdirSync(path.dirname(f.cachedRuntime)).some(name => name.endsWith('.tmp')));
+            if (faults[0] === 403) assert(!result.stdout.includes('[R]'));
+        }
+    });
+
     test(`${shell} 真实 CONNECT 中的 TLS 提前结束会重试，证书验证失败立即阻断`, async t => {
         for (const drops of [0, 2]) {
             const f = await fixture(t, shell, 0, { tls: true });
