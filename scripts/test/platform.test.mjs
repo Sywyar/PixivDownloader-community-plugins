@@ -17,7 +17,7 @@ test('主线汇总不读取开放 PR，审核事件只重新检查关联请求',
     assert.deepEqual(gateRequests({ ref: 'refs/heads/master', after: current }, noApi), []);
     assert.deepEqual(gateRequests({ pull_request: { number: 7 } }, noApi), [7]);
     assert.deepEqual(gateRequests({ inputs: { prNumber: '8' } }, noApi), [8]);
-    for (const [file, title] of [['submission-check', 'Submission PR #7'], ['community-archive', 'Archive Submission PR #7'],
+    for (const [file, title] of [['submission-check', 'Submission PR #7'],
         ['community-review-event', 'Review PR #7'], ['community-review-decision', `Community decision PR #7 head ${head}`],
         ['community-review-complete', `Complete community review PR #7 head ${head}`]]) {
         assert.deepEqual(gateRequests({ workflow_run: { id: 91 } }, endpoint => {
@@ -25,6 +25,38 @@ test('主线汇总不读取开放 PR，审核事件只重新检查关联请求',
             return { repository: { id: policy.repositoryId }, status: 'completed', path: `.github/workflows/${file}.yml`, display_title: title };
         }), [7]);
     }
+});
+test('管理请求不因空归档重复唤醒，真实候选交由归档完成触发，读取失败仍进入 Gate', () => {
+    const f = fixture();
+    const run = { id: 91, run_attempt: 1, repository: f.state.repo, status: 'completed', conclusion: 'success',
+        event: 'pull_request_target', path: '.github/workflows/submission-check.yml', display_title: 'Submission PR #7' };
+    let artifacts = [], unreadable = false;
+    const call = (endpoint, options) => {
+        if (endpoint === `${prefix}/actions/runs/91`) return run;
+        if (endpoint === `${prefix}/actions/runs/91/artifacts?per_page=100`) {
+            if (unreadable) throw new Error('NETWORK');
+            return [{ artifacts, total_count: artifacts.length }];
+        }
+        return f.call(endpoint, options);
+    };
+    const requests = () => gateRequests({ workflow_run: { id: 91 } }, call);
+    assert.deepEqual(requests(), [7]);
+    artifacts = [{ id: 81, name: 'community-build-91-1-' + 'e'.repeat(64),
+        workflow_run: { id: 91 }, expired: false, digest: 'sha256:' + 'd'.repeat(64) }];
+    assert.deepEqual(requests(), []);
+    unreadable = true; assert.deepEqual(requests(), [7]); unreadable = false;
+    run.conclusion = 'failure'; assert.deepEqual(requests(), [7]);
+    run.path = '.github/workflows/community-archive.yml'; run.display_title = 'Archive Submission PR #7';
+    for (const file of ['README.md', 'key-rotations/101/example/' + 'e'.repeat(64) + '.json',
+        'version-status-requests/101/example/demo/' + 'e'.repeat(64) + '.json',
+        'ownership-transfers/demo/' + 'e'.repeat(64) + '/proposal.json']) {
+        f.state.files = [{ filename: file, status: 'added' }];
+        assert.deepEqual(requests(), []);
+    }
+    f.state.files = [{ filename: 'submissions/101/example/demo.json', status: 'added' }];
+    assert.deepEqual(requests(), [7]);
+    f.state.files = [{ filename: 'unrecognized.json', status: 'added' }];
+    assert.deepEqual(requests(), [7]);
 });
 function fixture() {
     const owner = { id: Number(policy.repositoryOwnerId), login: 'owner', type: 'User', role_name: 'admin' };
@@ -380,8 +412,12 @@ test('版本审核绑定真实报告；误报、补扫、自审和撤销分别�
     const prepared = prepareSubmission();
     const { state, call: nativeCall, readGit, context } = fixture();
     state.files = [{ filename: `submissions/${policy.repositoryOwnerId}/sample/2.3.4.json`, status: 'added', sha: 'c'.repeat(40) }];
-    const checked = { operation: 'FIRST_RELEASE', pr: { head, base: current, user: { id: policy.repositoryOwnerId } },
-        submissionSha256: 'd'.repeat(64), submission: { source: { commit: 'e'.repeat(40) } },
+    const submission = JSON.parse(fs.readFileSync(path.join(prepared.workspace, 'contracts/community/v1/vectors/submission.json'), 'utf8'));
+    submission.pluginId = 'sample';
+    submission.source.commit = 'e'.repeat(40);
+    const checked = { operation: 'FIRST_RELEASE', validation: 'STATIC_VALIDATED', pluginId: submission.pluginId, version: submission.version,
+        pr: { head, base: current, user: { id: policy.repositoryOwnerId } },
+        submissionSha256: 'd'.repeat(64), submission,
         package: { sha256: 'f'.repeat(64) }, descriptor: { riskDeclaration: { present: false, signals: [] } },
         bindingSha256: '1'.repeat(64), publisherSha256: '2'.repeat(64),
         owner: { accountId: policy.repositoryOwnerId, accountType: 'User', publisherId: 'example' } };
@@ -441,6 +477,8 @@ test('版本审核绑定真实报告；误报、补扫、自审和撤销分别�
     assert.throws(() => result([values[0], manual, invalid]));
     const passed = await publish(7, context, prepared, call, call, readGit, async () => version);
     assert.equal(passed.error, undefined);
+    assert(passed.requestInfo.includes(submission.pluginId));
+    assert(passed.requestInfo.includes(submission.version));
     assert(passed.labels.includes('scan:incomplete'));
     assert(passed.labels.includes('type:new-plugin'));
     report.runAttempt = 2;

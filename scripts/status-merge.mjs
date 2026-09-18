@@ -33,6 +33,9 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
     // 已持有最终写入队列；直接复用 Gate 签发，避免等待同队列另一 workflow 而互相阻塞。
     const refreshed = await refresh(number, context, sdk, call, call, readGit);
     if (refreshed.error) throw new Error(refreshed.error);
+    const details = pr => refreshed.requestInfo === undefined ? undefined : {
+        number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged, requestInfo: refreshed.requestInfo,
+    };
     const deadline = now() + STATUS_CHECK_WAIT_MS;
     for (;;) {
         const pr = bound();
@@ -51,16 +54,16 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
             if (actual.head.sha !== head) throw new Error('PUBLICATION_HEAD_CHANGED');
             if (!actual.merged || actual.state !== 'closed') {
                 if (failure && !/\(HTTP (?:405|409)\)/u.test(String(failure.stderr))) throw failure;
-                return { pending: 'STATUS_MERGE_BLOCKED', pr: actual };
+                return { pending: 'STATUS_MERGE_BLOCKED', pr: actual, projection: details(actual) };
             }
             const commit = call(`${prefix}/git/commits/${sha(actual.merge_commit_sha)}`);
             if (commit.parents?.length !== 2 || commit.parents[0].sha !== context.current || commit.parents[1].sha !== head) {
                 throw new Error('REVIEW_MERGE_CHANGED');
             }
             call(`${prefix}/actions/workflows/community-publication.yml/dispatches`, { method: 'POST', body: { ref: policy.defaultBranch } });
-            return { merged: true, head, merge: actual.merge_commit_sha };
+            return { merged: true, head, merge: actual.merge_commit_sha, projection: details(actual) };
         }
-        if (now() >= deadline) return { pending: 'STATUS_CHECKS_PENDING', pr };
+        if (now() >= deadline) return { pending: 'STATUS_CHECKS_PENDING', pr, projection: details(pr) };
         await wait(Math.min(1000, deadline - now()));
     }
 }

@@ -258,8 +258,8 @@
     },
     {
       "path": "scripts/candidate.mjs",
-      "size": 5151,
-      "sha256": "97a9c22c431688f918f6a8262b497ce31e7a1f18328d7d09ed8439e7a2679d78"
+      "size": 6189,
+      "sha256": "1fdd4ba50b1f17677fc76ba1cab38f2eac2083657be527373a9b25146c24335d"
     },
     {
       "path": "scripts/community-renewal.mjs",
@@ -278,8 +278,8 @@
     },
     {
       "path": "scripts/emergency-request.mjs",
-      "size": 6705,
-      "sha256": "f6119f72da140b52913abaa8a21f639764d7504842cc805a3b481586ca4d92f1"
+      "size": 6738,
+      "sha256": "c012ec8a0a47b7e9690d212e55bea9199cd3ccf6d2599a048cadfde527bf32ba"
     },
     {
       "path": "scripts/emergency-state.mjs",
@@ -313,8 +313,8 @@
     },
     {
       "path": "scripts/status-authorization.mjs",
-      "size": 3507,
-      "sha256": "4e4b8950f45e8433c25d734c6c471bc1db78fd6c72daf909a2ba2aee472a47ce"
+      "size": 4353,
+      "sha256": "0c8d2647b4d067026c5e184d3710cc347d7c28a7e1be28f656da0f6a3b32efae"
     },
     {
       "path": "scripts/submission-candidate.mjs",

@@ -120,9 +120,14 @@ for (const sameRepository of [false, true]) test(`紧急请求${sameRepository ?
     try {
         const result = await applyEmergency(context, sdk, 5, f.head, { call, token: 'test-only', wait: async () => {} });
         assert.equal(result.merged, true); assert.deepEqual(result.pendingRefresh, [19]);
+        assert.equal(result.projection.baseRef, policy.emergencyBranch);
+        assert.equal(result.projection.head, f.generated);
+        assert.equal(result.projection.merged, true);
+        for (const key of f.keys) assert(result.projection.requestInfo.includes(keyFingerprint(key)));
         assert.throws(() => emergencyState(sdk, call).requireKey(f.keys[0]), /KEY_DECLARED_COMPROMISED/);
         failRefresh = false;
         const resumed = await applyEmergency(context, sdk, 5, f.head, { call, token: 'test-only' });
+        assert.deepEqual(resumed.projection, result.projection);
         assert.deepEqual(resumed.pendingRefresh, []); assert.equal(patched, 1); assert.equal(merged, 1); assert.equal(refreshes, 2);
     } finally {
         if (previous === undefined) delete process.env.COMMUNITY_REVIEW_BRANCH_TOKEN;
@@ -135,7 +140,9 @@ test('准入跨 job 数据仅接受同一次可信执行，证据原字节校验
     const raw = Buffer.from('evidence'), file = 'evidence/' + hash(raw) + '.json';
     fs.mkdirSync(path.join(sdk.workspace, 'evidence'), { recursive: true });
     fs.writeFileSync(path.join(sdk.workspace, file), raw);
-    const rows = [{ number: 5, version: { candidate: { evidence: [{ path: file, size: raw.length, sha256: hash(raw) }] } } }];
+    const ref = { path: file, size: raw.length, sha256: hash(raw) };
+    const rows = [{ number: 5, version: { candidate: { evidence: [ref] } } },
+        { number: 6, version: { statusAuthorization: { binding: 'a'.repeat(64), audit: ref } } }];
     const frozen = freezeVersions(context, rows, sdk);
     assert.deepEqual(restoreVersions(frozen, context, sdk), rows);
     assert.throws(() => restoreVersions(frozen, { ...context, current: 'b'.repeat(40) }, sdk), /GATE_TRANSFER_CHANGED/);

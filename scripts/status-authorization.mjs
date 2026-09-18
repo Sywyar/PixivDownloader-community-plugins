@@ -32,6 +32,15 @@ export function signedStatusAuthority(request, pr, adapter, native) {
 
 export function authorizeStatus(input, sdk, context, version, pr, call = api) {
     if (!signedStatusEligible(version?.checked)) return input;
+    // 只复用固定源码与请求上的纯验签结果；原生审核和紧急状态由调用方每次重读。
+    const binding = hash(Buffer.from(JSON.stringify({ source: context.current, runId: id(context.run.id),
+        attempt: context.run.run_attempt, createdAt: context.run.created_at, pr: input.after.pr,
+        checked: version.checked, appliedAt: version.completion?.receipt.appliedAt ?? null })));
+    if (version.statusAuthorization) {
+        if (version.statusAuthorization.binding !== binding) throw new Error('STATUS_AUTHORIZATION_CHANGED');
+        const ref = version.statusAuthorization.audit;
+        return ref ? { ...input, statusAudit: ref, evidence: [...input.evidence, ref] } : input;
+    }
     const state = statusState(sdk, context.current, version.checked, pr, call);
     const adapter = applySdk(sdk);
     const request = state.read(version.checked.requestPath, version.checked.operation === 'KEY_ROTATION' ? 'ROTATION' : 'STATUS_REQUEST').value;
@@ -44,9 +53,11 @@ export function authorizeStatus(input, sdk, context, version, pr, call = api) {
     catch (error) {
         if (!String(error.stderr ?? error.message).includes('COMMUNITY_RESTRICTION_REVIEW_REQUIRED')) throw error;
         version.statusManualReason = 'COMMUNITY_RESTRICTION_REVIEW_REQUIRED';
+        version.statusAuthorization = { binding, audit: null };
         return input;
     }
     if (result.replayed) throw new Error('STATUS_REQUEST_ALREADY_APPLIED');
     const ref = evidence(sdk.workspace, result.audit);
+    version.statusAuthorization = { binding, audit: ref };
     return { ...input, statusAudit: ref, evidence: [...input.evidence, ref] };
 }

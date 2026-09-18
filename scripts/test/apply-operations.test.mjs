@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepareSubmission } from './local-sdk.mjs';
+import { prepareSubmission, withRepositoryFiles } from './local-sdk.mjs';
 import { signingTool, signOperation } from '../submission-signing.mjs';
 import { applySdk } from '../apply-sdk.mjs';
 import { applyOperation } from '../apply-operations.mjs';
 import { hash, evaluate, evidence } from '../sdk.mjs';
-import { signedStatusAuthority } from '../status-authorization.mjs';
-import { API_BYTES } from '../github.mjs';
+import { signedStatusAuthority, authorizeStatus } from '../status-authorization.mjs';
+import { freezeVersions, restoreVersions } from '../community-gate.mjs';
+import { API_BYTES, policy } from '../github.mjs';
 
 test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺少批准和重复覆盖', () => {
     const sdk = prepareSubmission(), sign = signingTool(sdk);
@@ -79,6 +80,28 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
     assert.equal(automatic.audit.result, 'PREPARED');
     assert.deepEqual(automatic.audit.reviewerAccountIds, []);
     admitted(automatic, routineFile, routine.payload.publisherRecordSha256);
+    const context = { current: 'c'.repeat(40), run: { id: '51', run_attempt: 1, created_at: '2026-01-02T00:00:00Z' } };
+    const version = { checked: { operation: 'KEY_ROTATION', reasonCode: 'ROUTINE_ROTATION', recoveryRequired: false,
+        owner, pr: { user: { id: owner.accountId }, head: 'b'.repeat(40) }, requestPath: routineFile,
+        requestSha256: hash(records.get(routineFile)), organizationRepresentationRequired: [] } };
+    const input = { after: { pr: { ...pr(owner.accountId, 1), mergeSha: null } }, evidence: [] };
+    const actual = { head: { repo: { full_name: policy.repository } } };
+    const call = withRepositoryFiles(endpoint => assert.fail(endpoint), policy.repository,
+        new Map([[context.current, records], [input.after.pr.headSha, new Map([[routineFile, records.get(routineFile)]])]]));
+    const authorized = authorizeStatus(input, sdk, context, version, actual, call);
+    admitted({ audit: JSON.parse(fs.readFileSync(path.join(sdk.workspace, authorized.statusAudit.path))) },
+        routineFile, routine.payload.publisherRecordSha256);
+    const restoredAuthorization = restoreVersions(freezeVersions(context, [{ number: 1, version }], sdk), context, sdk)[0].version;
+    const noRead = () => assert.fail('固定源码上的验签结果不应重复下载并计算');
+    assert.deepEqual(authorizeStatus(input, sdk, context, restoredAuthorization, actual, noRead), authorized);
+    for (const changed of [{ ...context, current: 'e'.repeat(40) },
+        { ...context, run: { ...context.run, run_attempt: 2 } }]) {
+        assert.throws(() => authorizeStatus(input, sdk, changed, restoredAuthorization, actual, noRead), /STATUS_AUTHORIZATION_CHANGED/);
+    }
+    assert.throws(() => authorizeStatus({ ...input, after: { pr: { ...input.after.pr, headSha: 'e'.repeat(40) } } },
+        sdk, context, restoredAuthorization, actual, noRead), /STATUS_AUTHORIZATION_CHANGED/);
+    assert.throws(() => authorizeStatus(input, sdk, context, { ...restoredAuthorization,
+        checked: { ...restoredAuthorization.checked, requestSha256: 'f'.repeat(64) } }, actual, noRead), /STATUS_AUTHORIZATION_CHANGED/);
     for (const reasonCode of ['KEY_LOST', 'KEY_COMPROMISED']) {
         const manual = signOperation(sdk, sign, 'ROTATION', { schemaVersion: 1, payload: { ...routine.payload, reasonCode } }, { newKey: next, oldKey: first });
         assert.throws(() => execute('KEY_ROTATION', manual, `key-rotations/101/original/${manual.requestId}.json`, { signed: true }), /APPROVAL_REQUIRED/);

@@ -4,12 +4,14 @@ import { api, id, list, policy, prefix, main, API_BYTES } from './github.mjs';
 import { evaluate, hash } from './sdk.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { versionContext } from './version-review.mjs';
-import { gatePath, execution, notificationExecution, facts, fingerprint, event, pull, classify } from './platform.mjs';
+import { gatePath, execution, notificationExecution, facts, fingerprint, event, pull, prValue, classify } from './platform.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 import { authorizeStatus } from './status-authorization.mjs';
 import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
 import { reviewedRequestCall } from './apply-result.mjs';
+import { readRequestInfo, updateComment, notifyRequestInfo } from './community-comments.mjs';
+import { archivePath, buildPath, buildArtifact } from './candidate.mjs';
 
 export function appliedProjection(pr, files, result) {
     const recorded = result.receipts?.find(receipt => receipt.prNumber === pr.number && receipt.recordOnly);
@@ -67,6 +69,7 @@ export async function publish(number, context, prepared, call = api, write = api
         if (prepared instanceof Error) throw prepared;
         const version = await resolveVersion(number, prepared, context.current, call, readGit);
         const reviewCall = version?.completion?.reviewCall ?? call;
+        const requestInfo = readRequestInfo(prepared, version?.checked, pull(number, reviewCall), reviewCall);
         const emergency = authorizeEmergencyKeys(prepared, version?.checked, context.current, pull(number, reviewCall), call);
         const collect = () => {
             const input = facts(number, prepared, context.current, reviewCall, version);
@@ -123,7 +126,7 @@ export async function publish(number, context, prepared, call = api, write = api
         }
         // 维护合并没有目录应用动作；只有发布执行器能显示 awaiting-apply/completed。
         if (!version && result.snapshot.state === 'MERGED') labels.splice(labels.indexOf('state:awaiting-apply'), 1);
-        return { ...identity, labels, summary };
+        return { ...identity, labels, summary, ...(requestInfo ? { requestInfo } : {}) };
     } catch (error) {
         const pending = error.message === 'CANDIDATE_ARCHIVE_PENDING';
         const failures = [];
@@ -146,6 +149,10 @@ export async function publish(number, context, prepared, call = api, write = api
 
 export function notify(projections, call = api) {
     for (const projection of projections) {
+        if (projection.requestInfo !== undefined && projection.summary === undefined) {
+            notifyRequestInfo(projection, call);
+            continue;
+        }
         const number = Number(id(projection.number));
         const matches = () => {
             const pr = pull(number, call);
@@ -162,14 +169,8 @@ export function notify(projections, call = api) {
         if (typeof projection.summary !== 'string') throw new Error('SUMMARY_PROJECTION_INVALID');
         const marker = '<!-- community-review-summary -->';
         const body = marker + '\nHead: ' + projection.head + '\n\n' + projection.summary;
-        if (Buffer.byteLength(body, 'utf8') > 65536) throw new Error('SUMMARY_PROJECTION_SIZE');
-        const comments = list(prefix + '/issues/' + number + '/comments', null, call).filter(comment =>
-            comment.user?.type === 'Bot' && id(comment.user.id) === '41898282' && comment.body?.startsWith(marker));
-        if (comments.length > 1) throw new Error('SUMMARY_COMMENT_AMBIGUOUS');
-        if (!matches()) continue;
-        if (comments.length) {
-            if (comments[0].body !== body) call(prefix + '/issues/comments/' + id(comments[0].id), { method: 'PATCH', body: { body } });
-        } else call(prefix + '/issues/' + number + '/comments', { method: 'POST', body: { body } });
+        updateComment(number, marker, body, matches, call);
+        notifyRequestInfo(projection, call);
     }
 }
 
@@ -190,13 +191,28 @@ export function gateRequests(payload, call = api) {
     if (!patterns[run.path]) throw new Error('GATE_TRIGGER_INVALID');
     const named = patterns[run.path].exec(run.display_title ?? '');
     // 名称只是定位提示，准入仍独立复核当前 PR、执行来源及全部证据。
-    return named ? [Number(id(named[1]))] : [...new Set((run.pull_requests ?? []).map(pr => Number(id(pr.number))))];
+    const numbers = named ? [Number(id(named[1]))] : [...new Set((run.pull_requests ?? []).map(pr => Number(id(pr.number))))];
+    try {
+        if (run.path === buildPath && run.conclusion === 'success' && buildArtifact(run, call)) return [];
+        if (run.path !== archivePath) return numbers;
+        // 管理请求没有候选；归档空跑的完成事件不能再次占用最终授权队列。
+        return numbers.filter(number => {
+            const pr = pull(number, call), files = list(`${prefix}/pulls/${number}/files`, null, call);
+            const operation = classify(pr, files);
+            return operation === 'version' || operation === 'review-completed'
+                && files.some(file => file.filename.startsWith('submissions/'));
+        });
+    } catch {
+        // 路由无法确认时继续完整校验并撤回旧成功，不能将读取失败当作无需检查。
+        return numbers;
+    }
 }
 
 // 只在同一可信 workflow 的 jobs 间交接数据；不接受 PR artifact 或其它 run 的结果。
 export function freezeVersions(context, rows, sdk) {
     const evidence = new Map();
-    for (const row of rows) for (const ref of row.version?.candidate?.evidence ?? []) {
+    for (const row of rows) for (const ref of [...(row.version?.candidate?.evidence ?? []),
+        ...(row.version?.statusAuthorization?.audit ? [row.version.statusAuthorization.audit] : [])]) {
         const bytes = fs.readFileSync(path.join(sdk.workspace, ref.path));
         if (bytes.length !== ref.size || hash(bytes) !== ref.sha256) throw new Error('GATE_EVIDENCE_CHANGED');
         evidence.set(ref.path, { ...ref, bytes: bytes.toString('base64') });
@@ -229,7 +245,7 @@ export async function gate(mode) {
     const payload = event();
     const numbers = gateRequests(payload);
     if (!numbers.length) {
-        fs.appendFileSync(process.env.GITHUB_OUTPUT, 'projections=[]\n', 'utf8');
+        fs.appendFileSync(process.env.GITHUB_OUTPUT, 'requests=false\nprojections=[]\n', 'utf8');
         return;
     }
     let prepared;
@@ -239,8 +255,12 @@ export async function gate(mode) {
         const rows = [];
         for (const number of numbers) {
             const pr = pull(number);
-            try { rows.push({ number, head: pr.head.sha, base: pr.base.sha, state: pr.state, merged: pr.merged,
-                version: pr.state === 'open' ? await versionContext(number, prepared, context.current) : null }); }
+            try {
+                const version = pr.state === 'open' ? await versionContext(number, prepared, context.current) : null;
+                const reviewed = pull(number, version?.completion?.reviewCall ?? api);
+                authorizeStatus({ after: { pr: prValue(reviewed) }, evidence: [] }, prepared, context, version, reviewed);
+                rows.push({ number, head: pr.head.sha, base: pr.base.sha, state: pr.state, merged: pr.merged, version });
+            }
             catch (error) { rows.push({ number, head: pr.head.sha, base: pr.base.sha, state: pr.state, merged: pr.merged, error: error.message }); }
         }
         const file = path.join(prepared.workspace, 'gate-input.json');

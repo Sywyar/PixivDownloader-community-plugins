@@ -69,7 +69,7 @@ export function checkEmergency(number, expectedHead, sdk, current, call = api) {
     }
     const requestPath = requests[0];
     const bytes = readBlob(name, tree.get(requestPath), scoped);
-    const request = sdk.document('EMERGENCY_REQUEST', bytes, requestPath);
+    const request = { ...sdk.document('EMERGENCY_REQUEST', bytes, requestPath), path: requestPath, bytes };
     let source = pr;
     if (files.length > 1) {
         const commit = scoped(`repos/${name}/git/commits/${pr.head.sha}`);
