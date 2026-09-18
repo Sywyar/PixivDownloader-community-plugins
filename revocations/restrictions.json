@@ -1,1 +1,1 @@
-[]
+[{"decisionRef":{"path":"records/19d65dae4eb592885102b1b402efd9693a1ebc31313c2eb51960faa500ad850f.json","size":15178,"sha256":"19d65dae4eb592885102b1b402efd9693a1ebc31313c2eb51960faa500ad850f"},"communityIndependent":false,"entry":{"scope":"PACKAGE_SHA256","pluginId":"douyin","version":"1.0.0-rc.1","packageSha256":"088b05b35fbd791adc24ade79dcea5bfcff45e1507c744ea25ed46a53a0b0c03","action":"YANKED","reasonCode":"MAINTAINER_WITHDRAWAL","effectiveTime":"2026-09-18T02:19:21Z"}}]
