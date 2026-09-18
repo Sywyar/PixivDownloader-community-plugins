@@ -15,8 +15,50 @@ permissions:
   actions: read
   pull-requests: read
 jobs:
+  previous:
+    name: Prepare reviewed baseline
+    if: >-
+      github.repository == 'Sywyar/PixivDownloader-community-plugins' &&
+      github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    outputs:
+      artifact: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          verify-signature: true
+      - id: previous
+        run: node scripts/submission-build.mjs previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        id: upload
+        if: steps.previous.outputs.artifact != ''
+        with:
+          name: ${{ steps.previous.outputs.artifact }}
+          path: target/previous-build/package
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: false
+          compression-level: 0
   submission:
     name: Build and scan version
+    needs: previous
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
@@ -37,10 +79,17 @@ jobs:
         run: node scripts/candidate-run.mjs
         env:
           GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.previous.outputs.artifact != ''
+        with:
+          artifact-ids: ${{ needs.previous.outputs.artifact }}
+          path: target/previous-build
+          merge-multiple: true
       - id: build
         run: node scripts/submission-build.mjs
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMUNITY_PREVIOUS_PACKAGE: ${{ needs.previous.outputs.artifact != '' && 'target/previous-build/package' || '' }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: steps.build.outputs.artifact != ''
         with:

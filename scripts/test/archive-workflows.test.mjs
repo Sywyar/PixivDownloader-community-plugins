@@ -64,6 +64,7 @@ public class WorkflowJson {
         'candidate-cleanup.mjs': inspect,
         'candidate-run.mjs': { contents: 'read', 'pull-requests': 'read' },
         'submission-build.mjs': { contents: 'read', actions: 'read', 'pull-requests': 'read' },
+        'submission-build.mjs previous': inspect,
     };
     const levels = { none: 0, read: 1, write: 2 }, exercised = new Set();
     for (const file of fs.readdirSync(path.join(root, '.github/workflows')).filter(file => /\.ya?ml$/u.test(file))) {
@@ -135,7 +136,19 @@ public class WorkflowJson {
         }), [release]);
     }
     const build = read('submission-check');
-    for (const job of Object.values(build.jobs)) assert.equal((job.permissions ?? build.permissions).contents, 'read');
+    assert.equal((build.jobs.submission.permissions ?? build.permissions).contents, 'read');
+    assert.equal(build.jobs.submission.needs, 'previous');
+    const previous = build.jobs.previous;
+    assert.deepEqual(previous.permissions, { contents: 'write', actions: 'read', 'pull-requests': 'read' });
+    assert.deepEqual(previous.steps.filter(step => step.run).map(step => step.run), ['node scripts/submission-build.mjs previous']);
+    const previousCheckout = previous.steps.find(step => step.uses?.startsWith('actions/checkout@'));
+    assert.equal(previousCheckout.with.ref, '${{ github.workflow_sha }}');
+    assert.equal(previousCheckout.with['persist-credentials'], false);
+    assert.equal(previous.steps.find(step => step.uses?.startsWith('actions/upload-artifact@')).with['retention-days'], 1);
+    const previousDownload = build.jobs.submission.steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
+    assert.equal(previousDownload.with['artifact-ids'], '${{ needs.previous.outputs.artifact }}');
+    assert.equal(previousDownload.with['run-id'], undefined);
+    assert.equal(previousDownload.with.repository, undefined);
     const archive = read('community-archive');
     assert.equal(archive.concurrency, undefined);
     assert.equal(archive.jobs.preflight.concurrency, undefined);
@@ -181,6 +194,8 @@ public class WorkflowJson {
     assert.equal(cleanup.concurrency.group, archive.jobs.archive.concurrency.group);
     assert.equal(cleanup.concurrency.queue, 'max');
     assert.deepEqual(cleanup.on.pull_request_target, { branches: ['master'], types: ['closed'] });
+    assert.equal(cleanup.on.schedule.length, 1);
+    assert(Object.hasOwn(cleanup.on, 'workflow_dispatch'));
     assert.equal(cleanup.permissions.contents, 'read');
     assert.deepEqual(cleanup.jobs.cleanup.permissions, { contents: 'write', actions: 'read', 'pull-requests': 'read' });
     assert(cleanup.jobs.cleanup.if.includes('github.event.pull_request.merged == false'));

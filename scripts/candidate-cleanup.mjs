@@ -6,13 +6,14 @@ import { api, id, sha, list, prefix, policy, repository, main } from './github.m
 import { cleanupPath, event, execution } from './platform.mjs';
 import { candidateReservation, requireDraft } from './archive.mjs';
 import { draftReleases } from './archive-read.mjs';
+import { cleanupOperationArchives } from './release-retention.mjs';
 
 const missing = error => error.status === 404 || /\(HTTP 404\)/u.test(String(error.stderr ?? ''));
 const assetIdentity = assets => assets.map(({ id, name, state, size, digest }) => ({ id, name, state, size, digest }))
     .sort((a, b) => String(a.id).localeCompare(String(b.id)));
 
 // 只清理仍绑定已关闭请求的候选；与归档和正式发布共用 workflow 串行队列。
-export async function cleanupCandidates(number, expectedHead, workspace, { call = api, download } = {}) {
+export async function cleanupCandidates(number, expectedHead, workspace, { call = api, download, releases } = {}) {
     id(number); sha(expectedHead);
     const requestClosed = () => {
         const pr = call(`${prefix}/pulls/${number}`);
@@ -23,7 +24,7 @@ export async function cleanupCandidates(number, expectedHead, workspace, { call 
     const result = { deleted: [], retained: [] };
     if (!requestClosed()) return result;
     repository(call, { publicOnly: true });
-    for (const release of draftReleases(call)) {
+    for (const release of releases ?? draftReleases(call)) {
         if (release.draft !== true || release.published_at !== null) continue;
         const stable = /^candidate\/[a-f0-9]{64}$/u.test(release.tag_name);
         const legacy = /^candidate\/pr-([1-9][0-9]*)\/[a-f0-9]{40}\/[a-f0-9]{64}$/u.exec(release.tag_name);
@@ -62,16 +63,34 @@ export async function cleanupCandidates(number, expectedHead, workspace, { call 
 }
 
 main(import.meta.url, async () => {
-    if (process.argv.length !== 2 || process.env.GITHUB_EVENT_NAME !== 'pull_request_target') throw new Error('CLEANUP_EVENT_REQUIRED');
-    execution(cleanupPath);
+    if (process.argv.length !== 2 || !['pull_request_target', 'schedule', 'workflow_dispatch'].includes(process.env.GITHUB_EVENT_NAME)) throw new Error('CLEANUP_EVENT_REQUIRED');
+    const context = execution(cleanupPath);
     const trigger = event();
-    if (trigger.action !== 'closed' || trigger.pull_request?.state !== 'closed' || trigger.pull_request.merged !== false
-        || id(trigger.repository.id) !== policy.repositoryId) throw new Error('CLEANUP_EVENT_REQUIRED');
+    if (id(trigger.repository.id) !== policy.repositoryId || process.env.GITHUB_EVENT_NAME === 'pull_request_target'
+        && (trigger.action !== 'closed' || trigger.pull_request?.state !== 'closed' || trigger.pull_request.merged !== false)) throw new Error('CLEANUP_EVENT_REQUIRED');
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'community-cleanup-'));
     try {
-        const result = await cleanupCandidates(trigger.pull_request.number, trigger.pull_request.head.sha, workspace);
+        const result = { deleted: [], retained: [] };
+        if (process.env.GITHUB_EVENT_NAME === 'pull_request_target') {
+            Object.assign(result, await cleanupCandidates(trigger.pull_request.number, trigger.pull_request.head.sha, workspace));
+        } else {
+            const releases = draftReleases();
+            for (const release of releases) if (/^candidate\//u.test(release.tag_name)) {
+                const assets = list(`${prefix}/releases/${id(release.id)}/assets`, null);
+                const owner = await candidateReservation(release, assets, workspace);
+                const pr = api(`${prefix}/pulls/${id(owner.prNumber)}`);
+                const cleaned = await cleanupCandidates(pr.number, pr.head.sha, workspace, { releases: [release] });
+                result.deleted.push(...cleaned.deleted); result.retained.push(...cleaned.retained);
+            }
+            if (releases.some(release => /^operation\//u.test(release.tag_name))) {
+                const cleaned = await cleanupOperationArchives(context.current, releases, { workspace });
+                result.deleted.push(...cleaned.deleted); result.retained.push(...cleaned.retained);
+            }
+        }
         console.log(JSON.stringify(result));
         fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
             `Candidate draft cleanup\n\nDeleted Release IDs: ${result.deleted.join(', ') || 'none'}\n\nRetained: ${JSON.stringify(result.retained)}\n`, 'utf8');
-    } finally { fs.rmSync(workspace, { recursive: true, force: true }); }
+    } finally {
+        fs.rmSync(workspace, { recursive: true, force: true });
+    }
 });

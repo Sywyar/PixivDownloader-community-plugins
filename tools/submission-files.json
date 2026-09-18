@@ -233,8 +233,8 @@
     },
     {
       "path": "scripts/apply-result.mjs",
-      "size": 18277,
-      "sha256": "00d144acc1b93b94c18235b0bb5d09056b93842d6307151ca02ad1e8fd736d74"
+      "size": 21555,
+      "sha256": "0888bfd8f2684c24827b2df963ef2d25eea70eec6806c79cad76e10015771971"
     },
     {
       "path": "scripts/apply-sdk.mjs",
@@ -293,13 +293,18 @@
     },
     {
       "path": "scripts/platform.mjs",
-      "size": 12759,
-      "sha256": "84c0d8c89a4bf623a35456633dff33e9ff3451219b4d4fb9d2ce5b3c05d58731"
+      "size": 12886,
+      "sha256": "e29ccd0c9869c60e88fa4d6d28a48fa4dd63c14d0b974397d5c413b3fbef684d"
     },
     {
       "path": "scripts/project.mjs",
       "size": 3460,
       "sha256": "2553b7fa197f4967e989bc414fa530b0009a8c7ea3e1a5464cb6903eba26f982"
+    },
+    {
+      "path": "scripts/receipt-storage.mjs",
+      "size": 4522,
+      "sha256": "b800db60b5a6f3949e9b1e326bdfa6dbb9f02516186fd0784bc595e6998178a8"
     },
     {
       "path": "scripts/repository-policy.json",

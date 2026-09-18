@@ -7,6 +7,7 @@ import { appendReviewCommit, checkResult, makeReceipt, receiptPath, receiptExpir
 import { encoded } from '../apply-generation.mjs';
 import { hash, root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
+import { reference, proofPath } from '../receipt-storage.mjs';
 
 test('fork 读取核对数字归属，写入必须使用专用分支凭据', () => {
     const pr = { head: { repo: { id: 201, full_name: 'author/community' } } };
@@ -72,8 +73,10 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
             ['revocations.json', encoded({ nextUpdate: new Date(Date.now() + 86400000).toISOString() })]]),
         state: { raw: file => file === 'generated/current.json' ? baseline : null }, releases: [],
         reviewContext: { checked: { owner: { publisherId: 'example' }, pluginId: 'demo', version: '2.3.4' } } });
-    const pointer = { schemaVersion: 1, releaseId: '501', size: made.bytes.length, sha256: hash(made.bytes) };
     const proof = Buffer.from('{}'), blobs = new Map([['601', made.bytes], ['602', proof]]);
+    const pointer = { schemaVersion: 2, manifest: reference(made.bytes), attestation: reference(proof) };
+    const proofs = new Map([[proofPath(pointer.manifest.sha256), made.bytes], [proofPath(pointer.attestation.sha256), proof]]);
+    assert(JSON.parse(made.bytes).files.every(file => file.bytes === undefined));
     const assets = [...blobs].map(([id, bytes], i) => ({ id, name: i ? 'publication-attestation.json' : 'publication.json',
         state: 'uploaded', size: bytes.length, digest: 'sha256:' + hash(bytes) }));
     let current = source, lostResponse = true, extraTreeFile = false, staleReads = 2, waits = 0;
@@ -95,7 +98,7 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
                 assert.equal(body.force, false);
                 git(['merge-base', '--is-ancestor', pr.head.sha, body.sha]);
                 git(['update-ref', 'refs/heads/' + pr.head.ref, body.sha]);
-                pr.head.sha = body.sha; pr.changed_files = 1 + made.value.files.length + 1;
+                pr.head.sha = body.sha; pr.changed_files = 1 + made.value.files.length + 1 + proofs.size;
                 if (lostResponse) { lostResponse = false; throw new Error('RESPONSE_LOST'); }
                 return {};
             }
@@ -111,7 +114,7 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
         if (route === prefix + '/git/ref/heads/' + pr.head.ref) return { object: { sha: git(['rev-parse', 'refs/heads/' + pr.head.ref]) } };
         if (route === prefix + '/pulls/7/files') return [pr.head.sha === requested ? inputFiles
             : [...inputFiles, ...made.value.files.map(file => ({ filename: file.path, status: file.before ? 'modified' : 'added' })),
-                { filename: receiptPath(made.value.requestId), status: 'added' }]];
+                { filename: receiptPath(made.value.requestId), status: 'added' }, ...[...proofs.keys()].map(filename => ({ filename, status: 'added' }))]];
         if (route.includes('/git/commits/')) {
             const sha = route.split('/').at(-1);
             return { sha, tree: { sha: git(['rev-parse', sha + '^{tree}']) },
@@ -133,7 +136,7 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     const options = { call, readGit: args => git(args), verify: () => ({ sourceRepositoryDigest: source }),
         download: (endpoint, file) => fs.writeFileSync(file, blobs.get(endpoint.split('/').at(-1)), { flag: 'wx' }) };
     assert.equal(reviewPrerequisite({ ...pr, head: { ...pr.head, repo: { id: 123 } } }, requested, source), 'MAINTAINER_EDITS_REQUIRED');
-    const result = await appendReviewCommit(made.value, pointer, call, { wait: async ms => { assert.equal(ms, 1000); waits++; } });
+    const result = await appendReviewCommit(made.value, pointer, call, { proofs, wait: async ms => { assert.equal(ms, 1000); waits++; } });
     assert.equal(waits, 2);
     assert.equal(mutations.filter(route => route === prefix + '/git/refs/heads/' + pr.head.ref).length, 1);
     assert.equal(result.pr.number, 7); assert.notEqual(result.head, requested);
@@ -147,7 +150,7 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     pr.head.sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', generated], 'Author edit\n');
     await assert.rejects(checkResult(7, { workspace }, current, options), /REVIEW_PARENT_CHANGED/);
     pr.head.sha = requested; pr.changed_files = 1; extraTreeFile = true;
-    await appendReviewCommit(made.value, pointer, call);
+    await appendReviewCommit(made.value, pointer, call, { proofs });
     await assert.rejects(checkResult(7, { workspace }, current, options), /APPLY_WRITE_FORBIDDEN/);
     pr.head.sha = generated;
     pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', source, '-p', generated], 'Merge\n');

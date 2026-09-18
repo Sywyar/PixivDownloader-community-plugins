@@ -35,7 +35,7 @@ export function trustedRun(runId, attempt, workflowPath, current, call = api, re
         || workflow.path !== workflowPath || id(workflow.id) !== id(run.workflow_id)
         || run.path !== workflowPath
         || (workflowPath === decisionPath && run.event !== 'workflow_dispatch')
-        || (workflowPath === cleanupPath && run.event !== 'pull_request_target')
+        || (workflowPath === cleanupPath && !['pull_request_target', 'schedule', 'workflow_dispatch'].includes(run.event))
         || (workflowPath === gatePath && !['pull_request_target', 'workflow_run', 'workflow_dispatch', 'push'].includes(run.event))) {
         throw new Error('WORKFLOW_SOURCE_INVALID');
     }
@@ -106,6 +106,7 @@ export function classify(pr, files) {
         throw new Error('PR_PATH_INVALID');
     }
     const isMaintenance = name => /^(?:\.github|scripts|tools|schemas)\//u.test(name)
+        || /^generated\/(?:legacy-receipts|proofs)\/[a-f0-9]{64}\.json$/u.test(name)
         || ['.gitignore', '.gitattributes', 'README.md', 'README_en.md', 'CONTRIBUTING.md', 'LICENSE', 'package.json', 'package-lock.json'].includes(name);
     if (paths.every(isMaintenance)) {
         if (id(pr.user.id) !== policy.repositoryOwnerId || id(pr.head.repo.id) !== policy.repositoryId) {
