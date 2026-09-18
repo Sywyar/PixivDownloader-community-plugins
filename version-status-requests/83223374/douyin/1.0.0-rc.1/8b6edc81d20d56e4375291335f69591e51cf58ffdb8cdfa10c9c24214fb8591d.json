@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "owner": {
+      "accountId": "83223374",
+      "accountType": "User",
+      "publisherId": "sywyar"
+    },
+    "requester": {
+      "id": "83223374",
+      "type": "User"
+    },
+    "pluginBindingSha256": "cb46ca4f9c23ede7eded5275bbc915af10332885f154c8281e34ad76bf237699",
+    "pluginId": "douyin",
+    "version": "1.0.0-rc.1",
+    "packageSha256": "088b05b35fbd791adc24ade79dcea5bfcff45e1507c744ea25ed46a53a0b0c03",
+    "action": "UNYANK",
+    "reasonCode": "ISSUE_RESOLVED",
+    "explanation": "1轮UNYANK测试",
+    "yankedDecisionSha256": "19d65dae4eb592885102b1b402efd9693a1ebc31313c2eb51960faa500ad850f"
+  },
+  "requestId": "8b6edc81d20d56e4375291335f69591e51cf58ffdb8cdfa10c9c24214fb8591d",
+  "proofs": {
+    "activeKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "a8f7bf80-7a8f-447d-b6d9-d67351fd7178",
+      "value": "Kn/slQEkDXjrCu+2Hzh8kREs1H2sP/hcCPp3EB0Zja+Q6gUm2BVxR0KxQ/QATxC6YNxeLginbbmVILPCQlYoDA=="
+    }
+  }
+}
