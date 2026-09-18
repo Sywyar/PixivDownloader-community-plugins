@@ -29,8 +29,14 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
     const keys = crypto.generateKeyPairSync('ed25519');
     const spki = keys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
     const privateKey = keys.privateKey.export({ type: 'pkcs8', format: 'pem' });
+    const clock = path.join(folder, 'clock.txt');
+    const now = Math.floor(Date.now() / 1000);
+    if (options.controlledClock) fs.writeFileSync(clock, String(now));
     let launcher = source.replaceAll('https://raw.githubusercontent.com/', `${options.tls ? 'https' : 'http'}://bootstrap.invalid/`)
         .replace(/(\$ChannelPublicKey = ')[^']+(')/u, '$1' + spki + '$2');
+    // 只替换测试进程的验签时钟，下载和执行前复验仍走真实入口。
+    if (options.controlledClock) launcher = launcher.replace('Math.floor(Date.now() / 1000)',
+        `Number(require('node:fs').readFileSync('${clock.replaceAll('\\', '\\\\').replaceAll("'", "\\'")}', 'utf8'))`);
     if (options.deadline) launcher = launcher.replace('[Threading.CancellationTokenSource]::new(60000)', `[Threading.CancellationTokenSource]::new(${options.deadline})`);
     if (options.idle) launcher = launcher.replaceAll('.CancelAfter(15000)', `.CancelAfter(${options.idle})`);
     // 使用真实 PowerShell 提示和管道输入，仅替换测试进程的终端可用性检测。
@@ -39,9 +45,8 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
     fs.writeFileSync(script, launcher);
     const runtime = Buffer.from(`console.log(JSON.stringify(process.argv.slice(2))); process.exit(${exitCode}); // ${crypto.randomUUID()}`);
     const manifest = Buffer.from(JSON.stringify({ schemaVersion: 1, files: [{ path: 'scripts/submit.mjs', size: runtime.length, sha256: hash(runtime) }] }));
-    const now = Math.floor(Date.now() / 1000);
     const initial = { schemaVersion: 1, channel: channel.CHANNEL, repository: channel.REPOSITORY, sequence: 1,
-        runtimeCommit: crypto.randomBytes(20).toString('hex'), manifestSha256: hash(manifest), issuedAt: now, expiresAt: now + (options.lifetime ?? 3600) };
+        runtimeCommit: crypto.randomBytes(20).toString('hex'), manifestSha256: hash(manifest), issuedAt: now, expiresAt: now + 3600 };
     const state = { scenario: 'success', bytes: channel.signChannel(initial, privateKey), requests: [], faults: new Map(), tunnels: [], tlsDrops: 0, reached: Promise.withResolvers() };
     const handleRequest = (request, response) => {
         const url = new URL(request.url, 'http://bootstrap.invalid');
@@ -59,9 +64,9 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
         if (fault === 'headers-timeout') return;
         if (fault === 'partial-timeout') { response.writeHead(200); response.write(runtime.subarray(0, 4)); return; }
         if (fault === 'expire') {
-            response.writeHead(200); response.flushHeaders();
-            const timer = setTimeout(() => response.end(runtime), Math.max(0, initial.expiresAt * 1000 - Date.now() + 100));
-            response.on('close', () => clearTimeout(timer));
+            assert.equal(options.controlledClock, true);
+            fs.writeFileSync(clock, String(initial.expiresAt));
+            response.end(runtime);
             return;
         }
         if (fault === 'slow') {
@@ -154,7 +159,7 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
 
 for (const shell of shells) {
     test(`${shell} 下载等待期间渠道过期不能执行已下载工具`, async t => {
-        const f = await fixture(t, shell, 0, { lifetime: 12 });
+        const f = await fixture(t, shell, 0, { controlledClock: true });
         f.state.faults.set('submit.mjs', ['expire']);
         const result = await f.invoke('pipeline');
         assert.equal(result.code, 1, result.stderr);
