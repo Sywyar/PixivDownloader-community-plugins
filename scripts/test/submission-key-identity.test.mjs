@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import { prepareSubmission, withEmergencyState } from './local-sdk.mjs';
 import { signingTool, exportKey } from '../submission-signing.mjs';
 import { signingKey } from '../submission-release.mjs';
-import { prepareRotation } from '../submission-operations.mjs';
+import { prepareRotation, prepareStatus } from '../submission-operations.mjs';
 import { navigation } from '../submission-navigation.mjs';
 import { openProject, projectIdentity } from '../submission-state.mjs';
 import { publisherKeys } from '../submission-publisher-state.mjs';
@@ -46,9 +46,13 @@ function project(t) {
 function form(context, files, options = {}) {
     const prompts = [], notices = [];
     const ui = { locale: 'en-US', text: key => key, say: (key, value) => notices.push({ key, value }),
-        select: async (key, values) => key === 'keyAction' ? options.action ?? 'existingKey'
-            : key === 'keyProtection' ? 'plainKey' : values[0],
-        confirm: async key => key !== 'optionalKey' || Boolean(options.oldProof),
+        select: async (key, values) => {
+            if (key === 'proofMethod') prompts.push({ key, values });
+            return key === 'keyAction' ? options.action ?? 'existingKey'
+                : key === 'keyProtection' ? 'plainKey'
+                    : key === 'proofMethod' && options.oldProof === false ? 'skipProof' : values[0];
+        },
+        confirm: async () => options.confirm !== false,
         ask: async (key, initial, validate) => {
             prompts.push({ key, initial });
             if (key === 'keyId') options.checkId?.(initial, validate);
@@ -64,6 +68,61 @@ function form(context, files, options = {}) {
 }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+test('管理请求默认生成活动密钥证明，明确选择人工审核才省略证明', async t => {
+    const p = project(t), old = externalKey(), next = externalKey();
+    const { fingerprint, ...key } = exportKey(sdk, sign, old.publicFile, crypto.randomUUID());
+    const { fingerprint: _nextFingerprint, ...newKey } = exportKey(sdk, sign, next.publicFile, crypto.randomUUID());
+    const owner = { accountId: '201', accountType: 'User', publisherId: 'sample' };
+    const existing = { sha256: 'a'.repeat(64), value: { publisherId: owner.publisherId,
+        githubAccount: { id: owner.accountId, type: owner.accountType }, signingKeys: [{ ...key, state: 'ACTIVE' }] } };
+    const binding = { sha256: 'b'.repeat(64), value: { pluginId: 'sample', owner } };
+    const tree = new Map([['publishers/201/sample.json', existing], ['plugin-bindings/sample.json', binding]]);
+    p.store.update({ key: { ...old, fingerprint, keyId: key.keyId } });
+    const context = { sdk, sign, call: withEmergencyState(), projectRoot: root, store: p.store,
+        snapshot: { actor: { id: '201', type: 'User' } }, state: { tree, read: file => tree.get(file) } };
+    const prepare = action => {
+        // 第一次查询用于历史绑定；该夹具没有历史投稿，只提供待管理版本。
+        let reads = 0;
+        context.state.published = () => ++reads === 1 ? [] : [{ value: { version: '2.3.4', package: { sha256: 'c'.repeat(64) } } }];
+        context.state.currentStatus = () => ({ state: action === 'UNYANK' ? 'YANKED' : 'ACTIVE', decisionSha256: 'd'.repeat(64) });
+        return action === 'ROTATION' ? prepareRotation(context, { owner, existing,
+            selectedKey: { key: newKey, privateFile: next.privateFile } }) : prepareStatus(context, action);
+    };
+    for (const action of ['ROTATION', 'YANK', 'UNYANK', 'REVOKE']) {
+        for (const oldProof of [undefined, false]) {
+            const f = form(context, {}, { oldProof });
+            const result = await f.nav.run(() => prepare(action));
+            const request = JSON.parse([...result.changes.values()][0]);
+            const proof = request.proofs[action === 'ROTATION' ? 'oldKey' : 'activeKey'];
+            assert.equal(Boolean(proof), oldProof !== false, action);
+            if (proof) {
+                assert.equal(proof.keyId, key.keyId);
+                assert.equal(Buffer.from(proof.value, 'base64').length, 64);
+            }
+            if (action === 'ROTATION') assert.equal(request.proofs.newKey.keyId, newKey.keyId);
+            assert.equal(f.prompts.some(item => item.key === 'privateKey'), oldProof !== false);
+            assert(f.notices.some(item => item.key === (oldProof !== false ? 'statusSigned'
+                : action === 'ROTATION' ? 'rotationManual' : 'statusManual')));
+            assert.equal(p.store.answer('proofMethod:0'), undefined);
+        }
+    }
+    for (const [privateFile, code] of [[next.privateFile, /KEY_PAIR_MISMATCH/],
+        [path.join(old.directory, 'missing.pem'), /KEY_PATH_NOT_FOUND/]]) {
+        const f = form(context, { privateFile });
+        await assert.rejects(f.nav.run(() => prepare('YANK')), code);
+        assert.equal(p.store.key(fingerprint).privateFile, old.privateFile);
+        assert(!f.notices.some(item => item.key === 'statusManual'));
+    }
+    let f = form(context, {}, { confirm: false });
+    await assert.rejects(f.nav.run(() => prepare('YANK')), /CANCELLED/);
+    context.emergency = { readBlock: () => ({}) };
+    f = form(context, {});
+    const blocked = await f.nav.run(() => prepare('YANK'));
+    assert.deepEqual(JSON.parse([...blocked.changes.values()][0]).proofs, {});
+    assert(!f.prompts.some(item => ['proofMethod', 'privateKey'].includes(item.key)));
+    assert(f.notices.some(item => item.key === 'compromisedProofSkipped'));
+});
 
 test('真实配对后跨工程复用发布者密钥，旧钥证明更新路径且错误配对不污染记录', async t => {
     const home = fs.mkdtempSync(path.join(sdk.workspace, 'publisher-history-'));
@@ -84,7 +143,7 @@ test('真实配对后跨工程复用发布者密钥，旧钥证明更新路径�
     context.state = { tree, read: file => tree.get(file) }; context.store = stores[1];
     const correctedPrivate = path.join(old.directory, 'verified-private.pem');
     fs.copyFileSync(old.privateFile, correctedPrivate);
-    f = form(context, { privateFile: correctedPrivate }, { action: 'generateKey', oldProof: true });
+    f = form(context, { privateFile: correctedPrivate }, { action: 'generateKey' });
     const result = await f.nav.run(() => prepareRotation(context));
     const request = JSON.parse([...result.changes.values()][0]);
     assert.equal(f.prompts.find(item => item.key === 'privateKey').initial, old.privateFile);
@@ -150,7 +209,7 @@ test('新生成密钥不会继承历史输入，换钥冲突停留在字段内�
     const tree = new Map([['publishers/201/sample.json', publisher]]);
     const context = { sdk, sign, call: withEmergencyState(), projectRoot: root, store: p.store, snapshot: { actor: { id: '201', type: 'User' } },
         state: { tree, read: file => tree.get(file) } };
-    const f = form(context, {}, { action: 'generateKey', oldProof: true, checkId: (initial, validate) => {
+    const f = form(context, {}, { action: 'generateKey', checkId: (initial, validate) => {
         assert.match(initial, uuid); assert.notEqual(initial, key.keyId);
         assert.throws(() => validate(key.keyId), /KEY_ID_REUSED/u);
     } });
