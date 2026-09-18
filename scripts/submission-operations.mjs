@@ -2,7 +2,7 @@ import { activeKey, publisherPath } from './submission-check.mjs';
 import { eligible, github, checkedRepository } from './submission-github.mjs';
 import { id } from './github.mjs';
 import { hash } from './sdk.mjs';
-import { signingKey } from './submission-release.mjs';
+import { signingKey, publisherOwner } from './submission-release.mjs';
 import { signOperation, keyLocation, unlockPrivateKey } from './submission-signing.mjs';
 import { readFile } from './submission-fields.mjs';
 import { unavailable } from './submission-navigation.mjs';
@@ -49,20 +49,21 @@ export async function prepareRotation(context, rotation) {
         context.bindPublisher?.(owner);
         if (owner.accountType === 'Organization' && !await ui.confirm('representation', owner)) throw new Error('CANCELLED');
         bindPublisherHistory(context, owner);
-        rotation = { owner, existing, selectedKey: await signingKey(context, existing.value.signingKeys, { rotation: true }) };
+        rotation = { owner, existing };
     }
-    const { owner, existing, selectedKey } = rotation;
+    const { owner, existing } = rotation;
     context.bindPublisher?.(owner);
-    if (existing.value.signingKeys.some(key => key.keyId === selectedKey.key.keyId || key.publicKeySpkiBase64 === selectedKey.key.publicKeySpkiBase64)) {
+    const reasonCode = await ui.select('reason', ['ROUTINE_ROTATION', 'KEY_LOST', 'KEY_COMPROMISED']);
+    if (reasonCode === 'KEY_COMPROMISED' && !(context.emergency ?? emergencyState(sdk, context.call ?? github))
+        .readBlock(keyFingerprint(activeKey(existing.value)))) unavailable(ui, 'KEY_COMPROMISE_DECLARATION_REQUIRED');
+    let selectedKey = rotation.selectedKey;
+    if (!selectedKey || existing.value.signingKeys.some(key => key.keyId === selectedKey.key.keyId || key.publicKeySpkiBase64 === selectedKey.key.publicKeySpkiBase64)) {
         // 从发布入口进入换钥时，也在密钥步骤内修正冲突。
-        rotation.selectedKey = await signingKey(context, existing.value.signingKeys, { rotation: true });
-        return prepareRotation(context, rotation);
+        selectedKey = await signingKey(context, existing.value.signingKeys, { rotation: true });
     }
     const payload = { publisherId: owner.publisherId, githubAccount: { id: owner.accountId, type: owner.accountType },
         publisherRecordSha256: existing.sha256, oldKeyId: activeKey(existing.value).keyId, newKey: selectedKey.key,
-        reasonCode: await ui.select('reason', ['ROUTINE_ROTATION', 'KEY_LOST', 'KEY_COMPROMISED']), explanation: await ui.ask('explanation') };
-    if (payload.reasonCode === 'KEY_COMPROMISED' && !(context.emergency ?? emergencyState(sdk, context.call ?? github))
-        .readBlock(keyFingerprint(activeKey(existing.value)))) unavailable(ui, 'KEY_COMPROMISE_DECLARATION_REQUIRED');
+        reasonCode, explanation: await ui.ask('explanation') };
     const proofs = { newKey: { keyId: selectedKey.key.keyId, privateFile: selectedKey.privateFile } };
     const automatic = owner.accountType === 'User' && payload.reasonCode === 'ROUTINE_ROTATION';
     const old = await currentProof(context, existing.value, automatic);
@@ -143,6 +144,7 @@ export async function confirmRevocation(ui, result, changes) {
 
 export async function prepareTransfer(context) {
     const { state, ui, snapshot, sdk, sign, call = github } = context;
+    ui.say('transferHelp');
     const requests = [...state.tree.keys()].filter(file => /^ownership-transfers\/[^/]+\/[^/]+\/proposal\.json$/u.test(file))
         .map(file => state.read(file, 'TRANSFER')).filter(record => {
             const request = record.value;
@@ -153,18 +155,20 @@ export async function prepareTransfer(context) {
             return ['FROM', 'TO'].some(role => eligible(role === 'FROM' ? request.payload.from : request.payload.to, snapshot.actor, call)
                 && !state.tree.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`));
         });
-    const proposal = await ui.select('proposal', [null, ...requests], record => record ? `${record.value.payload.pluginId} (${record.value.requestId})` : ui.text('newProposal'));
+    const proposal = await ui.select('proposal', [...requests, null, 'handoff'], record => record === 'handoff' ? ui.text('transferHandoff')
+        : record ? `${record.value.payload.pluginId} · ${record.value.payload.from.publisherId} → ${record.value.payload.to.publisherId} (${record.value.requestId})` : ui.text('newProposal'));
+    if (proposal === 'handoff') {
+        const binding = await selectBinding(context);
+        ui.say('transferHandoffHelp', { pluginId: binding.value.pluginId, from: binding.value.owner });
+        throw new Error('WIZARD_MENU');
+    }
     const changes = new Map();
     let request;
     if (proposal) { request = proposal.value; bindHistory(context, request.payload.pluginId); }
     else {
         const binding = await selectBinding(context, false);
-        const login = await ui.ask('targetLogin', snapshot.actor.login, value => { if (!/^[A-Za-z0-9-]+$/u.test(value)) throw new Error('GITHUB_LOGIN_INVALID'); });
-        if (!/^[A-Za-z0-9-]+$/u.test(login)) throw new Error('GITHUB_LOGIN_INVALID');
-        const account = call(`users/${login}`);
-        if (!['User', 'Organization'].includes(account.type) || account.login.toLowerCase() !== login.toLowerCase()) throw new Error('TARGET_ACCOUNT_INVALID');
-        const to = { accountId: id(account.id), accountType: account.type, publisherId: await ui.ask('publisher', account.login.toLowerCase(),
-            value => sdk.invoke({ command: 'field', field: 'publisher', value })) };
+        ui.say('transferRecipientHelp', { pluginId: binding.value.pluginId, from: binding.value.owner });
+        const to = await publisherOwner(context, null, { ownerLabel: 'recipientOwner', publisherLabel: 'recipientPublisher' });
         if (isDeepStrictEqual(binding.value.owner, to)) unavailable(ui, 'TRANSFER_SAME_OWNER');
         if (!eligible(binding.value.owner, snapshot.actor, call) && !eligible(to, snapshot.actor, call)) throw new Error('TRANSFER_PARTY_REQUIRED');
         if (!eligible(to, snapshot.actor, call)) unavailable(ui, 'TRANSFER_RECIPIENT_START_REQUIRED');
@@ -175,7 +179,7 @@ export async function prepareTransfer(context) {
             || selectedKey.key.publicKeySpkiBase64 !== activeKey(target.value).publicKeySpkiBase64)) throw new Error('TARGET_KEY_CHANGED');
         const payload = { pluginId: binding.value.pluginId, pluginBindingSha256: binding.sha256, from: binding.value.owner, to,
             targetPublisherRecordSha256: target?.sha256 ?? null, targetKey: target ? { keyId: selectedKey.key.keyId } : selectedKey.key,
-            ...(!target ? { targetPublisherDisplayName: await ui.ask('display', account.login) } : {}),
+            ...(!target ? { targetPublisherDisplayName: await ui.ask('recipientDisplay', to.publisherId) } : {}),
             mode: await ui.select('mode', ['REGULAR', 'RECOVERY']), explanation: await ui.ask('explanation') };
         if (payload.mode === 'RECOVERY') {
             const files = await ui.ask('evidence', '', value => {

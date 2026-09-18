@@ -15,7 +15,10 @@ export function emergencyEligible(owner, user, call = github) {
 
 export function keyLabel(context, owner, key) {
     const projects = context.state ? keyProjects(context.state, owner, key) : [];
-    return `${key.keyId} · ${context.ui.text('option.' + (key.state ?? 'NEW'))} · ${context.ui.text('keyProjects')}: ${projects.join(', ') || context.ui.text('noKeyProjects')} · ${keyFingerprint(key)}`;
+    const fingerprint = keyFingerprint(key);
+    const emergency = context.emergency ??= emergencyState(context.sdk, context.call ?? github);
+    const state = emergency.readBlock(fingerprint) ? 'DECLARED_COMPROMISED' : key.state ?? 'NEW';
+    return `${key.keyId} · ${context.ui.text('option.' + state)} · ${context.ui.text('keyProjects')}: ${projects.join(', ') || context.ui.text('noKeyProjects')} · ${fingerprint}`;
 }
 
 export async function prepareEmergency(context) {
@@ -30,8 +33,10 @@ export async function prepareEmergency(context) {
     const owner = { accountId: publisher.value.githubAccount.id, accountType: publisher.value.githubAccount.type, publisherId: publisher.value.publisherId };
     context.bindPublisher?.(owner);
     bindPublisherHistory(context, owner);
-    const emergency = emergencyState(sdk, call);
-    const keys = publisher.value.signingKeys.filter(key => !emergency.readBlock(keyFingerprint(key)));
+    const emergency = context.emergency = emergencyState(sdk, call);
+    const declared = publisher.value.signingKeys.filter(key => emergency.readBlock(keyFingerprint(key)));
+    if (declared.length) ui.say('keyContext', declared.map(key => keyLabel(context, owner, key)));
+    const keys = publisher.value.signingKeys.filter(key => !declared.includes(key));
     if (!keys.length) unavailable(ui, 'NO_EMERGENCY_KEYS');
     ui.say('emergencyHelp');
     const labels = keys.map(key => keyLabel(context, owner, key));

@@ -94,7 +94,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         }, onBack: () => { context.resumePrepared = false; }, onMenu: () => {
             context.store?.update({ session: null });
             context.store?.close(); context.sign?.close();
-            Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, generatedKey: null, resumePrepared: false, operation: undefined });
+            Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, emergency: null, generatedKey: null, resumePrepared: false, operation: undefined });
         } });
         context.ui = navigator.ui;
         context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };

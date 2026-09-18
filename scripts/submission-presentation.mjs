@@ -19,6 +19,7 @@ const labels = {
     status: 'statusLabel', attempts: 'attemptsLabel', head: 'commitLabel', repositoryId: 'repositoryLabel',
     directory: 'directoryLabel', protection: 'keyProtection', present: 'presentLabel', algorithm: 'algorithmLabel',
     dependencies: 'dependenciesLabel', reasonCode: 'reason', mode: 'mode', role: 'roleLabel',
+    from: 'option.FROM', to: 'option.TO',
 };
 
 export function formatMetadata(value, text, depth = 0, field = '') {

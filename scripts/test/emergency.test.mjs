@@ -8,7 +8,8 @@ import { checkEmergency, emergencyAuthority } from '../emergency-request.mjs';
 import { emergencyState, keyFingerprint } from '../emergency-state.mjs';
 import { applyEmergency } from '../community-emergency.mjs';
 import { freezeVersions, restoreVersions } from '../community-gate.mjs';
-import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from '../submission-emergency.mjs';
+import { prepareEmergency, validateEmergencySubmission, appliedEmergency, keyLabel } from '../submission-emergency.mjs';
+import { localizedText, locales } from '../submission-ui.mjs';
 import { stateReader } from '../submission-github.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -162,10 +163,10 @@ test('本人批量声明经真实 SDK 生成固定封禁记录，阻断改 keyId
 });
 
 test('紧急向导可多选当前与历史密钥，无需密码；生效后原字节恢复且不重复写入', async () => {
-    const f = fixture(), labels = [], notices = [];
+    const f = fixture(), labels = [], notices = [], contexts = [];
     const context = { sdk, state: stateReader(sdk, f.current, f.call), call: f.call,
         snapshot: { actor: { id: '101', type: 'User' } },
-        ui: { text: key => key, say: key => notices.push(key),
+        ui: { text: key => key, say: (key, value) => { notices.push(key); if (key === 'keyContext') contexts.push(value); },
             select: async (_key, values) => values[0],
             multiselect: async (_key, values) => { labels.push(...values); return values; },
             confirm: async () => true } };
@@ -183,6 +184,18 @@ test('紧急向导可多选当前与历史密钥，无需密码；生效后原�
     assert.equal(appliedEmergency(sdk, prepared.changes, f.call).applied, true);
     await assert.rejects(() => prepareEmergency(context), /WIZARD_MENU/);
     assert(notices.includes('operationUnavailable'));
+    assert.equal(contexts.at(-1).length, 2);
+    for (const key of f.keys) assert(contexts.at(-1).some(label =>
+        label.includes(key.keyId) && label.includes('option.DECLARED_COMPROMISED')));
+    for (const locale of locales) {
+        context.ui.text = key => localizedText(locale, key);
+        for (const key of f.keys) {
+            const label = keyLabel(context, f.request.payload.owner, key);
+            assert(label.includes(localizedText(locale, 'option.DECLARED_COMPROMISED')));
+            assert(!label.includes(localizedText(locale, 'option.' + key.state)));
+        }
+    }
+    assert.equal(f.publisher.signingKeys[0].state, 'ACTIVE');
 });
 
 test('拒绝冒用 GitHub 作者、陈旧发布者、夹带文件和篡改生成记录', () => {
