@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "publisherId": "sywyar",
+    "githubAccount": {
+      "id": "83223374",
+      "type": "User"
+    },
+    "publisherRecordSha256": "40bddfa8836fea89b85e8043a1a5d710f1780fef8972c7f1c9895bdbe72fb8b7",
+    "oldKeyId": "4d7fd978-6c7f-4c49-9df0-345b42e4bc13",
+    "newKey": {
+      "keyId": "8ade930a-6178-43e1-9b08-5246dadb60bc",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA5snE8KdXxSFeZLWsvwBdS7vo/rcdoaTKykI86z2xHlQ="
+    },
+    "reasonCode": "ROUTINE_ROTATION",
+    "explanation": "自动轮换测试"
+  },
+  "requestId": "3f41c9f71caf4b1589404d1da3c06eb39785fd61be19b31d07a0b22556f3a1cb",
+  "proofs": {
+    "newKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "8ade930a-6178-43e1-9b08-5246dadb60bc",
+      "value": "M40xpDCvbt0LUPeGGhPZ/kCEu68QLCjZi4GeJmOT5M+AlSVqbog6O0FSPCaBBQ2bATozD961QopxvnI7mB0gDw=="
+    },
+    "oldKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "4d7fd978-6c7f-4c49-9df0-345b42e4bc13",
+      "value": "zWHI86qD4oXVOk3YsBg8B7+jbSlqKkupwwEaLPtpX7w3OxPQTfYHxJkLtpJNrWli0Log5mpHaHF4PFI0SS00Dg=="
+    }
+  }
+}
