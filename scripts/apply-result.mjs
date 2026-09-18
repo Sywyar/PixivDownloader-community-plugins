@@ -189,6 +189,15 @@ export async function checkResult(number, sdk, current, options = {}) {
 
 export const REVIEW_READBACK_ATTEMPTS = 5;
 
+export function requestSubject(receipt) {
+    const checked = receipt.reviewContext?.checked;
+    const publisher = (checked?.owner ?? checked?.from)?.publisherId;
+    const plugin = checked?.pluginId ?? checked?.submission?.pluginId;
+    const version = checked?.version ?? checked?.submission?.version;
+    return publisher && plugin ? `${publisher} / ${plugin}${version ? `-v${version}` : ''}${checked.to ? ` → ${checked.to.publisherId}` : ''}`
+        : publisher ? `发布者 ${publisher}` : receipt.operation === 'RENEWAL' ? '社区撤销清单' : `PR #${receipt.prNumber}`;
+}
+
 export async function appendReviewCommit(receipt, pointer, call = api, { wait = delay } = {}) {
     repository(call, { publicOnly: true });
     const current = () => sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha);
@@ -207,12 +216,7 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
     }
     const parent = scoped(`${target}/git/commits/${receipt.headSha}`);
     const created = scoped(`${target}/git/trees`, { method: 'POST', body: { base_tree: sha(parent.tree.sha), tree } });
-    const checked = receipt.reviewContext?.checked;
-    const publisher = (checked?.owner ?? checked?.from)?.publisherId;
-    const plugin = checked?.pluginId ?? checked?.submission?.pluginId;
-    const version = checked?.version ?? checked?.submission?.version;
-    const subject = publisher && plugin ? `${publisher} / ${plugin}${version ? `-v${version}` : ''}${checked.to ? ` → ${checked.to.publisherId}` : ''}`
-        : publisher ? `发布者 ${publisher}` : receipt.operation === 'RENEWAL' ? '社区撤销清单' : `PR #${receipt.prNumber}`;
+    const subject = requestSubject(receipt);
     const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}：${subject}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
     const identity = { name: 'Community review', email: `${policy.repositoryOwnerId}+${policy.repository.split('/')[0]}@users.noreply.github.com`, date: receipt.appliedAt };
     const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { message, tree: sha(created.sha), parents: [receipt.headSha], author: identity, committer: identity } });

@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { pull } from './platform.mjs';
-import { checkResult } from './apply-result.mjs';
+import { checkResult, requestSubject } from './apply-result.mjs';
 import { restoreReview, currentAdmission } from './apply-context.mjs';
 import { stateReader } from './submission-github.mjs';
 import { signedOwnerOperations } from './status-authorization.mjs';
@@ -45,7 +45,7 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
             bound();
             let failure;
             try { call(`${prefix}/pulls/${number}/merge`, { method: 'PUT', token, body: { sha: head, merge_method: 'merge',
-                commit_title: `chore(community): 合并已签名的 ${completion.receipt.operation} 请求` } }); }
+                commit_title: `chore(community): 合并已签名的 ${completion.receipt.operation} 请求：${requestSubject(completion.receipt)}` } }); }
             catch (error) { failure = error; }
             const actual = pull(number, call);
             if (actual.head.sha !== head) throw new Error('PUBLICATION_HEAD_CHANGED');

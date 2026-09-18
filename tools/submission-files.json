@@ -233,8 +233,8 @@
     },
     {
       "path": "scripts/apply-result.mjs",
-      "size": 18196,
-      "sha256": "240841f5831b44dbd0c9e86b29a81765f38aba7d1ae8846ad816379e78aa8e3a"
+      "size": 18277,
+      "sha256": "00d144acc1b93b94c18235b0bb5d09056b93842d6307151ca02ad1e8fd736d74"
     },
     {
       "path": "scripts/apply-sdk.mjs",
