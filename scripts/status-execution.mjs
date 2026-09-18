@@ -1,9 +1,9 @@
 import { api, id, sha, prefix, policy, list } from './github.mjs';
-import { execution, pull } from './platform.mjs';
+import { execution, notificationExecution, pull } from './platform.mjs';
 import { statusPath } from './archive-proof.mjs';
 
-export function statusExecution(env = process.env, call = api, readGit) {
-    const context = execution(statusPath, env, call, readGit);
+export function statusExecution(mode, env = process.env, call = api, readGit) {
+    const context = (mode === 'notify' ? notificationExecution : execution)(statusPath, env, call, readGit);
     if (!['workflow_run', 'workflow_dispatch'].includes(context.run.event)) throw new Error('STATUS_EXECUTION_INVALID');
     return { ...context, automatic: true };
 }

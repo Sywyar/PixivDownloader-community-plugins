@@ -150,7 +150,7 @@ jobs:
           GATE_TOKEN: ${{ steps.app.outputs.token }}
   notify:
     needs: [apply, store]
-    if: always() && (needs.apply.outputs.projections != '' || needs.store.outputs.projections != '')
+    if: always() && (needs.store.outputs.projections || needs.apply.outputs.projections || '[]') != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

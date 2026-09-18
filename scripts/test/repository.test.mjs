@@ -92,6 +92,11 @@ test('配置可重复应用，所有者不能借 PR bypass 跳过四个 App 检�
     server.state.environments['community-gate'] = { name: 'community-gate', deployment_branch_policy: null, protection_rules: [] };
     configure(server.call);
     assert.deepEqual(checkSettings(readSettings(server.call)), []);
+    assert.equal(server.state.repository.delete_branch_on_merge, true);
+    for (const branch of [policy.defaultBranch, policy.emergencyBranch]) {
+        assert(server.state.rulesets.some(rule => rule.conditions.ref_name.include.includes(`refs/heads/${branch}`)
+            && rule.rules.some(item => item.type === 'deletion') && rule.bypass_actors.length === 0));
+    }
     const rules = server.state.rulesets;
     const update = rules.find(rule => rule.rules.some(item => item.type === 'update'));
     assert.equal(update.bypass_actors[0].bypass_mode, 'pull_request');
@@ -104,6 +109,7 @@ test('配置可重复应用，所有者不能借 PR bypass 跳过四个 App 检�
     configure(server.call);
     assert.equal(server.writes.length, writes);
     for (const mutate of [
+        snapshot => { snapshot.repository.delete_branch_on_merge = false; },
         snapshot => { snapshot.rulesets.find(rule => rule.name === gate.name).bypass_actors.push(update.bypass_actors[0]); },
         snapshot => { snapshot.rulesets.find(rule => rule.name === update.name).rules[0].parameters.update_allows_fetch_and_merge = true; },
         snapshot => { snapshot.rulesets.find(rule => rule.name === gate.name).rules.find(rule => rule.type === 'required_status_checks').parameters.required_status_checks[0].integration_id = 15368; },

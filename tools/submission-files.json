@@ -233,8 +233,8 @@
     },
     {
       "path": "scripts/apply-result.mjs",
-      "size": 18196,
-      "sha256": "240841f5831b44dbd0c9e86b29a81765f38aba7d1ae8846ad816379e78aa8e3a"
+      "size": 18277,
+      "sha256": "00d144acc1b93b94c18235b0bb5d09056b93842d6307151ca02ad1e8fd736d74"
     },
     {
       "path": "scripts/apply-sdk.mjs",
@@ -293,8 +293,8 @@
     },
     {
       "path": "scripts/platform.mjs",
-      "size": 12264,
-      "sha256": "59b92751ac4c7c6b2ac8a2539112f75bb2460dcf06f50f76e8839f35dfe1aa8f"
+      "size": 12759,
+      "sha256": "84c0d8c89a4bf623a35456633dff33e9ff3451219b4d4fb9d2ce5b3c05d58731"
     },
     {
       "path": "scripts/project.mjs",

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { prepareSdk, root } from '../sdk.mjs';
 import { archivedCandidates } from '../archive-read.mjs';
 import { candidateSlot } from '../candidate.mjs';
@@ -20,6 +21,21 @@ public class WorkflowJson {
 }`, 'utf8');
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath, '-d', path.join(sdk.workspace, 'runtime'), source]);
     const read = file => JSON.parse(sdk.run('java', ['-cp', sdk.classpath, 'WorkflowJson', path.join(root, '.github/workflows', file + '.yml')]));
+    // 实际条件和输出选择共同决定是否通知；空数组不能因为字符串非空而启动作业。
+    for (const [name, stages] of [['community-gate', ['gate']], ['community-status', ['apply', 'store']],
+        ['community-review-complete', ['preflight', 'apply', 'store']], ['community-publication', ['finalize']]]) {
+        const workflow = read(name), final = name === 'community-publication';
+        const job = workflow.jobs[final ? 'finalize' : 'notify'];
+        const step = job.steps.find(step => step.env?.COMMUNITY_PROJECTIONS);
+        const condition = final ? step.if : job.if;
+        const scope = final ? 'steps' : 'needs';
+        const evaluate = values => runInNewContext(condition, { always: () => true,
+            [scope]: Object.fromEntries(stages.map((stage, i) => [stage, { outputs: { projections: values[i] } }])) });
+        for (const empty of ['', '[]', undefined]) assert.equal(evaluate(stages.map(() => empty)), false);
+        const pending = JSON.stringify([{ number: 7, head: 'a'.repeat(40) }]);
+        for (let i = 0; i < stages.length; i++) assert.equal(evaluate(stages.map((_, j) => i === j ? pending : '')), true);
+        if (stages.length > 1) assert.equal(evaluate(stages.map((_, i) => i === stages.length - 1 ? '[]' : pending)), false);
+    }
     // 合同按实际 API 操作定义；遍历所有入口，新增带令牌的命令必须登记其职责。
     const inspect = { contents: 'write', actions: 'read', 'pull-requests': 'read' };
     const notify = { contents: 'read', actions: 'read', 'pull-requests': 'write' };

@@ -81,9 +81,14 @@ test('自动合并复用所有者凭据、等待绑定 App 检查并恢复合并
     for (const operation of ['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION']) for (const failure of [null, 'lost', 'protected']) {
         const f = fixture(); f.failure = failure;
         f.completion.receipt.operation = operation;
+        f.completion.receipt.reviewContext.checked = { owner: { publisherId: 'example' },
+            ...(operation === 'KEY_ROTATION' ? {} : { pluginId: 'demo', version: '2.3.4-rc.2' }) };
         const result = await mergeStatus(f.context, {}, 7, head, f.options);
         assert.equal(result.merged === true, failure !== 'protected');
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('/merge')).length, 1);
+        const title = f.writes.find(row => row.endpoint.endsWith('/merge')).body.commit_title;
+        assert(title.includes(operation));
+        assert(title.includes(operation === 'KEY_ROTATION' ? '发布者 example' : 'example / demo-v2.3.4-rc.2'));
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('community-publication.yml/dispatches')).length, failure === 'protected' ? 0 : 1);
         assert.equal(f.refreshed, 1);
         assert(!f.writes.some(row => row.endpoint.endsWith('community-gate.yml/dispatches')));

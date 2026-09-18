@@ -4,7 +4,7 @@ import { api, id, list, policy, prefix, main, API_BYTES } from './github.mjs';
 import { evaluate, hash } from './sdk.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { versionContext } from './version-review.mjs';
-import { gatePath, execution, facts, fingerprint, event, pull, classify } from './platform.mjs';
+import { gatePath, execution, notificationExecution, facts, fingerprint, event, pull, classify } from './platform.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 import { authorizeStatus } from './status-authorization.mjs';
@@ -274,7 +274,7 @@ export async function gate(mode) {
 
 main(import.meta.url, () => {
     if (process.argv[2] === 'notify') {
-        execution(gatePath);
+        notificationExecution(gatePath);
         notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS));
     } else if (['prepare', 'publish'].includes(process.argv[2]) && process.argv.length === 3) return gate(process.argv[2]);
     else throw new Error('USAGE: community-gate.mjs prepare|publish|notify');

@@ -49,17 +49,27 @@ export function trustedRun(runId, attempt, workflowPath, current, call = api, re
 }
 
 export function execution(workflowPath, env = process.env, call = api, readGit = git) {
+    return workflowExecution(workflowPath, env, call, readGit, false);
+}
+
+// 通知不签发授权或修改社区数据；允许主线前进，但执行源码仍须是未改变保护面的祖先。
+export function notificationExecution(workflowPath, env = process.env, call = api, readGit = git) {
+    return workflowExecution(workflowPath, env, call, readGit, true);
+}
+
+function workflowExecution(workflowPath, env, call, readGit, notification) {
     repository(call, { publicOnly: true });
     const current = sha(call(prefix + '/branches/' + policy.defaultBranch).commit.sha);
+    const source = sha(env.GITHUB_WORKFLOW_SHA);
     if (env.GITHUB_REPOSITORY !== policy.repository || env.GITHUB_REPOSITORY_ID !== policy.repositoryId
         || env.GITHUB_REF !== 'refs/heads/' + policy.defaultBranch || env.GITHUB_REF_PROTECTED !== 'true'
         || env.GITHUB_WORKFLOW_REF !== policy.repository + '/' + workflowPath + '@refs/heads/' + policy.defaultBranch
-        || readGit(['rev-parse', 'HEAD']) !== current || env.GITHUB_WORKFLOW_SHA !== current) {
+        || readGit(['rev-parse', 'HEAD']) !== source || !notification && source !== current) {
         throw new Error('WORKFLOW_EXECUTION_INVALID');
     }
     const run = trustedRun(env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, workflowPath, current, call, readGit,
         env.GITHUB_WORKFLOW_SHA);
-    if (run.sourceSha !== current || run.actor.login !== env.GITHUB_ACTOR
+    if (run.sourceSha !== source || run.actor.login !== env.GITHUB_ACTOR
         || run.triggering_actor.login !== env.GITHUB_TRIGGERING_ACTOR) throw new Error('WORKFLOW_ACTOR_INVALID');
     return { current, run };
 }

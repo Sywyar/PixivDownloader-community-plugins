@@ -5,7 +5,8 @@ export function desiredSettings() {
     const ruleset = (name, rules, bypass_actors = [], branch = policy.defaultBranch) => ({ name, target: 'branch', enforcement: 'active',
         conditions: { ref_name: { include: [`refs/heads/${branch}`], exclude: [] } }, bypass_actors, rules });
     return {
-        repository: { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false, allow_auto_merge: false },
+        repository: { allow_merge_commit: true, allow_squash_merge: false, allow_rebase_merge: false, allow_auto_merge: false,
+            delete_branch_on_merge: true },
         token: { default_workflow_permissions: 'read', can_approve_pull_request_reviews: true },
         rulesets: [
             ruleset('community-owner-updates', [{ type: 'update', parameters: { update_allows_fetch_and_merge: false } }],
@@ -75,7 +76,7 @@ function contains(actual, expected) {
 
 export function checkSettings(snapshot, desired = desiredSettings()) {
     const errors = [];
-    if (!contains(snapshot.repository, desired.repository)) errors.push('repository merge methods');
+    if (!contains(snapshot.repository, desired.repository)) errors.push('repository merge settings');
     if (!isDeepStrictEqual(snapshot.token, desired.token)) errors.push('default token permissions');
     if (snapshot.collaborators.some(actor => id(actor.id) !== policy.repositoryOwnerId
         && ['admin', 'maintain', 'write'].includes(actor.role_name))) errors.push('unexpected repository writer');

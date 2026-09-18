@@ -161,7 +161,7 @@ jobs:
           COMMUNITY_ATTESTATION_BUNDLE: target/review-handoff/publication-attestation.json
   notify:
     needs: [preflight, apply, store]
-    if: always() && (needs.preflight.outputs.projections != '' || needs.apply.outputs.projections != '' || needs.store.outputs.projections != '')
+    if: always() && (needs.store.outputs.projections || needs.apply.outputs.projections || needs.preflight.outputs.projections || '[]') != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

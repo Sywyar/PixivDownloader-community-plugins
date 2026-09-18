@@ -105,7 +105,7 @@ jobs:
           COMMUNITY_GATE_INPUT: target/gate-input/gate-input.json
   notify:
     needs: gate
-    if: always() && needs.gate.outputs.projections != ''
+    if: always() && (needs.gate.outputs.projections || '[]') != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
