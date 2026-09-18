@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "owner": {
+      "accountId": "83223374",
+      "accountType": "User",
+      "publisherId": "sywyar"
+    },
+    "requester": {
+      "id": "83223374",
+      "type": "User"
+    },
+    "pluginBindingSha256": "cb46ca4f9c23ede7eded5275bbc915af10332885f154c8281e34ad76bf237699",
+    "pluginId": "douyin",
+    "version": "1.0.0-rc.1",
+    "packageSha256": "088b05b35fbd791adc24ade79dcea5bfcff45e1507c744ea25ed46a53a0b0c03",
+    "action": "REVOKE",
+    "reasonCode": "OTHER",
+    "explanation": "1轮REVOKE测试"
+  },
+  "requestId": "f5079686f13b7affa83f64c4601d00e6db78f385e6f84f92c677910950fe6c39",
+  "proofs": {
+    "activeKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
+      "value": "/iFUqB3D87/iQbnEdoQMcUiObZ0AFCRG/iPHDkvqPcbGSCkQipoE8BAf75wVaUEoFiOkuKvcSMwbvyXKAmVMDQ=="
+    }
+  }
+}
