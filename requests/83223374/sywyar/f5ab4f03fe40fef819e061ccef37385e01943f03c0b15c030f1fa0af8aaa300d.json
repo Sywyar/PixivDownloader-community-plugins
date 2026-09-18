@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "operation": "DECLARE_KEY_COMPROMISE",
+    "owner": {
+      "accountId": "83223374",
+      "accountType": "User",
+      "publisherId": "sywyar"
+    },
+    "publisherRecordSha256": "735066c0ccf15ea4c50969f870c23be03e5d26c1b3e195d33ea0098096697974",
+    "keys": [
+      {
+        "keyId": "a8f7bf80-7a8f-447d-b6d9-d67351fd7178",
+        "fingerprint": "4f6f7090edfd6ec949069d6ae055cff59982d234fda59ee1b318d5e5d2c6c1a6"
+      }
+    ]
+  },
+  "requestId": "f5ab4f03fe40fef819e061ccef37385e01943f03c0b15c030f1fa0af8aaa300d"
+}
