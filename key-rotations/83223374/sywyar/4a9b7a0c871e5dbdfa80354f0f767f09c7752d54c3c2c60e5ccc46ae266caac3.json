@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "publisherId": "sywyar",
+    "githubAccount": {
+      "id": "83223374",
+      "type": "User"
+    },
+    "publisherRecordSha256": "735066c0ccf15ea4c50969f870c23be03e5d26c1b3e195d33ea0098096697974",
+    "oldKeyId": "a8f7bf80-7a8f-447d-b6d9-d67351fd7178",
+    "newKey": {
+      "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAZqz+rlJf0QdRtXHU+nc8TeEtO+uGTUgfmt1e6nmwaNw="
+    },
+    "reasonCode": "KEY_COMPROMISED",
+    "explanation": "密钥泄露轮换测试"
+  },
+  "requestId": "4a9b7a0c871e5dbdfa80354f0f767f09c7752d54c3c2c60e5ccc46ae266caac3",
+  "proofs": {
+    "newKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
+      "value": "d++43QQX3K8LP5ucOfQBerKowdNWg/7gyWuYxp1ie8IW0+WUceZWwzLDgVuHZd/PhOvn5Ux6ryFhitTM8dG6CQ=="
+    }
+  }
+}
