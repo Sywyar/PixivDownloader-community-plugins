@@ -20,12 +20,14 @@ const labels = {
     directory: 'directoryLabel', protection: 'keyProtection', present: 'presentLabel', algorithm: 'algorithmLabel',
     dependencies: 'dependenciesLabel', reasonCode: 'reason', mode: 'mode', role: 'roleLabel',
     from: 'option.FROM', to: 'option.TO',
+    currentState: 'currentStateLabel', requestedState: 'requestedStateLabel', versions: 'versionsLabel',
+    packageSha256: 'digestLabel',
 };
 
 export function formatMetadata(value, text, depth = 0, field = '') {
     if (value === null || value === undefined) return text('none');
     if (typeof value === 'boolean') return text(value ? 'yes' : 'no');
-    if (typeof value !== 'object') return visible(['reasonCode', 'mode', 'role', 'accountType', 'executionMode', 'category', 'tags', 'signals'].includes(field)
+    if (typeof value !== 'object') return visible(['reasonCode', 'mode', 'role', 'accountType', 'executionMode', 'category', 'tags', 'signals', 'status', 'currentState', 'requestedState'].includes(field)
         ? optionText(value, text) : ['protection', 'branchCleanup'].includes(field) ? text(value) : value);
     if (depth > 12) return text('details');
     return Object.entries(value).flatMap(([key, item]) => {

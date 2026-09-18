@@ -10,7 +10,8 @@ import { navigation } from '../submission-navigation.mjs';
 import { API_BYTES } from '../github.mjs';
 import { policy, prefix } from '../github.mjs';
 import { git } from '../project.mjs';
-import { runWizard } from './local-sdk.mjs';
+import { runWizard, withRepositoryFiles } from './local-sdk.mjs';
+import { runWizard as productionWizard } from '../submit.mjs';
 
 test('新进程按项目恢复语言和已答问题，未签名时仍解锁，完成预览不能清除待提交内容', async t => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-session-'));
@@ -124,5 +125,64 @@ test('真实向导恢复初始化也可重试或保存退出，原项目记录�
         assert.deepEqual(outcome, action === 'retry' ? { cancelled: true } : { saved: true });
         assert.deepEqual(locator.read(), original);
         assert(spoken.some(([key, details]) => key === 'requestFailed' && details.attempts === 3));
+    }
+});
+
+test('恢复旧发布投稿先识别已发布版本，不访问过期候选且保留原始记录', async t => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-published-'));
+    const store = openProject(projectIdentity('101', '.', 'example'), '201', { home });
+    t.after(() => { store.close(); fs.rmSync(home, { recursive: true }); });
+    const project = path.join(home, 'source'); fs.mkdirSync(project);
+    fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
+    git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    git(project, '-c', 'user.name=Submission Test', '-c', 'user.email=submission@example.invalid', 'commit', '-m', 'test: source fixture');
+    git(project, 'remote', 'add', 'origin', 'https://github.com/example/plugin.git');
+    const value = { pluginId: 'example', version: '2.3.4', package: { sha256: 'a'.repeat(64) } };
+    const published = { value };
+    const context = { store, projectRoot: project, ui: { locale: 'en-US' },
+        snapshot: { repositoryId: policy.repositoryId, base: 'a'.repeat(40), actor: { id: '201', type: 'User', login: 'author' } },
+        state: { tree: new Map(), published: () => [published] },
+        sdk: { document: (_kind, bytes) => ({ value: JSON.parse(bytes.toString('utf8')) }) },
+        call: () => assert.fail('不应再查询候选、重新发布或写入远端') };
+    saveSession(context, { operation: 'publish', sourceCommit: git(project, 'rev-parse', 'HEAD') });
+    savePrepared(context, { title: 'feat(plugin): example', sourceRelease: { id: '1', tag: 'candidate', repository: 'example/plugin' },
+        changes: new Map([['submissions/201/example/2.3.4.json', Buffer.from(JSON.stringify(value))]]) });
+    const before = store.record;
+    const restored = await restorePrepared({ ...context, snapshot: { ...context.snapshot, base: 'b'.repeat(40) } });
+    assert.equal(restored.original, published);
+    assert.deepEqual(store.record, before);
+    published.value = { ...value, package: { sha256: 'c'.repeat(64) } };
+    await assert.rejects(restorePrepared(context), /VERSION_DIGEST_CONFLICT/);
+    assert.deepEqual(store.record, before);
+    sessionLocator(project, home).bind(store, '201'); store.close();
+    const files = new Map([['published/example/2.3.4.json', Buffer.from(JSON.stringify(value))],
+        ['revocations.json', Buffer.from(JSON.stringify({ entries: [{ packageSha256: value.package.sha256, action: 'REVOKED' }] }))]]);
+    const call = withRepositoryFiles((endpoint, options) => {
+        assert(!options?.method);
+        if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
+        if (endpoint.endsWith('/git/ref/heads/master')) return { object: { sha: 'b'.repeat(40) } };
+        if (endpoint === 'user') return context.snapshot.actor;
+        if (endpoint === 'repos/example/plugin') return { id: '101', full_name: 'example/plugin', owner: { id: '201' } };
+        assert.fail('不应获取失效候选或重复提交: ' + endpoint);
+    }, policy.repository, new Map([['b'.repeat(40), files]]));
+    for (const candidate of [true, false]) {
+        const pending = openProject(store.identity, '201', { home });
+        pending.update({ session: { ...before.session, prepared: { ...before.session.prepared,
+            ...(candidate ? {} : { sourceRelease: null, source: null }) } } });
+        savePrepared({ ...context, store: pending }, { title: 'feat(plugin): example',
+            ...(candidate ? { sourceRelease: before.session.prepared.sourceRelease } : {}), changes: restored.changes });
+        pending.close();
+        const notices = [];
+        const workspace = fs.mkdtempSync(path.join(home, 'sdk-'));
+        const result = await productionWizard(project, { call, stateHome: home,
+            prepare: () => ({ ...context.sdk, workspace, invoke: command => {
+                assert.equal(command.command, 'status'); return { state: 'ACTIVE' };
+            } }), ui: { resume: true, locale: 'en-US', say: (key, details) => notices.push({ key, details }),
+                task: (_key, work) => work(), close() {}, select: () => assert.fail('不应重新填写已发布投稿'),
+                password: () => assert.fail('不应重新签名已发布投稿') } });
+        assert.deepEqual(result.original, value, JSON.stringify({ candidate, result, notices }));
+        assert.equal(notices.at(-1).key, 'versionREVOKED');
+        const completed = openProject(store.identity, '201', { home });
+        assert.equal(completed.record.session, null); completed.close();
     }
 });
