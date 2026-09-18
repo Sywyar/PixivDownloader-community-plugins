@@ -3,7 +3,7 @@ import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { api, id, sha, list, prefix, policy } from './github.mjs';
-import { execution, git, pull, prValue, reviewers, facts, fingerprint } from './platform.mjs';
+import { execution, notificationExecution, git, pull, prValue, reviewers, facts, fingerprint } from './platform.mjs';
 import { evaluate, hash } from './sdk.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { publicationPath } from './archive-proof.mjs';
@@ -132,7 +132,8 @@ export function restoreReview(sdk, state, receipt) {
 }
 
 export const publicationExecution = (mode, env, call, readGit) => {
-    const context = execution(['finalize', 'finalize-notify'].includes(mode) ? '.github/workflows/community-publication.yml' : publicationPath, env, call, readGit);
+    const run = ['notify', 'finalize-notify'].includes(mode) ? notificationExecution : execution;
+    const context = run(['finalize', 'finalize-notify'].includes(mode) ? '.github/workflows/community-publication.yml' : publicationPath, env, call, readGit);
     if (!['workflow_dispatch', 'push'].includes(context.run.event)) throw new Error('PUBLICATION_EXECUTION_INVALID');
     return context;
 };

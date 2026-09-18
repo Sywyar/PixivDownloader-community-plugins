@@ -39,6 +39,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
       - name: Update pull request labels and summary
+        if: (steps.finalize.outputs.projections || '[]') != '[]'
         run: node scripts/community-publication.mjs finalize-notify
         env:
           GH_TOKEN: ${{ github.token }}

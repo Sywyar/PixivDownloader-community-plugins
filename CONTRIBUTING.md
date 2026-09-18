@@ -26,6 +26,8 @@
 
 `npm run repository:plan` 输出仓库保护的目标设置。`npm run repository:check` 回读 GitHub 当前设置。`node scripts/configure-repository.mjs --apply` 只在核对数字仓库身份、当前账号及公开状态后应用配置。它不创建仓库、不改变可见性、不上传 Secret、不批准 Environment，也不合并 PR。
 
+发布结果与通知分别核验；主线正常前进后，通知仍校验原运行、源码祖先关系及受保护代码未变，并重新核对 PR head 和状态。空通知不会启动作业，签名和状态写入仍要求执行来源与当前主线一致。
+
 `npm run labels:plan` 预览受管标签差异；`npm run labels:apply` 应用名称、颜色和说明。未列入目录的标签保留。
 
 ## 检查与表单

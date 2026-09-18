@@ -19,7 +19,7 @@ main(import.meta.url, async () => {
     if (privateValue && (mode !== 'prepare' || privateValue.length > 21848)) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
     const privateBytes = Buffer.from(privateValue ?? '', 'base64');
     try {
-        const context = statusExecution();
+        const context = statusExecution(mode);
         if (mode === 'notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
         const inputs = mode === 'preflight' ? statusInputs(context, event())
             : inputsFrom({ inputs: JSON.parse(process.env.COMMUNITY_STATUS_INPUTS) });
