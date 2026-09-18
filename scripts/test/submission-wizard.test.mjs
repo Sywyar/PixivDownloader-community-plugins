@@ -439,9 +439,6 @@ test('方向键选择原始对象，空格多选可增删，错误输入原地�
         assert.equal(confirmed, false);
         await tty.key('\r');
         assert.equal(await confirmation, true);
-        tty.key('\r');
-        assert.equal(await ui.confirm('optionalKey', { keyId: 'example' }), false);
-        assert(tty.rendered().includes(ui.text('skipProof')));
         for (const cancel of ['\x1b', '\x03']) {
             tty.key('\x1b[B' + cancel);
             await assert.rejects(ui.confirm('preview', { plugin: 'example' }), /CANCELLED/u);
@@ -451,6 +448,29 @@ test('方向键选择原始对象，空格多选可增删，错误输入原地�
     } finally { ui.close(); }
     assert.equal(tty.input.isRaw, false);
     assert.equal(tty.input.listenerCount('keypress'), 0);
+});
+
+test('密钥证明引导默认签名，可切换人工审核，全部语言显示对应选项', async () => {
+    for (const [index, locale] of locales.entries()) {
+        const tty = consoleStreams();
+        tty.key('\x1b[B'.repeat(index) + '\r');
+        const ui = await terminal(tty.input, tty.output);
+        try {
+            const values = ['provideProof', 'skipProof'];
+            const choose = () => ui.select('proofMethod', values, value => ui.text(value));
+            tty.key('\r');
+            assert.equal(await choose(), 'provideProof');
+            tty.key('\x1b[B\r');
+            assert.equal(await choose(), 'skipProof');
+            for (const key of ['proofMethod', ...values]) {
+                assert.notEqual(ui.text(key), key);
+                assert(tty.rendered().includes(ui.text(key)), locale + ':' + key);
+            }
+            // 选择证明方式不授权签名；实际签名前的确认仍默认取消。
+            tty.key('\r');
+            assert.equal(await ui.confirm('keyAction', { keyId: 'example' }), false);
+        } finally { ui.close(); }
+    }
 });
 
 test('名称占位值不能确认，合法语言简码保留而错误语言标记拒绝', async t => {

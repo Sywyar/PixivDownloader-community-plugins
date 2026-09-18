@@ -23,7 +23,7 @@ async function currentProof(context, publisher, automatic) {
         return null;
     }
     ui.say(automatic ? 'proofAutomaticHelp' : 'proofManualHelp');
-    if (!await ui.confirm('optionalKey', { keyId: activeKey(publisher).keyId })) return null;
+    if (await ui.select('proofMethod', ['provideProof', 'skipProof'], value => ui.text(value)) === 'skipProof') return null;
     const key = activeKey(publisher);
     const fingerprint = hash(Buffer.from(key.publicKeySpkiBase64, 'base64'));
     const prior = context.keyStore?.key(fingerprint) ?? context.store?.key(fingerprint);

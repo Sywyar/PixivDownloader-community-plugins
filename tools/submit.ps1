@@ -7,9 +7,9 @@ $SubmitExitCode = 0
 $SubmitFailure = $null
 $DownloadClient = $null
 $BootstrapMessages = if ([Globalization.CultureInfo]::CurrentUICulture.Name -like 'zh*') {
-    ConvertFrom-Json '{"activity":"\u51c6\u5907\u6295\u7a3f\u5de5\u5177","retry":"\u4e0b\u8f7d {0} \u4e2d\u65ad\uff08{1}\uff09\uff0c\u6b63\u5728\u91cd\u8bd5 {2}/{3}","failed":"{0}: \u4e0b\u8f7d {1} \u5931\u8d25\uff1b\u9636\u6bb5={2}\uff0c\u539f\u56e0={3}\uff0c\u5c1d\u8bd5={4}/{5}"}'
+    ConvertFrom-Json '{"activity":"\u51c6\u5907\u6295\u7a3f\u5de5\u5177","retry":"\u4e0b\u8f7d {0} \u4e2d\u65ad\uff08{1}\uff09\uff0c\u6b63\u5728\u91cd\u8bd5 {2}/{3}","failed":"{0}: \u4e0b\u8f7d {1} \u5931\u8d25\uff1b\u9636\u6bb5={2}\uff0c\u539f\u56e0={3}\uff0c\u5df2\u5c1d\u8bd5={4}\uff0c\u6bcf\u8f6e\u6700\u591a={5}\uff1b\u505c\u6b62\u539f\u56e0\uff1a{6}","deadlineExpired":"\u672c\u8f6e\u603b\u65f6\u95f4\u5df2\u8017\u5c3d","attemptsExhausted":"\u672c\u8f6e\u5c1d\u8bd5\u6b21\u6570\u5df2\u8017\u5c3d","notRetryable":"\u6b64\u9519\u8bef\u4e0d\u80fd\u91cd\u8bd5","resume":"\u662f\u5426\u91cd\u65b0\u4e0b\u8f7d\u5f53\u524d\u6587\u4ef6\uff1f\u5df2\u6821\u9a8c\u7684\u7f13\u5b58\u4f1a\u4fdd\u7559\u3002","retryChoice":"\u91cd\u65b0\u5c1d\u8bd5(&R)","exitChoice":"\u9000\u51fa(&E)"}'
 } else {
-    ConvertFrom-Json '{"activity":"Preparing submission tools","retry":"Download of {0} interrupted ({1}); retrying {2}/{3}","failed":"{0}: download of {1} failed; stage={2}, reason={3}, attempt={4}/{5}"}'
+    ConvertFrom-Json '{"activity":"Preparing submission tools","retry":"Download of {0} interrupted ({1}); retrying {2}/{3}","failed":"{0}: download of {1} failed; stage={2}, reason={3}, attempts={4}, maximum per round={5}; stopped: {6}","deadlineExpired":"total time for this round exhausted","attemptsExhausted":"attempt limit for this round exhausted","notRetryable":"this error cannot be retried","resume":"Download the current file again? Verified cache files will be kept.","retryChoice":"&Retry","exitChoice":"&Exit"}'
 }
 
 $Repository = 'Sywyar/PixivDownloader-community-plugins'
@@ -209,65 +209,90 @@ function Get-DownloadFailure($Failure) {
     return @{ Reason = $reason; Retryable = $retryable }
 }
 
+function Confirm-DownloadRetry([string]$Message) {
+    if ([Console]::IsInputRedirected -or [Environment]::GetCommandLineArgs() -contains '-NonInteractive') { return $false }
+    Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Completed
+    [Console]::Error.WriteLine($Message)
+    try {
+        $choices = [Management.Automation.Host.ChoiceDescription[]]@($BootstrapMessages.retryChoice, $BootstrapMessages.exitChoice)
+        return $Host.UI.PromptForChoice('', $BootstrapMessages.resume, $choices, 1) -eq 0
+    } catch { return $false }
+}
+
 function Download-Pinned([string]$Url, [string]$File, [long]$Maximum, $Client) {
     # Only the signed channel is mutable data; executable files require a verified commit and digest.
     $prefix = 'https://raw.githubusercontent.com/' + $Repository + '/' + $RuntimeCommit + '/'
     if ($Url -cne $ChannelUrl -and (-not $RuntimeCommit -or -not $Url.StartsWith($prefix, [StringComparison]::Ordinal))) { throw 'BOOTSTRAP_URL_INVALID' }
     $resource = if ($Url -ceq $ChannelUrl) { 'tools/submission-channel.json' } else { $Url.Substring($prefix.Length) }
-    $deadline = [Threading.CancellationTokenSource]::new(60000)
     $attempts = 3
-    try {
-        for ($attempt = 1; $attempt -le $attempts; $attempt++) {
-            $response = $null; $inputStream = $null; $outputStream = $null
-            $created = $false; $failure = $null; $code = 'BOOTSTRAP_DOWNLOAD_FAILED'; $stage = 'connect'
-            try {
-                $response = $Client.GetAsync($Url, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $deadline.Token).GetAwaiter().GetResult()
-                $stage = 'headers'
-                $status = [int]$response.StatusCode
-                if ($status -ne 200) {
-                    $failure = @{ Reason = 'HTTP_' + $status; Retryable = $status -in @(408, 500, 502, 503, 504) }
-                    throw 'BOOTSTRAP_DOWNLOAD_FAILED'
-                }
-                if ($response.Content.Headers.ContentLength -gt $Maximum) { $code = 'BOOTSTRAP_SIZE_EXCEEDED'; throw $code }
-                $stage = 'read'
-                $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
-                $stage = 'write'
-                $outputStream = [IO.File]::Open($File, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
-                $created = $true
-                $buffer = New-Object byte[] 8192
-                [long]$total = 0
-                while ($true) {
+    while ($true) {
+        $deadline = [Threading.CancellationTokenSource]::new(60000)
+        try {
+            for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+                $response = $null; $inputStream = $null; $outputStream = $null
+                $created = $false; $failure = $null; $code = 'BOOTSTRAP_DOWNLOAD_FAILED'; $stage = 'connect'
+                $operation = [Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadline.Token)
+                try {
+                    Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Status $resource
+                    $operation.CancelAfter(15000)
+                    $response = $Client.GetAsync($Url, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $operation.Token).GetAwaiter().GetResult()
+                    $stage = 'headers'
+                    $status = [int]$response.StatusCode
+                    if ($status -ne 200) {
+                        $failure = @{ Reason = 'HTTP_' + $status; Retryable = $status -in @(408, 500, 502, 503, 504) }
+                        throw 'BOOTSTRAP_DOWNLOAD_FAILED'
+                    }
+                    if ($response.Content.Headers.ContentLength -gt $Maximum) { $code = 'BOOTSTRAP_SIZE_EXCEEDED'; throw $code }
                     $stage = 'read'
-                    $readTask = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $deadline.Token)
-                    $readTask.Wait($deadline.Token)
-                    $count = $readTask.GetAwaiter().GetResult()
-                    if ($count -eq 0) { break }
-                    $total += $count
-                    if ($total -gt $Maximum) { $code = 'BOOTSTRAP_SIZE_EXCEEDED'; throw $code }
+                    $operation.CancelAfter(15000)
+                    $streamTask = $response.Content.ReadAsStreamAsync()
+                    $streamTask.Wait($operation.Token)
+                    $inputStream = $streamTask.GetAwaiter().GetResult()
                     $stage = 'write'
-                    $outputStream.Write($buffer, 0, $count)
+                    $outputStream = [IO.File]::Open($File, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+                    $created = $true
+                    $buffer = New-Object byte[] 8192
+                    [long]$total = 0
+                    while ($true) {
+                        $stage = 'read'
+                        $operation.CancelAfter(15000)
+                        $readTask = $inputStream.ReadAsync($buffer, 0, $buffer.Length, $operation.Token)
+                        $readTask.Wait($operation.Token)
+                        $count = $readTask.GetAwaiter().GetResult()
+                        if ($count -eq 0) { break }
+                        $total += $count
+                        if ($total -gt $Maximum) { $code = 'BOOTSTRAP_SIZE_EXCEEDED'; throw $code }
+                        $stage = 'write'
+                        $outputStream.Write($buffer, 0, $count)
+                    }
+                    if ($null -ne $response.Content.Headers.ContentLength -and $total -ne $response.Content.Headers.ContentLength) { throw [IO.IOException]::new('Incomplete response') }
+                    return
+                } catch {
+                    if (-not $failure) {
+                        $failure = if ($stage -in @('connect', 'read')) { Get-DownloadFailure $_.Exception } else { @{ Reason = 'LOCAL_IO'; Retryable = $false } }
+                    }
+                    if ($failure.Reason -eq 'TIMEOUT' -and $operation.IsCancellationRequested) {
+                        $failure = @{ Reason = $(if ($deadline.IsCancellationRequested) { 'TIMEOUT' } else { 'IDLE_TIMEOUT' }); Retryable = $true }
+                    }
+                    if ($code -ne 'BOOTSTRAP_DOWNLOAD_FAILED') { $failure = @{ Reason = $code; Retryable = $false } }
+                } finally {
+                    if ($outputStream) { $outputStream.Dispose() }
+                    if ($inputStream) { $inputStream.Dispose() }
+                    if ($response) { $response.Dispose() }
+                    $operation.Dispose()
                 }
-                if ($null -ne $response.Content.Headers.ContentLength -and $total -ne $response.Content.Headers.ContentLength) { throw [IO.IOException]::new('Incomplete response') }
-                return
-            } catch {
-                if (-not $failure) {
-                    $failure = if ($stage -in @('connect', 'read')) { Get-DownloadFailure $_.Exception } else { @{ Reason = 'LOCAL_IO'; Retryable = $false } }
+                if ($created) { Assert-PlainPath $File; [IO.File]::Delete($File) }
+                if ($failure.Retryable -and $attempt -lt $attempts -and -not $deadline.IsCancellationRequested) {
+                    [Console]::Error.WriteLine(($BootstrapMessages.retry -f $resource, $failure.Reason, ($attempt + 1), $attempts))
+                    if (-not $deadline.Token.WaitHandle.WaitOne(1000 * $attempt)) { continue }
                 }
-                if ($code -ne 'BOOTSTRAP_DOWNLOAD_FAILED') { $failure = @{ Reason = $code; Retryable = $false } }
-            } finally {
-                if ($outputStream) { $outputStream.Dispose() }
-                if ($inputStream) { $inputStream.Dispose() }
-                if ($response) { $response.Dispose() }
+                $stopReason = if (-not $failure.Retryable) { 'notRetryable' } elseif ($deadline.IsCancellationRequested) { 'deadlineExpired' } else { 'attemptsExhausted' }
+                break
             }
-            if ($created) { Assert-PlainPath $File; [IO.File]::Delete($File) }
-            if ($failure.Retryable -and $attempt -lt $attempts -and -not $deadline.IsCancellationRequested) {
-                [Console]::Error.WriteLine(($BootstrapMessages.retry -f $resource, $failure.Reason, ($attempt + 1), $attempts))
-                if (-not $deadline.Token.WaitHandle.WaitOne(1000 * $attempt)) { continue }
-            }
-            if ($deadline.IsCancellationRequested) { $failure.Reason = 'TIMEOUT' }
-            throw ($BootstrapMessages.failed -f $code, $resource, $stage, $failure.Reason, $attempt, $attempts)
-        }
-    } finally { $deadline.Dispose() }
+        } finally { $deadline.Dispose() }
+        $message = $BootstrapMessages.failed -f $code, $resource, $stage, $failure.Reason, $attempt, $attempts, $BootstrapMessages.$stopReason
+        if (-not $failure.Retryable -or -not (Confirm-DownloadRetry $message)) { throw $message }
+    }
 }
 
 try {
@@ -367,6 +392,8 @@ try {
         }
     }
     if (-not $seen.ContainsKey('scripts/submit.mjs')) { throw 'BOOTSTRAP_ENTRY_MISSING' }
+    $verified = & node @verifyArgs
+    if ($LASTEXITCODE -ne 0) { throw 'BOOTSTRAP_CHANNEL_REJECTED' }
     Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Completed
     $DownloadClient.Dispose()
     $DownloadClient = $null

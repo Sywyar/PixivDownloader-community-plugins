@@ -35,7 +35,8 @@ const messages = {
     confirm: ['是否确认上述操作？', 'Confirm the operation above?', '是否確認上述操作？', '上記の操作を実行しますか？', '위 작업을 확인하고 진행할까요?'],
     confirmAction: ['确认并继续', 'Confirm and continue', '確認並繼續', '確認して続行', '확인하고 계속'],
     cancelAction: ['取消', 'Cancel', '取消', 'キャンセル', '취소'],
-    skipProof: ['跳过签名证明', 'Skip signature proof', '略過簽名證明', '署名による証明をスキップ', '서명 증명 건너뛰기'],
+    provideProof: ['使用当前私钥在本机生成证明（推荐）', 'Generate proof locally with the current private key (recommended)', '使用目前私鑰在本機產生證明（建議）', '現在の秘密鍵でローカルに証明を生成（推奨）', '현재 개인 키로 로컬에서 증명 생성 (권장)'],
+    skipProof: ['不提供密钥证明，申请人工审核', 'Continue without key proof and request human review', '不提供金鑰證明，申請人工審核', '鍵の証明を提供せず、審査を申請', '키 증명 없이 수동 검토 요청'],
     operation: ['社区操作', 'Community operation', '社群操作', 'コミュニティ操作', '커뮤니티 작업'],
     publish: ['发布或更新插件', 'Publish or update a plugin', '發布或更新外掛', 'プラグインの公開・更新', '플러그인 게시 또는 업데이트'],
     YANK: ['隐藏版本（YANK）', 'Hide a version (YANK)', '隱藏版本（YANK）', 'バージョンを非表示（YANK）', '버전 숨기기 (YANK)'],
@@ -68,7 +69,7 @@ const messages = {
     explanation: ['说明', 'Explanation', '說明', '説明', '설명'],
     plugin: ['选择已登记插件', 'Select a registered plugin', '選擇已登記外掛', '登録済みプラグインを選択', '등록된 플러그인 선택'],
     version: ['选择已发布版本', 'Select a published version', '選擇已發布版本', '公開済みバージョンを選択', '게시된 버전 선택'],
-    optionalKey: ['是否提供当前活动密钥的签名证明？', 'Provide proof using the current active key?', '是否提供目前活動金鑰的簽名證明？', '現在の有効な鍵で署名しますか？', '현재 활성 키의 서명 증명을 제공할까요?'],
+    proofMethod: ['当前活动密钥的证明方式', 'Proof using the current active key', '目前有效金鑰的證明方式', '現在の有効な鍵による証明方法', '현재 활성 키의 증명 방법'],
     license: ['确认 SPDX 许可证表达式', 'Confirm the SPDX license expression', '確認 SPDX 授權條款表達式', 'SPDX ライセンス式を確認', 'SPDX 라이선스 표현식 확인'],
     licenseFiles: ['许可证文件路径，相对 Git 根目录，多个路径用逗号分隔', 'License file paths relative to the Git root, separated by commas', '授權條款檔案路徑，相對 Git 根目錄，以逗號分隔', 'Git ルートからのライセンスファイルの相対パス（カンマ区切り）', 'Git 루트 기준 라이선스 파일 경로 (쉼표로 구분)'],
     licenseTemplate: ['选择要创建的许可证文本', 'Select a license text to create', '選擇要建立的授權條款文字', '作成するライセンス本文を選択', '생성할 라이선스 본문 선택'],
@@ -215,7 +216,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         for (;;) {
             const answer = await select('confirm', key === 'preview' ? [false, true, 'details'] : [false, true],
                 accepted => text(accepted === 'details' ? 'technicalDetails' : accepted ? 'confirmAction'
-                    : key === 'optionalKey' ? 'skipProof' : ['deleteRequestBranch', 'retryBranchCleanup'].includes(key) ? 'keepBranch' : 'cancelAction'));
+                    : ['deleteRequestBranch', 'retryBranchCleanup'].includes(key) ? 'keepBranch' : 'cancelAction'));
             if (answer !== 'details') return answer;
             prompts.note(visible(JSON.stringify(value, null, 2)).replaceAll('\\u000a', '\n'), text('technicalDetails'), common);
         }
