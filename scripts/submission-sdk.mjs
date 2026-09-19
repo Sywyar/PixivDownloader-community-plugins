@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { prepareSdk, root } from './sdk.mjs';
 import { API_BYTES } from './github.mjs';
 import { observe } from './submission-progress.mjs';
+import { toolJson } from './tool-process.mjs';
 
 // 执行器只调用受保护的适配器；投稿包从不进入 JVM classpath。
 export function prepareSubmission(directory = root) {
@@ -21,7 +22,7 @@ export function submissionAdapter(sdk, directory = root) {
         const bytes = Buffer.from(JSON.stringify(input), 'utf8');
         if (bytes.length > API_BYTES) throw new Error('INPUT_SIZE_EXCEEDED');
         fs.writeFileSync(inputFile, bytes);
-        return JSON.parse(sdk.run('java', ['-Dfile.encoding=UTF-8', '-Djava.awt.headless=true',
+        return toolJson(sdk.run('java', ['-Dfile.encoding=UTF-8', '-Djava.awt.headless=true',
             '-cp', sdk.classpath, 'CommunitySubmission', sdk.workspace]).trim());
     });
     const save = (bytes, suffix = '.json') => {

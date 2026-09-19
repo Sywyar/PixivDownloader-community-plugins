@@ -18,7 +18,7 @@ The community rebuilds from the submitted source and compares package bytes. Pin
 
 ### 2. Set up your tools
 
-Install Git, GitHub CLI, Node.js 24+ and JDK 17, with `java`, `javac` and `jar` available in the terminal. Use Windows PowerShell 5.1 or PowerShell 7. When setting up GitHub CLI for the first time, run:
+Install Git, GitHub CLI, Node.js 24+ and JDK 17 or newer. The terminal's `java`, `javac` and `jar` must each come from JDK 17+. The wizard checks them individually and identifies the tool, step and cause when a version is too old or execution fails. Use Windows PowerShell 5.1 or PowerShell 7. When setting up GitHub CLI for the first time, run:
 
 ```powershell
 gh auth login

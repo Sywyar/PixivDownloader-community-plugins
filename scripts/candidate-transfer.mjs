@@ -5,6 +5,7 @@ import { API_BYTES, prefix, id } from './github.mjs';
 import { root, hash } from './sdk.mjs';
 import { observe } from './submission-progress.mjs';
 import { githubRequest } from './submission-github.mjs';
+import { toolJson } from './tool-process.mjs';
 
 // GitHub API 的重定向及认证由已有 gh 客户端处理；二进制入口只接受本仓库的数字 asset ID。
 export function downloadCandidate(endpoint, file, maximum, expected, execute = execFileSync) {
@@ -25,7 +26,7 @@ export function downloadGithubBinary(endpoint, file, maximum, expected, execute 
             stdio: ['ignore', 'pipe', 'pipe'] }))); }
     catch (error) {
         if (error.message === 'GITHUB_TIMEOUT') error.message = 'DOWNLOAD_TIMEOUT';
-        if (error.github || ['CANCELLED', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED'].includes(error.message)) throw error;
+        if (error.github || ['CANCELLED', 'WIZARD_SAVE', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED'].includes(error.message)) throw error;
         throw new Error('GITHUB_REQUEST_FAILED');
     }
     if (bytes.length > maximum || expected && (bytes.length !== expected.size || hash(bytes) !== expected.sha256)) {
@@ -55,7 +56,7 @@ export function uploadGithubBinary(repository, releaseId, file, name, execute = 
 export function unpackCandidate(sdk, file) {
     prepareArchive(sdk);
     const directory = path.join(sdk.workspace, 'candidate');
-    const candidate = JSON.parse(sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityArchive',
+    const candidate = toolJson(sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityArchive',
         file, directory, sdk.workspace]));
     return { candidate, directory };
 }

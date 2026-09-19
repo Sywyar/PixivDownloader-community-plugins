@@ -18,7 +18,7 @@
 
 ### 2. 准备投稿环境
 
-安装 Git、GitHub CLI、Node.js 24+ 和 JDK 17，确保终端可以运行 `java`、`javac`、`jar`。使用 Windows PowerShell 5.1 或 PowerShell 7，首次使用 GitHub CLI 时执行：
+安装 Git、GitHub CLI、Node.js 24+ 和 JDK 17 或更高版本，确保终端中的 `java`、`javac`、`jar` 均来自 JDK 17+。向导会逐一检查，版本过旧或工具失败时显示具体工具、步骤和错误原因。使用 Windows PowerShell 5.1 或 PowerShell 7，首次使用 GitHub CLI 时执行：
 
 ```powershell
 gh auth login

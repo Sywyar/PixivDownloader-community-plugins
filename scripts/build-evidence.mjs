@@ -3,11 +3,12 @@ import path from 'node:path';
 import { root, evidence, hash } from './sdk.mjs';
 import { buildPolicy } from './build-sandbox.mjs';
 import { fileDifference } from './build-files.mjs';
+import { toolJson } from './tool-process.mjs';
 
 // 扫描 SDK、社区适配及前序证据解析共同决定报告；它们变化时仍可复用原构建包。
 export function scanInputs(directory = root) {
     return ['tools/sdk-tools.jar', 'tools/CommunityScan.java', 'scripts/build-evidence.mjs',
-        'scripts/submission-build.mjs', 'scripts/sdk.mjs', 'scripts/build-files.mjs',
+        'scripts/submission-build.mjs', 'scripts/sdk.mjs', 'scripts/tool-process.mjs', 'scripts/build-files.mjs',
         'scripts/submission-check.mjs', 'scripts/submission-github.mjs']
         .map(file => ({ path: file, sha256: hash(fs.readFileSync(path.join(directory, file))) }));
 }
@@ -19,7 +20,7 @@ export function scanBuild(sdk, build, submission, execution, previous = null) {
         path.join(root, 'tools/CommunityScan.java')]);
     const input = sdk.save({ execution, current: { artifact: build.artifact, sha256: build.package.sha256,
         sourceCommit: submission.source.commit, compiledClasses: build.compiledClasses }, previous: previous?.scan ?? null });
-    const scanned = JSON.parse(sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityScan', sdk.workspace, input]));
+    const scanned = toolJson(sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityScan', sdk.workspace, input]));
     const dependencyLockRef = evidence(sdk.workspace, { sourceCommit: submission.source.commit,
         packageSha256: build.package.sha256, files: build.dependencyFiles, compiledClasses: build.compiledClasses });
     const dependencyReportRef = evidence(sdk.workspace, { model: build.model.dependencies,

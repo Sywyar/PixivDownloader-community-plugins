@@ -4,7 +4,7 @@ import { root } from './sdk.mjs';
 import { main, policy } from './github.mjs';
 import { preflight, markerMissing, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
-import { terminal, failureCode } from './submission-ui.mjs';
+import { terminal, failureCode, failureDetails } from './submission-ui.mjs';
 import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
@@ -204,7 +204,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         if (error.message === 'CANCELLED') { ui?.say('cancelled'); return { cancelled: true }; }
         // 原生命令错误可能包含工程输出，只向终端投影固定错误码。
         const code = failureCode(error);
-        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...requestDetails(error),
+        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...requestDetails(error), ...failureDetails(error),
             ...(error.statePath ? { path: error.statePath } : {}) });
         else console.error(code);
         process.exitCode = 1;

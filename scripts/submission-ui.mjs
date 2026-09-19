@@ -2,6 +2,7 @@ import { setImmediate } from 'node:timers/promises';
 import * as prompts from './vendor/clack-prompts.mjs';
 import { additions, errors, optionNames } from './submission-messages.mjs';
 import { visible, formatMetadata, previewMetadata, optionText } from './submission-presentation.mjs';
+import { toolDetails } from './tool-process.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
@@ -99,8 +100,15 @@ const messages = {
 
 export function failureCode(error) {
     return /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message
-        : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
+        : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1]
+        ?? { ENOENT: 'LOCAL_FILE_MISSING', EACCES: 'LOCAL_ACCESS_DENIED', EPERM: 'LOCAL_ACCESS_DENIED',
+            ENOSPC: 'LOCAL_STORAGE_FULL', EIO: 'LOCAL_IO_FAILED', EROFS: 'LOCAL_ACCESS_DENIED' }[error.code]
+        ?? 'SUBMISSION_FAILED';
 }
+
+export const failureDetails = error => ({ ...toolDetails(error),
+    ...(Object.hasOwn(additions, error.failureStep) || Object.hasOwn(messages, error.failureStep)
+        ? { failureStep: error.failureStep } : {}) });
 
 export const localizedText = (locale, key) => (key.startsWith('option.') ? optionNames[key.slice(7)]
     : additions[key] ?? messages[key])?.[Math.max(0, locales.indexOf(locale))] ?? key;
@@ -113,7 +121,8 @@ export async function terminal(input = process.stdin, output = process.stdout, o
     const text = key => localizedText(locales[index], key);
     const errorText = error => {
         const code = failureCode(error);
-        return (errors[code]?.[index] ?? text('invalid')) + (code ? ` (${code})` : '');
+        const details = formatMetadata(failureDetails(error), text);
+        return (errors[code]?.[index] ?? text('invalid')) + (code ? ` (${code})` : '') + (details ? '\n' + details : '');
     };
     if (!input.isTTY || !output.isTTY || process.env.TERM === 'dumb') {
         prompts.log.error(text('terminalRequired'), common);
@@ -241,6 +250,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
             loading.stop(text(key) + ' · ' + text('done'));
             return result;
         } catch (error) {
+            error.failureStep ??= key;
             (error.message === 'CANCELLED' ? loading.cancel : loading.error)(text(key));
             throw error;
         }
