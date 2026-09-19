@@ -4,7 +4,7 @@
     {
       "path": "schemas/community/v1/bundle-manifest.json",
       "size": 7679,
-      "sha256": "6babf1ae9bbad56e4e390d7d39235d8e78fa04a29289873d59bf18e278ef3d98"
+      "sha256": "f32c6066d8161bc572e98691e86fe5bd540ea607fa8fe3d75d20519824fcb728"
     },
     {
       "path": "schemas/community/v1/catalogs.json",
@@ -13,8 +13,8 @@
     },
     {
       "path": "schemas/community/v1/community.schema.json",
-      "size": 69894,
-      "sha256": "011af0a1fc1c3e1986df5cc3233801ad677a7bcff7c12c150186c15be7645872"
+      "size": 69916,
+      "sha256": "a9668f84a10caa65c48cc91a004f2d94e6d685890f495201a32023d3a8adfac7"
     },
     {
       "path": "schemas/community/v1/licenses/0BSD.txt",
@@ -368,8 +368,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 121452,
-      "sha256": "067c3e0e0825cdc98871d87a923013e7350235027a74d1786198ac4b57ec96b3"
+      "size": 121101,
+      "sha256": "d42ff98ff8257dec276e5cd42256bbe30e04e6eb52f91825c3e14955a7ff869e"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -489,17 +489,17 @@
     {
       "path": "tools/community-contract.json",
       "size": 385,
-      "sha256": "db552da2379d362519fffbdc0ccd6736628490b11deb78f43ea730d8fbf55256"
+      "sha256": "f848b359ac9861d42d5d4bc1fda3aac4d6dbf6d110f6b5a4981d82910081ef9e"
     },
     {
       "path": "tools/sdk-lock.json",
       "size": 356,
-      "sha256": "1e8e4bfaacaf0e4c228c57f2a9331f1f9c3365931248e58044bf8bf142f46aae"
+      "sha256": "9beef883c2c68c0c5354ec095f2dee1631f0263bb8bfcddfee98f5669b0e567b"
     },
     {
       "path": "tools/sdk-tools.jar",
-      "size": 15461949,
-      "sha256": "3b5623d8e09eedf96a4354445806e7677d782216c474917f0efa2f930e7bd715"
+      "size": 15464368,
+      "sha256": "d49ae1bc5ad384c10e3fff10271fcc5d2b7ab60e80b06221ca08c364868c557c"
     },
     {
       "path": "tools/signing-tool.jar",
