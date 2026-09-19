@@ -4,13 +4,16 @@ import { API_BYTES, API_TIMEOUT, id, sha, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { observe } from './submission-progress.mjs';
 import { retryRequest } from './submission-retry.mjs';
+import { githubFailure } from './submission-errors.mjs';
+export { authenticationRequired } from './submission-errors.mjs';
 
 // 传输 owner 决定可恢复性；身份、摘要、证书及本地文件错误不能被 UI 放宽。
-export const recoverableRequest = error => Boolean(error.github || error.download && error.retryable);
+export const recoverableRequest = error => Boolean(error.github && error.recoverable !== false || error.download && error.retryable);
 export const requestDetails = error => ({
     ...(!error.tool && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? { status: error.status } : {}),
     ...(Number.isInteger(error.attempts) && error.attempts >= 0 && error.attempts <= 3 ? { attempts: error.attempts } : {}),
     ...(Number.isSafeInteger(error.totalAttempts) && error.totalAttempts >= 0 ? { totalAttempts: error.totalAttempts } : {}),
+    ...(!error.tool && Number.isInteger(error.exitCode) && error.exitCode >= 0 && error.exitCode <= 255 ? { exitCode: error.exitCode } : {}),
     ...(['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'TLS', 'HEADERS', 'BODY', 'FILE'].includes(error.downloadStage) ? { stage: error.downloadStage } : {}),
 });
 
@@ -20,7 +23,7 @@ export function githubRequest(work, options = {}) {
     for (let round = 1; ; round++) {
         try { return githubRequestRound(work, options); }
         catch (error) {
-            if ((options.method ?? 'GET') !== 'GET' || !error.github || error.message === 'GITHUB_NOT_FOUND') throw error;
+            if ((options.method ?? 'GET') !== 'GET' || !recoverableRequest(error) || error.message === 'GITHUB_NOT_FOUND') throw error;
             error.totalAttempts = totalAttempts += error.attempts ?? 0;
             if (!retryRequest(error, round)) throw new Error('WIZARD_SAVE');
         }
@@ -36,19 +39,9 @@ function githubRequestRound(work, { method = 'GET', timeout = API_TIMEOUT, now =
         try { return work(remaining); }
         catch (error) {
             if (['CANCELLED', 'WIZARD_SAVE'].includes(error.message)) throw error;
-            if (error.code === 'ENOBUFS') throw new Error('INPUT_SIZE_EXCEEDED');
-            if (error.code === 'ENOENT') throw new Error('GITHUB_CLI_REQUIRED');
-            const status = Number(/\(HTTP ([1-5][0-9]{2})\)/u.exec(String(error.stderr ?? ''))?.[1]) || undefined;
-            const code = status === 404 ? 'GITHUB_NOT_FOUND' : error.code === 'ETIMEDOUT' ? 'GITHUB_TIMEOUT'
-                : status === 401 ? 'GITHUB_AUTH_REQUIRED' : status === 403 ? 'GITHUB_ACCESS_DENIED'
-                    : status === 429 ? 'GITHUB_RATE_LIMITED' : 'GITHUB_REQUEST_FAILED';
-            const temporary = [408, 500, 502, 503, 504].includes(status) || !status &&
-                (['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'].includes(error.code)
-                    || /unexpected EOF|connection reset|connection refused|i\/o timeout|TLS handshake timeout|temporary failure in name resolution|no such host/iu.test(String(error.stderr ?? '')));
-            const failure = Object.assign(new Error(code), { github: true, retryable: temporary, method, status, attempts: attempt,
-                ...(error.failureStep ? { failureStep: error.failureStep } : {}) });
+            const failure = Object.assign(githubFailure(error), { method, attempts: attempt });
             const delay = attempt * 1000;
-            if (method !== 'GET' || !temporary
+            if (method !== 'GET' || !failure.retryable
                 || attempt >= 3 || now() + delay >= deadline) throw failure;
             observe('retryingGithub', `${attempt + 1}/3`, () => wait(delay));
         }
@@ -71,9 +64,10 @@ export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
                 : endpoint.includes('/git/') ? 'readingGitObjects' : 'readingRepository';
         const output = githubRequest(timeout => observe(method === 'GET' ? step : 'writingGithub', '', () => execFileSync('gh', args, { encoding: 'utf8', windowsHide: true, timeout,
             maxBuffer: API_BYTES, input: body === undefined ? undefined : JSON.stringify(body), stdio: ['pipe', 'pipe', 'pipe'] })), { method });
-        return output.trim() ? JSON.parse(output) : null;
+        try { return output.trim() ? JSON.parse(output) : null; }
+        catch { throw new Error('GITHUB_RESPONSE_INVALID'); }
     } catch (error) {
-        if (error.github || ['CANCELLED', 'WIZARD_SAVE', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED'].includes(error.message)) throw error;
+        if (error.github || ['CANCELLED', 'WIZARD_SAVE', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED', 'GITHUB_RESPONSE_INVALID'].includes(error.message)) throw error;
         // 不把原生命令、认证环境或带参数的请求输出带入错误预览。
         throw new Error('GITHUB_REQUEST_FAILED');
     }
@@ -104,14 +98,15 @@ export function checkedRepository(name, call = github) {
 
 export function protectedSnapshot(call = github, branch = policy.defaultBranch) {
     if (![policy.defaultBranch, policy.emergencyBranch].includes(branch)) throw new Error('GITHUB_TARGET_MISMATCH');
+    const currentActor = actor(call);
     const repository = checkedRepository(policy.repository, call);
     if (id(repository.id) !== policy.repositoryId || id(repository.owner.id) !== policy.repositoryOwnerId
         || repository.default_branch !== policy.defaultBranch) throw new Error('GITHUB_REPOSITORY_MISMATCH');
     const base = sha(call(`repos/${policy.repository}/git/ref/heads/${policy.defaultBranch}`).object.sha);
-    if (branch === policy.defaultBranch) return { repositoryId: id(repository.id), base, actor: actor(call) };
+    if (branch === policy.defaultBranch) return { repositoryId: id(repository.id), base, actor: currentActor };
     const emergency = call(`repos/${policy.repository}/branches/${branch}`);
     if (emergency.name !== branch || emergency.protected !== true) throw new Error('EMERGENCY_BRANCH_UNPROTECTED');
-    return { repositoryId: id(repository.id), base: sha(emergency.commit.sha), actor: actor(call), branch, masterBase: base };
+    return { repositoryId: id(repository.id), base: sha(emergency.commit.sha), actor: currentActor, branch, masterBase: base };
 }
 
 export function unchanged(expected, call = github) {

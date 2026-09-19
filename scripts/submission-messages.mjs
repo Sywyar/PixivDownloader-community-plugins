@@ -1,3 +1,5 @@
+import { diagnostics, diagnosticAliases } from './submission-error-messages.mjs';
+
 // 展示名称与协议值分离；选项和预览使用同一词表，不改写签名数据。
 export const optionNames = {
     YANKED: ['已隐藏', 'Hidden', '已隱藏', '非表示', '숨김'],
@@ -78,6 +80,8 @@ export const optionNames = {
 };
 
 export const additions = {
+    authenticationRecovery: ['请在另一个终端完成 GitHub 登录，再选择重新检查。', 'Sign in to GitHub in another terminal, then check again.', '請在另一個終端機完成 GitHub 登入，再選擇重新檢查。', '別のターミナルで GitHub にログインしてから、再確認してください。', '다른 터미널에서 GitHub에 로그인한 뒤 다시 확인하세요.'],
+    checkAuthentication: ['已完成登录，重新检查', 'I have signed in; check again', '已完成登入，重新檢查', 'ログイン済み・再確認', '로그인 완료, 다시 확인'],
     saveNavigation: ['Ctrl+S 保存退出', 'Ctrl+S save and exit', 'Ctrl+S 儲存離開', 'Ctrl+S 保存して終了', 'Ctrl+S 저장 후 종료'],
     totalAttemptsLabel: ['此步骤累计尝试次数', 'Total attempts for this step', '此步驟累計嘗試次數', 'この処理の累計試行回数', '이 단계의 누적 시도 횟수'],
     transferPlugin: ['输入发布者ID/插件ID', 'Enter publisherId/pluginId', '輸入發布者ID/外掛ID', 'publisherId/pluginId を入力', 'publisherId/pluginId 입력'],
@@ -304,10 +308,9 @@ export const errors = {
     PROJECT_SESSION_CHANGED: ['保存的投稿内容已损坏或改变，不能继续使用原签名。', 'The saved submission is damaged or changed. Its signature cannot be reused.', '儲存的投稿內容已損壞或改變，不能繼續使用原簽章。', '保存済みの投稿内容が破損または変更されています。元の署名は再利用できません。', '저장된 제출이 손상되었거나 변경되었습니다. 기존 서명을 재사용할 수 없습니다.'],
     SESSION_ACCOUNT_CHANGED: ['当前 GitHub 账号与上次不同。请切回原账号，或重新启动后选择不继续上次投稿。', 'The GitHub account differs from the saved session. Switch back, or restart and decline to resume.', '目前 GitHub 帳號與上次不同。請切回原帳號，或重新啟動後選擇不繼續上次投稿。', 'GitHub アカウントが前回と異なります。元のアカウントに戻すか、再起動時に再開を選ばないでください。', 'GitHub 계정이 이전 세션과 다릅니다. 기존 계정으로 전환하거나 다시 시작한 후 재개하지 않음을 선택하세요.'],
     SESSION_IDENTITY_CHANGED: ['社区仓库或账号身份与保存记录不同，请核对身份后重新运行；原填写记录已保留。', 'The community repository or account identity differs from the saved session. Check the identity and rerun; your saved answers are retained.', '社群儲存庫或帳號身分與儲存記錄不同，請核對身分後重新執行；原填寫記錄已保留。', 'コミュニティのリポジトリまたはアカウントが保存時と異なります。確認して再実行してください。入力内容は保持されています。', '커뮤니티 저장소 또는 계정이 저장된 세션과 다릅니다. 확인한 뒤 다시 실행하세요. 입력 기록은 유지됩니다.'],
-    GITHUB_REQUEST_FAILED: ['GitHub 请求失败；检查网络后可重试，写入前会重新核对远端结果。', 'GitHub request failed. Check the connection and retry; remote results are checked before writing.', 'GitHub 請求失敗；檢查網路後可重試，寫入前會重新核對遠端結果。', 'GitHub リクエストが失敗しました。接続を確認して再試行してください。書き込み前にリモートの結果を確認します。', 'GitHub 요청이 실패했습니다. 연결을 확인한 뒤 재시도하세요. 쓰기 전에 원격 결과를 확인합니다.'],
-    GITHUB_TIMEOUT: ['GitHub 请求已超时，请检查网络后重试。', 'The GitHub request timed out. Check the connection and retry.', 'GitHub 請求已逾時，請檢查網路後重試。', 'GitHub リクエストがタイムアウトしました。接続を確認して再試行してください。', 'GitHub 요청 시간이 초과되었습니다. 연결을 확인한 뒤 재시도하세요.'],
-    GITHUB_AUTH_REQUIRED: ['GitHub 登录已失效，请重新运行 gh auth login。', 'GitHub authentication expired. Run gh auth login again.', 'GitHub 登入已失效，請重新執行 gh auth login。', 'GitHub の認証が失効しました。gh auth login を再実行してください。', 'GitHub 인증이 만료되었습니다. gh auth login을 다시 실행하세요.'],
-    GITHUB_ACCESS_DENIED: ['GitHub 拒绝访问，请检查账号权限及 API 限额。', 'GitHub denied access. Check account permissions and API limits.', 'GitHub 拒絕存取，請檢查帳號權限及 API 限額。', 'GitHub がアクセスを拒否しました。権限と API 制限を確認してください。', 'GitHub 접근이 거부되었습니다. 계정 권한과 API 한도를 확인하세요.'],
+    GITHUB_AUTH_REQUIRED: ['GitHub CLI 尚未登录 github.com。请运行 gh auth login --hostname github.com，完成后重新检查。', 'GitHub CLI is not signed in to github.com. Run gh auth login --hostname github.com, then check again.', 'GitHub CLI 尚未登入 github.com。請執行 gh auth login --hostname github.com，完成後重新檢查。', 'GitHub CLI は github.com にログインしていません。gh auth login --hostname github.com を実行してから、再確認してください。', 'GitHub CLI가 github.com에 로그인되어 있지 않습니다. gh auth login --hostname github.com을 실행한 뒤 다시 확인하세요.'],
+    GITHUB_AUTH_INVALID: ['GitHub 拒绝了当前凭据。请运行 gh auth login --hostname github.com 重新登录；若使用 GH_TOKEN 或 GITHUB_TOKEN，请更新对应环境变量并重新启动向导。', 'GitHub rejected the current credentials. Run gh auth login --hostname github.com to sign in again. If using GH_TOKEN or GITHUB_TOKEN, update that environment variable and restart the wizard.', 'GitHub 拒絕了目前的憑證。請執行 gh auth login --hostname github.com 重新登入；若使用 GH_TOKEN 或 GITHUB_TOKEN，請更新對應環境變數並重新啟動精靈。', 'GitHub が現在の認証情報を拒否しました。gh auth login --hostname github.com で再ログインしてください。GH_TOKEN または GITHUB_TOKEN を使っている場合は、該当する環境変数を更新してウィザードを再起動してください。', 'GitHub가 현재 인증 정보를 거부했습니다. gh auth login --hostname github.com으로 다시 로그인하세요. GH_TOKEN 또는 GITHUB_TOKEN을 사용 중이면 해당 환경 변수를 갱신하고 마법사를 다시 시작하세요.'],
+    GITHUB_ACCESS_DENIED: ['GitHub 拒绝访问此对象。请核对当前账号、令牌的操作权限和组织授权；重新登录不一定能解决权限不足。', 'GitHub denied access to this object. Check the active account, token permissions and organization authorization; signing in again may not grant the required access.', 'GitHub 拒絕存取此物件。請核對目前帳號、權杖的操作權限及組織授權；重新登入不一定能解決權限不足。', 'GitHub がこの対象へのアクセスを拒否しました。現在のアカウント、トークンの権限、組織の承認を確認してください。再ログインだけでは権限不足は解消されない場合があります。', 'GitHub가 대상에 대한 접근을 거부했습니다. 현재 계정, 토큰 권한 및 조직 승인을 확인하세요. 다시 로그인해도 필요한 권한이 부여되지 않을 수 있습니다.'],
     GITHUB_RATE_LIMITED: ['GitHub 请求次数已达上限，请稍后重试。', 'GitHub rate limit reached. Retry later.', 'GitHub 請求次數已達上限，請稍後重試。', 'GitHub のレート制限に達しました。時間をおいて再試行してください。', 'GitHub 요청 한도에 도달했습니다. 나중에 재시도하세요.'],
     REGULAR_FILE_REQUIRED: ['请选择普通文件，不能选择目录或链接。', 'Choose a regular file, not a folder or link.', '請選擇一般檔案，不能選擇目錄或連結。', 'ディレクトリやリンクではなく通常のファイルを選択してください。', '폴더나 링크가 아닌 일반 파일을 선택하세요.'],
     SCHEMA_INVALID: ['内容不符合此字段的格式、长度或允许值，请修改后重试。', 'The value does not meet this field’s format, length or allowed values. Edit it and retry.', '內容不符合此欄位的格式、長度或允許值，請修改後重試。', '項目の形式、長さ、または許可された値に合いません。修正して再試行してください。', '값이 이 필드의 형식, 길이 또는 허용 값에 맞지 않습니다. 수정 후 다시 시도하세요.'],
@@ -346,4 +349,7 @@ export const errors = {
 for (const code of ['CANDIDATE_TAG_CHANGED', 'CANDIDATE_SOURCE_MISMATCH', 'CANDIDATE_ASSET_CHANGED', 'CANDIDATE_PACKAGE_CHANGED', 'CANDIDATE_DOWNLOAD_CHANGED',
     'CANDIDATE_RELEASE_CONFLICT', 'CANDIDATE_METADATA_INVALID', 'CANDIDATE_PREVIEW_CHANGED', 'CANDIDATE_PUBLICATION_FAILED']) errors[code] = errors.CANDIDATE_RELEASE_CHANGED;
 for (const code of ['INPUT_LIMIT_EXCEEDED', 'PROJECT_STATE_SIZE_EXCEEDED', 'CACHE_SIZE_EXCEEDED', 'CACHE_ENTRY_LIMIT']) errors[code] = errors.INPUT_SIZE_EXCEEDED;
-errors.GIT_TRANSFER_FAILED = errors.GITHUB_REQUEST_FAILED;
+Object.assign(errors, diagnostics);
+for (const [source, codes] of Object.entries(diagnosticAliases)) {
+    for (const code of codes) errors[code] = errors[source];
+}

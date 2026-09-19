@@ -2,7 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { terminal, localizedText, failureCode, failureDetails } from './submission-ui.mjs';
 import { progressReporter } from './submission-progress.mjs';
 import { visible, optionText } from './submission-presentation.mjs';
-import { requestDetails } from './submission-github.mjs';
+import { requestDetails, authenticationRequired } from './submission-github.mjs';
 
 const failure = error => ({ message: failureCode(error), ...failureDetails(error),
     ...(requestDetails(error).stage ? { downloadStage: requestDetails(error).stage } : {}) });
@@ -114,8 +114,10 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                     try {
                         clear();
                         for (const task of tasks.values()) task.update.pause();
-                        ui.say('requestFailed', args[0]);
-                        answer = await ui.select('retryCurrentStep', ['retry', 'saveExit'], key => ui.text(key), undefined, { back: false }) === 'retry' ? 1 : 2;
+                        const authentication = authenticationRequired(args[0].code);
+                        ui.say(authentication ? 'readingActor' : 'requestFailed', args[0]);
+                        answer = await ui.select(authentication ? 'authenticationRecovery' : 'retryCurrentStep', ['retry', 'saveExit'],
+                            key => ui.text(authentication && key === 'retry' ? 'checkAuthentication' : key), undefined, { back: false }) === 'retry' ? 1 : 2;
                     } catch (error) {
                         if (error.message === 'WIZARD_SAVE') answer = 2;
                         else throw error;

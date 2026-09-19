@@ -258,8 +258,8 @@
     },
     {
       "path": "scripts/candidate-transfer.mjs",
-      "size": 4307,
-      "sha256": "5a32e0e2cd85c041f7c03f1a9d30c5248cd7c46fc892b03843b0deb3eaea8b52"
+      "size": 4373,
+      "sha256": "94b8fa73e311c69c0a6a721bdc9bd46865bb3307fcbb80e1aea43c222860f520"
     },
     {
       "path": "scripts/candidate.mjs",
@@ -278,8 +278,8 @@
     },
     {
       "path": "scripts/download.mjs",
-      "size": 10023,
-      "sha256": "a2b7470b57f8043656ca5fb832afbd854cdf97ce535f56928d0b41cca03daec7"
+      "size": 10167,
+      "sha256": "e47e262e4d36893d8f1ed78427845dde721a9a8f98383294ed241772af99c7b7"
     },
     {
       "path": "scripts/emergency-request.mjs",
@@ -303,8 +303,8 @@
     },
     {
       "path": "scripts/project.mjs",
-      "size": 4035,
-      "sha256": "7f4ec8b5d1e90a9da04eb25195f628d4dafb01aa8366e079688da32cfca04f80"
+      "size": 3580,
+      "sha256": "75f4ef0bb9137a9893edf7add1cbfc5cc4aac91dae971220b3371fcc0a717f8d"
     },
     {
       "path": "scripts/receipt-storage.mjs",
@@ -347,19 +347,29 @@
       "sha256": "5acc01d8b70fd7d0501167aa9b6a382bf287ea9263ae1408da7ffb7103960c27"
     },
     {
+      "path": "scripts/submission-error-messages.mjs",
+      "size": 40081,
+      "sha256": "ce3c680370d6b055fd3d7dae8656e1be172f7b7c36362236fc0550bfca44e88b"
+    },
+    {
+      "path": "scripts/submission-errors.mjs",
+      "size": 5906,
+      "sha256": "e5597d57fdc5690f213b6855e7bffd019c32a91b7e817b40084235f85c7ed675"
+    },
+    {
       "path": "scripts/submission-fields.mjs",
       "size": 9987,
       "sha256": "38a7fb8457845ebeec95071120ad68a9fae76c09f4cc4470c454be8e48a5cdb8"
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 14091,
-      "sha256": "9be583296b21531ce9b7724e97aefdaf5d722bf7829ebd2f0148bbeb35a35836"
+      "size": 13447,
+      "sha256": "9368f3a5e169fc42172f715c15d832251f35e5d2fa5bf97dc20d85c63ee0dc3b"
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 119391,
-      "sha256": "78d08e9b4a373947707f5c7fdb677a4e1a072c080400c37c235f9093ba201e18"
+      "size": 121452,
+      "sha256": "067c3e0e0825cdc98871d87a923013e7350235027a74d1786198ac4b57ec96b3"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -393,8 +403,8 @@
     },
     {
       "path": "scripts/submission-retry.mjs",
-      "size": 1507,
-      "sha256": "1b5515601e055a2f57cc45ad11067edf466d5eca0663a892e457b46a3c6e7247"
+      "size": 1538,
+      "sha256": "cbd02d1ce1d6d216bbbac73383352a61973746141abea06fdcd1dfe3274e389e"
     },
     {
       "path": "scripts/submission-sdk.mjs",
@@ -418,13 +428,13 @@
     },
     {
       "path": "scripts/submission-terminal.mjs",
-      "size": 9388,
-      "sha256": "ed1d34de89b3d917065a92b5f03be81e8c6c87d5a230457ab0f342fba43dbfc0"
+      "size": 9663,
+      "sha256": "2dcbd8471dd1e5de012c5c47d15438fdd924edca4eb7f7994e89b05d7f7be9d6"
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 32317,
-      "sha256": "e405caa56dcb4dd106154d1290765027ba713c463128512b55e1c549787c7492"
+      "size": 32084,
+      "sha256": "58f0980847004baf20be95e66cb33bec637dcaf26d3f54b2de777712d2e3edb0"
     },
     {
       "path": "scripts/submission-version-state.mjs",
@@ -448,8 +458,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 16710,
-      "sha256": "1d9e081ac4398c3b9849bfd01c35e71abdb5fcecec7bebb4b5b9cd704d56882d"
+      "size": 16962,
+      "sha256": "15c8bdf568e338f0ca19b9e1609c767488ab3e9ed1eddad4285a3ea399a2fe98"
     },
     {
       "path": "scripts/tool-process.mjs",

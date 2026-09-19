@@ -49,7 +49,7 @@ test('候选下载按 API 选择媒体类型，并保留字节校验和拒绝覆
         assert(args.includes('Accept: application/octet-stream')); return bytes;
     }), expected);
     assert.throws(() => downloadGithubBinary('repos/../plugin/releases/assets/456', '', bytes.length), /CANDIDATE_DOWNLOAD_INVALID/u);
-    for (const [code, projected] of [['ETIMEDOUT', 'DOWNLOAD_TIMEOUT'], ['ENOBUFS', 'INPUT_SIZE_EXCEEDED'], ['EPIPE', 'GITHUB_REQUEST_FAILED']]) {
+    for (const [code, projected] of [['ETIMEDOUT', 'DOWNLOAD_TIMEOUT'], ['ENOBUFS', 'INPUT_SIZE_EXCEEDED'], ['EPIPE', 'GITHUB_CONNECTION_RESET']]) {
         assert.throws(() => downloadGithubBinary(sourceEndpoint, '', bytes.length, expected, () => { throw Object.assign(new Error('native details'), { code }); }), { message: projected });
     }
     const sourceFile = path.join(directory, 'source.jar');

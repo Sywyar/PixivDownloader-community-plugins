@@ -60,7 +60,7 @@ function consoleStreams() {
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
 
-for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内失败步骤${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
+for (const reason of ['network', 'login', 'credentials']) for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内处理${reason}故障并选择${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
     const originalCI = process.env.CI; process.env.CI = 'false';
     t.after(() => { if (originalCI === undefined) delete process.env.CI; else process.env.CI = originalCI; });
     const tty = consoleStreams();
@@ -78,7 +78,9 @@ for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终�
             await ui.task('loading', () => {
                 before++;
                 githubRequest(() => observe('readingGitObjects', '', () => {
-                    if (++attempts <= 6) throw Object.assign(new Error('private output'), { stderr: 'unexpected EOF' });
+                    if (++attempts <= (workerData.reason === 'network' ? 6 : 2)) throw Object.assign(new Error('private output'),
+                        workerData.reason === 'network' ? { stderr: 'unexpected EOF' }
+                            : workerData.reason === 'login' ? { status: 4 } : { status: 1, stderr: 'private token (HTTP 401)' });
                 }), { wait() {} });
                 after++;
             });
@@ -86,7 +88,7 @@ for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终�
         close(); ui.close();
         parentPort.postMessage({ method: 'result', args: [{ before, attempts, after, error }] });
         parentPort.close();
-    `)), { workerData: { cancelled } });
+    `)), { workerData: { cancelled, reason } });
     t.after(() => worker.terminate());
     const result = connectTerminal(worker, cancelled, tty.input, tty.output); result.catch(() => {});
     const until = async text => {
@@ -94,20 +96,25 @@ for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终�
         assert(tty.rendered().includes(text), text + '\n' + tty.rendered());
     };
     await until(localizedText('en-US', 'language')); await tty.key('\x1b[B\r');
-    await until(localizedText('en-US', 'retryCurrentStep'));
+    await until(localizedText('en-US', reason === 'network' ? 'retryCurrentStep' : 'authenticationRecovery'));
+    if (reason !== 'network') {
+        await until(localizedText('en-US', 'checkAuthentication'));
+        await until(errors[reason === 'login' ? 'GITHUB_AUTH_REQUIRED' : 'GITHUB_AUTH_INVALID'][locales.indexOf('en-US')]);
+    }
     await until(localizedText('en-US', 'retryRoundLabel') + ': 1');
     assert(tty.rendered().includes(localizedText('en-US', 'readingGitObjects')));
     if (outcome === 'retry') {
         await tty.key('\r');
         await until(localizedText('en-US', 'retryRoundLabel') + ': 2');
-        await until(localizedText('en-US', 'totalAttemptsLabel') + ': 6');
+        await until(localizedText('en-US', 'totalAttemptsLabel') + ': ' + (reason === 'network' ? 6 : 2));
         await tty.key('\r');
-        assert.deepEqual(await result, { before: 1, attempts: 7, after: 1, error: undefined });
+        assert.deepEqual(await result, { before: 1, attempts: reason === 'network' ? 7 : 3, after: 1, error: undefined });
     } else {
         await tty.key(outcome === 'save-key' ? '\x13' : outcome === 'save' ? '\x1b[B\r' : '\x1b');
-        assert.deepEqual(await result, { before: 1, attempts: 3, after: 0, error: outcome.startsWith('save') ? 'WIZARD_SAVE' : 'CANCELLED' });
+        assert.deepEqual(await result, { before: 1, attempts: reason === 'network' ? 3 : 1, after: 0, error: outcome.startsWith('save') ? 'WIZARD_SAVE' : 'CANCELLED' });
     }
     assert(!tty.rendered().includes('private output'));
+    assert(!tty.rendered().includes('private token'));
 });
 
 test('公共终端会话在问题和加载切换时保持逐键模式，退出恢复原状态', { timeout: 10000 }, async () => {
@@ -155,8 +162,13 @@ test('公共终端会话在问题和加载切换时保持逐键模式，退出�
     assert.equal(tty.input.isRaw, true);
 });
 
-test('密钥格式和算法错误在各语言保留独立提示，不误报为密码错误', async () => {
-    const codes = ['KEY_FORMAT_INVALID', 'KEY_ENCRYPTION_UNSUPPORTED', 'KEY_ENCRYPTION_PARAMETERS_INVALID'];
+test('环境、网络、文件和密钥错误在各语言显示具体说明与机器码', async () => {
+    const codes = ['KEY_FORMAT_INVALID', 'KEY_ENCRYPTION_UNSUPPORTED', 'KEY_ENCRYPTION_PARAMETERS_INVALID',
+        'GITHUB_AUTH_REQUIRED', 'GITHUB_AUTH_INVALID', 'GITHUB_ACCESS_DENIED', 'GITHUB_RATE_LIMITED',
+        'GITHUB_CLI_REQUIRED', 'GITHUB_CLI_UNSUPPORTED', 'GITHUB_NOT_FOUND', 'GITHUB_REQUEST_FAILED',
+        'DOWNLOAD_DNS_FAILED', 'DOWNLOAD_PROXY_AUTH_REQUIRED', 'DOWNLOAD_TLS_FAILED', 'DOWNLOAD_DIGEST_CHANGED',
+        'LOCAL_FILE_MISSING', 'LOCAL_ACCESS_DENIED', 'LOCAL_STORAGE_FULL', 'GIT_AUTH_REQUIRED', 'GIT_REMOTE_REJECTED',
+        'COMMUNITY_STATE_CHANGED', 'COMMUNITY_RECORD_INVALID', 'TRANSFER_PARTY_REQUIRED'];
     for (const [index, locale] of locales.entries()) {
         const tty = consoleStreams();
         tty.key('\x1b[B'.repeat(index) + '\r');

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { API_BYTES, API_TIMEOUT, sha } from './github.mjs';
 import { observe } from './submission-progress.mjs';
+import { gitFailure } from './submission-errors.mjs';
 
 export const markerName = '.pixivdownloader-plugin-project';
 export const markerMissing = 'PROJECT_MARKER_MISSING';
@@ -11,12 +12,7 @@ export const git = (directory, ...args) => observe(['fetch', 'push', 'commit'].i
     '-C', directory, ...args], { encoding: 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
         stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd(); }
     catch (error) {
-        if (['fetch', 'push'].includes(args[0]) && !['ENOENT', 'ENOBUFS'].includes(error.code)) {
-            const temporary = ['ETIMEDOUT', 'ECONNRESET', 'EPIPE'].includes(error.code)
-                || /unexpected EOF|connection reset|connection refused|timed out|could not resolve|HTTP (?:408|500|502|503|504)/iu.test(String(error.stderr ?? ''));
-            throw Object.assign(new Error('GIT_TRANSFER_FAILED'), { github: true, retryable: temporary, method: args[0].toUpperCase(), failureStep: 'git_' + args[0] });
-        }
-        throw error;
+        throw gitFailure(error, args[0]);
     }
 });
 

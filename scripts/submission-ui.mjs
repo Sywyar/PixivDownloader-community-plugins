@@ -3,6 +3,7 @@ import * as prompts from './vendor/clack-prompts.mjs';
 import { additions, errors, optionNames } from './submission-messages.mjs';
 import { visible, formatMetadata, previewMetadata, optionText } from './submission-presentation.mjs';
 import { toolDetails } from './tool-process.mjs';
+import { localFailureCode } from './submission-errors.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
@@ -97,15 +98,15 @@ const messages = {
     cancelled: ['已取消', 'Cancelled', '已取消', 'キャンセルしました', '취소됨'],
     cleanupFailed: ['临时工作目录清理失败，操作结果保持有效；请关闭占用程序后删除此目录。', 'Temporary workspace cleanup failed. The operation result is still valid; close programs using this folder, then delete it.', '暫存工作目錄清理失敗，操作結果仍有效；請關閉占用程式後刪除此目錄。', '一時フォルダーを削除できませんでした。操作結果は有効です。使用中のプログラムを閉じてから削除してください。', '임시 폴더를 삭제하지 못했습니다. 작업 결과는 유효합니다. 폴더를 사용 중인 프로그램을 닫고 삭제하세요.'],
     submitted: ['PR 已创建，请在 PR 页面查看检查和处理进度。', 'The PR is ready. Follow checks and processing on its page.', 'PR 已建立，請在 PR 頁面查看檢查及處理進度。', 'PR を作成しました。PR ページでチェックと処理の進捗を確認できます。', 'PR을 만들었습니다. PR 페이지에서 검사 및 처리 진행 상황을 확인하세요.'],
-    failed: ['向导已停止，请根据错误码检查输入后重试。', 'The wizard stopped. Check the input using this error code, then retry.', '精靈已停止，請依錯誤碼檢查輸入後重試。', 'ウィザードを停止しました。エラーコードを確認し、入力を修正して再実行してください。', '마법사가 중지되었습니다. 오류 코드를 확인하고 입력을 수정한 뒤 다시 시도하세요.'],
-    downloadFailed: ['下载失败。请根据错误码检查网络、代理或文件摘要后重试。', 'Download failed. Use the error code to check the network, proxy or file digest, then retry.', '下載失敗。請依錯誤碼檢查網路、代理或檔案摘要後重試。', 'ダウンロードに失敗しました。エラーコードに従ってネットワーク、プロキシ、ファイルのダイジェストを確認してください。', '다운로드하지 못했습니다. 오류 코드에 따라 네트워크, 프록시 또는 파일 다이제스트를 확인하고 다시 시도하세요.'],
+    failed: ['向导已停止，请按具体错误说明处理后重试。', 'The wizard stopped. Follow the guidance for the specific error before retrying.', '精靈已停止，請依具體錯誤說明處理後重試。', 'ウィザードを停止しました。エラーの説明に従って対処してから再実行してください。', '마법사가 중지되었습니다. 구체적인 오류 안내에 따라 조치한 뒤 다시 시도하세요.'],
+    downloadFailed: ['下载未完成，请按具体错误说明处理。', 'Download did not complete. Follow the guidance for the specific error.', '下載未完成，請依具體錯誤說明處理。', 'ダウンロードが完了しませんでした。エラーの説明に従って対処してください。', '다운로드가 완료되지 않았습니다. 구체적인 오류 안내에 따라 조치하세요.'],
 };
 
 export function failureCode(error) {
     return /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message
         : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1]
-        ?? { ENOENT: 'LOCAL_FILE_MISSING', EACCES: 'LOCAL_ACCESS_DENIED', EPERM: 'LOCAL_ACCESS_DENIED',
-            ENOSPC: 'LOCAL_STORAGE_FULL', EIO: 'LOCAL_IO_FAILED', EROFS: 'LOCAL_ACCESS_DENIED' }[error.code]
+        ?? localFailureCode(error)
+        ?? (error instanceof SyntaxError ? 'LOCAL_DATA_INVALID' : undefined)
         ?? 'SUBMISSION_FAILED';
 }
 
