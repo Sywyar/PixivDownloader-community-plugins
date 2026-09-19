@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { policy, prefix } from '../github.mjs';
 import { hash } from '../sdk.mjs';
 import { transferReview, requireTransferReview, closeRejectedTransfer, rejectionBody, approvalBody, transferProof } from '../transfer-reviews.mjs';
-import { reviewTransfer, openTransfers } from '../submission-transfer.mjs';
+import { reviewTransfer, openTransfers, selectTransfer } from '../submission-transfer.mjs';
+import { localizedText, locales } from '../submission-ui.mjs';
 import { withRepositoryFiles } from './local-sdk.mjs';
 import { notify } from '../community-gate.mjs';
 
@@ -109,17 +110,83 @@ test('向导确认与拒绝写入原 PR，丢失响应回读成功不重复创�
     }
 });
 
-test('原所有者入口从开放 PR 读取申请，不要求申请先合入 master', () => {
+test('转移入口在 GitHub 按标签与提及组合筛选，仅展开命中 PR 并复核所有者', () => {
     const rows = new Map([[checked.requestPath, bytes]]);
+    const queries = [], fetched = [];
+    let actor = owner;
     const call = withRepositoryFiles(endpoint => {
-        if (endpoint.includes('/pulls?')) return [[pr]];
+        if (endpoint.includes('/issues?')) {
+            queries.push(new URLSearchParams(endpoint.split('?')[1]));
+            return [[{ id: '699', number: 6 }, { id: pr.id, number: pr.number, pull_request: {} }]];
+        }
+        if (endpoint.endsWith('/pulls/7')) { fetched.push(7); return pr; }
         if (endpoint.includes('/files?')) return [[{ filename: checked.requestPath, status: 'added' }]];
         assert.fail(endpoint);
     }, pr.head.repo.full_name, new Map([[head, rows]]));
-    const result = openTransfers({ call, snapshot: { actor: owner },
+    const context = () => ({ call, snapshot: { actor },
         sdk: { document: () => ({ value: request, sha256: hash(bytes) }) },
         state: { tree: new Map(), read: file => file.startsWith('plugin-bindings/') ? { value: { owner: from }, sha256: hash(binding) } : null } });
-    assert.equal(result.length, 1); assert.equal(result[0].openPr.number, 7);
+    for (const filters of [undefined, ['transferFilterLabel'], ['transferFilterMention'], []]) {
+        const result = openTransfers(context(), filters);
+        assert.equal(result.length, 1); assert.equal(result[0].openPr.number, 7);
+    }
+    assert.deepEqual(queries.map(query => [query.get('labels'), query.get('mentioned')]), [
+        ['type:ownership-transfer', 'original'], ['type:ownership-transfer', null], [null, 'original'], [null, null],
+    ]);
+    assert(queries.every(query => query.get('state') === 'open' && query.get('per_page') === '100'));
+    assert.deepEqual(fetched, [7, 7, 7, 7]);
+    actor = { ...owner, id: '909' };
+    assert.deepEqual(openTransfers(context(), []), []);
+});
+
+test('组织代表取消提及筛选后仍须通过当前成员身份核验', () => {
+    const organization = { accountId: '505', accountType: 'Organization', publisherId: 'group' };
+    const value = { ...request, payload: { ...request.payload, from: organization } };
+    let active = false;
+    const call = withRepositoryFiles(endpoint => {
+        if (endpoint.includes('/issues?')) { assert(!endpoint.includes('mentioned=')); return [[{ id: pr.id, number: 7, pull_request: {} }]]; }
+        if (endpoint.endsWith('/pulls/7')) return pr;
+        if (endpoint.includes('/files?')) return [[{ filename: checked.requestPath, status: 'added' }]];
+        if (endpoint === 'organizations/505') return { id: '505', type: 'Organization', login: 'group' };
+        if (endpoint === 'user/memberships/orgs/group') return { state: active ? 'active' : 'pending', user: owner, organization: { id: '505' } };
+        assert.fail(endpoint);
+    }, pr.head.repo.full_name, new Map([[head, new Map([[checked.requestPath, bytes]])]]));
+    const context = { call, snapshot: { actor: owner }, sdk: { document: () => ({ value, sha256: hash(bytes) }) },
+        state: { tree: new Map(), read: file => file.startsWith('plugin-bindings/') ? { value: { owner: organization }, sha256: hash(binding) } : null } };
+    assert.deepEqual(openTransfers(context, ['transferFilterLabel']), []);
+    active = true;
+    assert.equal(openTransfers(context, ['transferFilterLabel']).length, 1);
+});
+
+test('列表末尾始终提供筛选入口，默认勾选两项，清空和再次修改后按确认范围重查', async () => {
+    const queries = [], notices = [], initial = [];
+    let round = 0;
+    const legacy = { value: request, sha256: hash(bytes) };
+    const context = { snapshot: { actor: owner }, call: endpoint => { queries.push(endpoint); return [[]]; },
+        ui: { text: key => localizedText('en-US', key), say: key => notices.push(key), task: async (_key, work) => work(),
+            select: async (key, options, label) => {
+                assert.equal(key, 'proposal'); assert.equal(options.at(-1), 'changeTransferFilters');
+                assert.equal(label(options.at(-1)), localizedText('en-US', 'changeTransferFilters'));
+                if (round === 3) { assert(label(options[0]).includes('original/demo')); return options[0]; }
+                return options.at(-1);
+            }, multiselect: async (key, options, selected) => {
+                assert.equal(key, 'transferFilterScope'); assert.deepEqual(options, ['transferFilterLabel', 'transferFilterMention']);
+                initial.push([...selected]); round++;
+                return round === 1 ? [] : round === 2 ? ['transferFilterLabel'] : ['transferFilterMention'];
+            } } };
+    assert.equal(await selectTransfer(context, [legacy]), legacy);
+    assert.deepEqual(initial, [['transferFilterLabel', 'transferFilterMention'], [], ['transferFilterLabel']]);
+    assert.deepEqual(queries.map(query => {
+        const params = new URLSearchParams(query.split('?')[1]); return [params.has('labels'), params.has('mentioned')];
+    }), [[true, true], [false, false], [true, false], [false, true]]);
+    context.ui.select = async (_key, values) => { assert.deepEqual(values, ['changeTransferFilters']); throw new Error('WIZARD_BACK'); };
+    await assert.rejects(selectTransfer(context), /WIZARD_BACK/);
+    assert(notices.includes('transferFilterHelp')); assert(notices.includes('noTransferFrom'));
+    for (const locale of locales) for (const key of ['transferFilterHelp', 'changeTransferFilters', 'transferFilterScope',
+        'transferFilterLabel', 'transferFilterMention', 'loadingTransfers', 'legacyTransfer', 'noTransferFrom']) {
+        assert.notEqual(localizedText(locale, key), key);
+        assert(localizedText(locale, key).trim());
+    }
 });
 
 test('通知作业关闭拒绝申请后直接更新终态，不依赖 job token 再触发工作流', () => {

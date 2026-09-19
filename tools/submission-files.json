@@ -373,8 +373,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 121662,
-      "sha256": "56af6aa3a1aa215141ef7734db6b3db239a42eda1eef1fb953ba520128ea4b74"
+      "size": 125343,
+      "sha256": "fee923e36c06986735c4ac1e65e6aee1b5866c4b0f92753b012ab96c677fb8ae"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -383,8 +383,8 @@
     },
     {
       "path": "scripts/submission-operations.mjs",
-      "size": 19890,
-      "sha256": "3521512de6ed796407e56dd7be6c854d589c89b062de09cfb39953302cc86644"
+      "size": 19775,
+      "sha256": "3dac27f26fa973d8943f196d8631f92108d5866ed41dce448b58015ebb7d891b"
     },
     {
       "path": "scripts/submission-pr.mjs",
@@ -443,8 +443,8 @@
     },
     {
       "path": "scripts/submission-transfer.mjs",
-      "size": 6985,
-      "sha256": "75ff4d61f547ec5467633a16bdc8d22d45a0cc1ee8f163e155d3319c9cb49987"
+      "size": 8441,
+      "sha256": "a1e3cfecb4fceafbb9c4f2059c6ab1bd7754c9f4d12c68a34e018b249b2e6d4c"
     },
     {
       "path": "scripts/submission-ui.mjs",

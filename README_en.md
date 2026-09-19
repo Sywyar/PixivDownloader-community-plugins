@@ -80,6 +80,8 @@ The wizard reuses an existing fork and creates each request branch from the curr
 
 Formal Release names retain the original publisher; their descriptions show the current maintainer and status. Revoked versions retain their Release description, while the public package asset is removed after its archive is verified. Historical signatures and original authorship remain unchanged. If no item is eligible, the wizard explains why and returns to the operation menu.
 
+When looking for transfers to confirm, the wizard defaults to open PRs with both the ownership-transfer label and a mention of your current GitHub account. Labels and mentions may take time to appear. If an expected request is missing, choose “Change filters” at the end of the list and clear either condition before searching again. Organization representatives who were not mentioned can clear that condition too. Broader filters still show only valid requests you may handle.
+
 ## Help and maintenance
 
 Ask submission questions in [Issues](https://github.com/Sywyar/PixivDownloader-community-plugins/issues). See the [contribution guide](CONTRIBUTING.md) for review forms and repository maintenance. Repository tools use [AGPL-3.0-or-later](LICENSE); plugins retain their declared licenses.

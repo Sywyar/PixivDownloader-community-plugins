@@ -1,4 +1,4 @@
-import { openTransfers, reviewTransfer } from './submission-transfer.mjs';
+import { selectTransfer, reviewTransfer } from './submission-transfer.mjs';
 import { activeKey, publisherPath } from './submission-check.mjs';
 import { eligible, github, checkedRepository } from './submission-github.mjs';
 import { id } from './github.mjs';
@@ -200,12 +200,12 @@ export async function prepareTransfer(context) {
                 return eligible(selectedRole === 'FROM' ? request.payload.from : request.payload.to, snapshot.actor, call)
                     && !state.tree.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${selectedRole.toLowerCase()}/${snapshot.actor.id}.json`);
             });
-        if (selectedRole === 'FROM') requests.unshift(...await ui.task('loading', () => openTransfers(context)));
-        if (!requests.length) {
-            ui.say(selectedRole === 'FROM' ? 'noTransferFrom' : 'noTransferTo');
+        if (selectedRole === 'FROM') proposal = await selectTransfer(context, requests);
+        else if (!requests.length) {
+            ui.say('noTransferTo');
             throw new Error('WIZARD_MENU');
         }
-        proposal = await ui.select('proposal', requests, record => `${record.openPr ? '#' + record.openPr.number + ' ' : ''}${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
+        else proposal = await ui.select('proposal', requests, record => `${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
     }
     if (proposal?.openPr) return reviewTransfer(context, proposal);
     const changes = new Map();

@@ -9,11 +9,19 @@ import { currentProof } from './submission-operations.mjs';
 import { signOperationProof } from './submission-signing.mjs';
 import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
 
-export function openTransfers(context) {
+const transferFilters = ['transferFilterLabel', 'transferFilterMention'];
+
+export function openTransfers(context, filters = transferFilters) {
     const { sdk, state, snapshot, call = github } = context;
     const requests = [];
     let total = 0;
-    for (const pr of paged(`${prefix}/pulls?state=open&base=${policy.defaultBranch}`, call)) {
+    const query = new URLSearchParams({ state: 'open' });
+    if (filters.includes('transferFilterLabel')) query.set('labels', 'type:ownership-transfer');
+    if (filters.includes('transferFilterMention')) query.set('mentioned', snapshot.actor.login);
+    // 标签和提及仅缩小读取范围；后续仍按数字身份与原始申请核对处理权限。
+    for (const issue of paged(`${prefix}/issues?${query}`, call)) {
+        if (!issue.pull_request) continue;
+        const pr = call(`${prefix}/pulls/${id(issue.number)}`);
         if (pr.state !== 'open' || pr.draft || pr.merged || !pr.head.repo || pr.base.ref !== policy.defaultBranch
             || id(pr.base.repo.id) !== policy.repositoryId || pr.user.type !== 'User' || id(pr.user.id) === snapshot.actor.id) continue;
         const files = paged(`${prefix}/pulls/${id(pr.number)}/files`, call);
@@ -37,6 +45,21 @@ export function openTransfers(context) {
         requests.push({ ...document, path: file, openPr: { number: pr.number, head: pr.head.sha, url: pr.html_url } });
     }
     return requests;
+}
+
+export async function selectTransfer(context, legacy = []) {
+    const { ui } = context;
+    let filters = [...transferFilters];
+    ui.say('transferFilterHelp');
+    for (;;) {
+        const requests = [...await ui.task('loadingTransfers', () => openTransfers(context, filters)), ...legacy];
+        if (!requests.length) ui.say('noTransferFrom');
+        const selected = await ui.select('proposal', [...requests, 'changeTransferFilters'], record =>
+            typeof record === 'string' ? ui.text(record)
+                : `${record.openPr ? '#' + record.openPr.number : ui.text('legacyTransfer')} ${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
+        if (selected !== 'changeTransferFilters') return selected;
+        filters = await ui.multiselect('transferFilterScope', transferFilters, filters);
+    }
 }
 
 // 在原 PR 留下平台认证的明确决定，不创建第二个分支、PR 或持久化待转移状态。

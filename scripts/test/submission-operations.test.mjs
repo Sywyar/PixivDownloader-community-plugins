@@ -14,7 +14,7 @@ function context() {
         state: { tree: values, read: file => values.get(file) ?? null, published: () => [], currentStatus: () => ({ state: 'ACTIVE' }) },
         ui: { task: async (_key, work) => work(), text: key => key, say: (key, value) => notices.push({ key, value }), select: async (key, items) => { choices.push({ key, items }); return items[0]; },
             ask: async key => key === 'targetLogin' ? 'recipient' : 'recipient', confirm: async () => true },
-        sdk: { invoke: () => ({ valid: true }) }, call: endpoint => endpoint.includes('/pulls?') ? [[]] : ({ id: 202, type: 'User', login: 'recipient' }) };
+        sdk: { invoke: () => ({ valid: true }) }, call: endpoint => endpoint.includes('/issues?') ? [[]] : ({ id: 202, type: 'User', login: 'recipient' }) };
     return { result, values, binding, notices, choices };
 }
 
@@ -151,7 +151,10 @@ test('转移确认按所选身份筛选，空请求给出说明，确认只生�
                 assert.deepEqual(items, ['newProposal', 'transferConfirmFrom', 'transferConfirmTo', 'transferHandoff']);
                 return role === 'FROM' ? 'transferConfirmFrom' : 'transferConfirmTo';
             }
-            assert.equal(state, 'pending'); assert.equal(key, 'proposal'); assert.equal(items.length, 1);
+            assert.equal(key, 'proposal');
+            if (role === 'FROM') assert.equal(items.at(-1), 'changeTransferFilters');
+            if (state !== 'pending') { assert.deepEqual(items, ['changeTransferFilters']); throw new Error('WIZARD_MENU'); }
+            assert.equal(items.length, role === 'FROM' ? 2 : 1);
             assert(label(items[0]).includes('original/demo')); assert(label(items[0]).includes('next'));
             return items[0];
         };
