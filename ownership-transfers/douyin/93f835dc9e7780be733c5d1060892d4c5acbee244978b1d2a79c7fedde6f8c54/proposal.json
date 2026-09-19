@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "pluginId": "douyin",
+    "pluginBindingSha256": "cb46ca4f9c23ede7eded5275bbc915af10332885f154c8281e34ad76bf237699",
+    "from": {
+      "accountId": "83223374",
+      "accountType": "User",
+      "publisherId": "sywyar"
+    },
+    "to": {
+      "accountId": "65430754",
+      "accountType": "User",
+      "publisherId": "gdrfgdrf"
+    },
+    "targetPublisherRecordSha256": null,
+    "targetKey": {
+      "keyId": "f3fadfdb-2e1c-40fc-8bd0-ff0cf80f120d",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAo3t0XH5eCW9Gsgvc/7zhjOwff6iNPATn7MYiAkZ922M="
+    },
+    "targetPublisherDisplayName": "gdrfgdrf",
+    "mode": "REGULAR",
+    "explanation": "wow"
+  },
+  "requestId": "93f835dc9e7780be733c5d1060892d4c5acbee244978b1d2a79c7fedde6f8c54",
+  "proofs": {
+    "targetKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "f3fadfdb-2e1c-40fc-8bd0-ff0cf80f120d",
+      "value": "4r6rOJFQXPrt/U+qK+s4m55Ow15lV+3zn5O2i35ao1lGT2Q5QkSWkT6CYMxjn95YMddjPe2hcj9PkT/hAarjDg=="
+    }
+  }
+}
