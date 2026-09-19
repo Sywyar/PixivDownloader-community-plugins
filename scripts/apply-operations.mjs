@@ -24,6 +24,7 @@ export function applyOperation({ sdk, adapter, state, checked, authority, approv
     else {
         input.binding = document(`plugin-bindings/${p.pluginId}.json`, 'BINDING');
         if (checked.operation === 'OWNERSHIP_TRANSFER') {
+            input.sourcePublisher = document(publisherPath(p.from), 'PUBLISHER');
             input.targetPublisher = document(publisherPath(p.to), 'PUBLISHER');
             input.targetLogin = checked.targetLogin;
             // 转移证据属于已签名请求；批准记录独立保存在 authority，不能替换该列表。

@@ -8,6 +8,7 @@ import { API_TIMEOUT } from './github.mjs';
 import { resolveProxy, tunnelAgent } from './download-proxy.mjs';
 import { observe, currentStep } from './submission-progress.mjs';
 import { retryRequest } from './submission-retry.mjs';
+import { localFailureCode } from './submission-errors.mjs';
 
 const excluded = new BlockList();
 for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
@@ -63,7 +64,8 @@ async function downloadRound(urlText, file, maximum, expected, {
     const checkTime = () => { if (signal.aborted || now() >= deadline) throw new Error('DOWNLOAD_TIMEOUT'); };
     const classify = error => {
         const native = error.code ?? error.cause?.code;
-        let code = ['ETIMEDOUT', 'ABORT_ERR'].includes(native) ? 'DOWNLOAD_TIMEOUT'
+        let code = stage === 'FILE' && localFailureCode(error) ? localFailureCode(error)
+            : ['ETIMEDOUT', 'ABORT_ERR'].includes(native) ? 'DOWNLOAD_TIMEOUT'
             : ['ECONNRESET', 'EPIPE', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_SSL_UNEXPECTED_EOF_WHILE_READING'].includes(native) ? 'DOWNLOAD_CONNECTION_RESET'
                 : ['ENOTFOUND', 'EAI_AGAIN'].includes(native) ? 'DOWNLOAD_DNS_FAILED'
                     : ['ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH'].includes(native) ? 'DOWNLOAD_CONNECTION_FAILED'

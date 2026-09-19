@@ -13,9 +13,10 @@ export function statusInputs(context, payload, call = api) {
         prNumber: Number(id(payload.inputs?.prNumber)), expectedHeadSha: sha(payload.inputs?.expectedHeadSha),
         reason: 'Signed owner request', recoveryApproved: false, organizationRepresentations: '' };
     const run = call(`${prefix}/actions/runs/${id(payload.workflow_run?.id)}`);
-    if (id(run.repository.id) !== policy.repositoryId || run.status !== 'completed'
-        || run.conclusion !== 'success' || run.path !== '.github/workflows/submission-check.yml') throw new Error('STATUS_TRIGGER_INVALID');
-    const match = /^Submission PR #([1-9][0-9]*)$/u.exec(run.display_title ?? '');
+    if (id(run.repository.id) !== policy.repositoryId || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('STATUS_TRIGGER_INVALID');
+    const pattern = { '.github/workflows/submission-check.yml': /^Submission PR #([1-9][0-9]*)$/u,
+        '.github/workflows/community-review-event.yml': /^Review PR #([1-9][0-9]*)$/u }[run.path];
+    const match = pattern?.exec(run.display_title ?? '');
     if (!match) throw new Error('STATUS_TRIGGER_INVALID');
     const pr = pull(match[1], call);
     return { prNumber: pr.number, expectedHeadSha: sha(pr.head.sha), reason: 'Signed owner request',

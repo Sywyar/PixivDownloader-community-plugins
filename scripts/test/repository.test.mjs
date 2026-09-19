@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { policy, prefix, list, api, API_BYTES, API_TIMEOUT } from '../github.mjs';
-import { labels, labelChanges, syncLabels } from '../sync-labels.mjs';
+import { labels, labelChanges, syncLabels, updateRequestLabels } from '../sync-labels.mjs';
 import { desiredSettings, checkSettings, configure, readSettings, initializeEmergency } from '../configure-repository.mjs';
 
 test('紧急分支只初始化数据根，已有 ref 或读取失败不覆盖', () => {
@@ -156,6 +156,32 @@ test('分页遗漏、重复和来源不完整均失败关闭', () => {
     assert.throws(() => list(`${prefix}/environments`, 'environments', () => [{ total_count: 2, environments: [{ id: 1 }] }]), /INCOMPLETE/);
     assert.throws(() => list(`${prefix}/labels`, null, () => [[{ id: 1 }], [{ id: 1 }]]), /DUPLICATED/);
     assert.deepEqual(list(`${prefix}/labels`, null, () => [[{ id: 1 }], [{ id: 2 }]]), [{ id: 1 }, { id: 2 }]);
+});
+
+test('操作标签只追加，失败、关闭和完成状态独立替换且保留用户标签', () => {
+    for (const operation of labels.filter(label => label.name.startsWith('type:')).map(label => label.name)) {
+        let current = ['custom', 'state:ready'];
+        const writes = [];
+        const endpoint = `${prefix}/issues/7/labels`;
+        const call = (route, options = {}) => {
+            if (!options.method) { assert.equal(route, endpoint + '?per_page=100'); return [current.map((name, id) => ({ name, id: id + 1 }))]; }
+            writes.push({ route, ...options });
+            if (options.method === 'POST') current.push(...options.body.labels);
+            else { assert.equal(options.method, 'DELETE'); current = current.filter(name => name !== decodeURIComponent(route.split('/').at(-1))); }
+        };
+        updateRequestLabels(7, { operations: [operation] }, call);
+        assert.deepEqual(current, ['custom', 'state:ready', operation]);
+        for (const state of ['ci:blocked', 'state:closed', 'state:completed']) {
+            updateRequestLabels(7, { states: [state] }, call);
+            assert.deepEqual(current.sort(), ['custom', operation, state].sort());
+        }
+        const before = writes.length;
+        updateRequestLabels(7, { operations: [operation], states: ['state:completed'] }, call);
+        assert.equal(writes.length, before);
+        for (const projection of [{ operations: ['ci:blocked'] }, { states: [operation] }, { operations: ['type:unknown'] }, { operations: null }]) {
+            assert.throws(() => updateRequestLabels(7, projection, () => assert.fail('非法投影不得访问 API')), /LABEL_PROJECTION_INVALID/);
+        }
+    }
 });
 
 test('原始 job 日志按字节读取控制字符，普通 API 保留终端保护和失败传播', () => {

@@ -97,12 +97,23 @@ export function signOperation(sdk, sign, kind, request, proofs) {
     request.requestId = '0'.repeat(64);
     request.proofs = Object.fromEntries(Object.entries(proofs).map(([name, key]) => [name, placeholder(key.keyId)]));
     request.requestId = sdk.invoke({ command: 'canonical', kind, file: sdk.save(request) }).requestId;
-    const operation = { ROTATION: 'PUBLISHER_KEY_ROTATION', STATUS_REQUEST: 'VERSION_STATUS_REQUEST', TRANSFER: 'OWNERSHIP_TRANSFER' }[kind];
     for (const [name, key] of Object.entries(proofs)) {
-        const output = path.join(sdk.workspace, crypto.randomUUID() + '.signature.json');
-        sign('community-operation', '--operation', operation, '--canonical-body', path.join(sdk.workspace, 'canonical.bin'),
-            '--request-id', request.requestId, '--key-id', key.keyId, '--private-key', key.privateFile, '--out', output);
-        request.proofs[name] = JSON.parse(fs.readFileSync(output, 'utf8'));
+        request.proofs[name] = signCanonical(sdk, sign, kind, request.requestId, key);
     }
     return request;
+}
+
+// 对已有请求追加独立证明，保留接收方原文及原签名。
+export function signOperationProof(sdk, sign, kind, request, key) {
+    const canonical = sdk.invoke({ command: 'canonical', kind, file: sdk.save(request) });
+    if (canonical.requestId !== request.requestId) throw new Error('REQUEST_ID_MISMATCH');
+    return signCanonical(sdk, sign, kind, request.requestId, key);
+}
+
+function signCanonical(sdk, sign, kind, requestId, key) {
+    const operation = { ROTATION: 'PUBLISHER_KEY_ROTATION', STATUS_REQUEST: 'VERSION_STATUS_REQUEST', TRANSFER: 'OWNERSHIP_TRANSFER' }[kind];
+    const output = path.join(sdk.workspace, crypto.randomUUID() + '.signature.json');
+    sign('community-operation', '--operation', operation, '--canonical-body', path.join(sdk.workspace, 'canonical.bin'),
+        '--request-id', requestId, '--key-id', key.keyId, '--private-key', key.privateFile, '--out', output);
+    return JSON.parse(fs.readFileSync(output, 'utf8'));
 }

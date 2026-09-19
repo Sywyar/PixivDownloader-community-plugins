@@ -1,3 +1,4 @@
+import { selectTransfer, reviewTransfer } from './submission-transfer.mjs';
 import { activeKey, publisherPath } from './submission-check.mjs';
 import { eligible, github, checkedRepository } from './submission-github.mjs';
 import { id } from './github.mjs';
@@ -14,7 +15,7 @@ import { versionState, canChangeVersion, transferVersionNotice } from './submiss
 
 const encoded = value => Buffer.from(JSON.stringify(value, null, 2) + '\n', 'utf8');
 
-async function currentProof(context, publisher, automatic) {
+export async function currentProof(context, publisher, automatic) {
     const { ui, projectRoot } = context;
     const owner = { accountId: publisher.githubAccount.id, accountType: publisher.githubAccount.type, publisherId: publisher.publisherId };
     ui.say('keyContext', keyLabel(context, owner, activeKey(publisher)));
@@ -199,12 +200,14 @@ export async function prepareTransfer(context) {
                 return eligible(selectedRole === 'FROM' ? request.payload.from : request.payload.to, snapshot.actor, call)
                     && !state.tree.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${selectedRole.toLowerCase()}/${snapshot.actor.id}.json`);
             });
-        if (!requests.length) {
-            ui.say(selectedRole === 'FROM' ? 'noTransferFrom' : 'noTransferTo');
+        if (selectedRole === 'FROM') proposal = await selectTransfer(context, requests);
+        else if (!requests.length) {
+            ui.say('noTransferTo');
             throw new Error('WIZARD_MENU');
         }
-        proposal = await ui.select('proposal', requests, record => `${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
+        else proposal = await ui.select('proposal', requests, record => `${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
     }
+    if (proposal?.openPr) return reviewTransfer(context, proposal);
     const changes = new Map();
     let request;
     if (proposal) { request = proposal.value; bindHistory(context, request.payload.pluginId); transferVersionNotice(context, request.payload.pluginId); }
@@ -262,11 +265,11 @@ export async function prepareTransfer(context) {
         const approvalPath = `ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`;
         if (state.tree.has(approvalPath)) continue;
         if (!eligible(owner, snapshot.actor, call)) continue;
-        if (owner.accountType === 'Organization' && !await ui.confirm('representation', owner)) continue;
-        if (!await ui.confirm('transfer', { role, proposal: request })) continue;
+        if (owner.accountType === 'Organization' && !await ui.confirm('representation', owner)) throw new Error('CANCELLED');
+        if (!await ui.confirm('transfer', { role, proposal: request })) throw new Error('CANCELLED');
         changes.set(approvalPath,
             encoded({ schemaVersion: 1, requestId: request.requestId, role }));
     }
-    if (!changes.size) throw new Error('CANCELLED');
+    if (!changes.size || !proposal && !changes.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/to/${snapshot.actor.id}.json`)) throw new Error('CANCELLED');
     return { changes, title: `feat(plugin): transfer ${request.payload.pluginId} ownership` };
 }

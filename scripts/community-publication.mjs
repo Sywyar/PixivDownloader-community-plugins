@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { nativeTransferApproval, requireTransferReview } from './transfer-reviews.mjs';
 import path from 'node:path';
 import { api, id, sha, list, prefix, policy, main, API_BYTES } from './github.mjs';
 import { hash } from './sdk.mjs';
@@ -62,9 +63,10 @@ export async function preparePublication(context, inputs, sdk, { call = api, che
         sdk.document('BINDING', bindingBytes, bindingPath);
         version.publicationBindingSha256 = hash(bindingBytes);
     }
+    version.transferRepresentations = inputs.organizationRepresentations.split(',').map(value => value.trim()).filter(Boolean);
     let admission;
     try { admission = currentAdmission(pr.number, sdk, context, version, call, readGit); }
-    catch (error) { if (['PUBLICATION_REVIEW_REQUIRED', 'STATUS_MANUAL_REVIEW_REQUIRED'].includes(error.message)) return { selected: { pr }, pending: error.message }; throw error; }
+    catch (error) { if (['PUBLICATION_REVIEW_REQUIRED', 'STATUS_MANUAL_REVIEW_REQUIRED', 'TRANSFER_OWNER_CONFIRMATION_REQUIRED', 'TRANSFER_OWNER_REJECTED'].includes(error.message)) return { selected: { pr }, pending: error.message }; throw error; }
     return { selected: { pr }, state, requestId: identity, inputFiles: files, version, admission, appliedAt };
 }
 export async function prepareResult(context, inputs, sdk, prepared, credentials, { call = api, checkCall = github, readGit } = {}) {
@@ -100,6 +102,9 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
                 approvals.push({ reference: adapter.archive(record.bytes, file), role: record.value.role,
                     pr: prValue(origin.pr), author: { id: id(origin.pr.user.id), type: origin.pr.user.type } });
             }
+            const confirmation = requireTransferReview(checked, proposal.pr, call, version.transferRepresentations);
+            const approval = nativeTransferApproval(checked, prValue(proposal.pr), confirmation, adapter);
+            if (approval) approvals.push(approval);
             const account = checkCall(`${request.payload.to.accountType === 'Organization' ? 'organizations' : 'user'}/${id(request.payload.to.accountId)}`);
             if (id(account.id) !== request.payload.to.accountId || account.type !== request.payload.to.accountType) throw new Error('TARGET_ACCOUNT_CHANGED');
             checked.targetLogin = account.login;
@@ -107,6 +112,8 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
         const authorization = operationAuthority({ request, proposal, approvals, context, inputs, adapter, call });
         const ready = checked.operation !== 'OWNERSHIP_TRANSFER' || adapter.invoke({ command: 'transfer-ready',
             request: adapter.archive(state.raw(checked.requestPath), checked.requestPath), authority: authorization.authority, approvals }).ready;
+        if (!ready && checked.singlePr) throw new Error('TRANSFER_OWNER_CONFIRMATION_REQUIRED');
+        // 仅已在主线的旧申请保留补齐路径；新申请不能先合并等待另一方。
         applied = ready ? applyOperation({ sdk, adapter, state, checked, ...authorization, approvals, appliedAt, nextUpdate })
             : { recordOnly: true, writes: new Map() };
         applied.decision = authorization.reference;
@@ -118,8 +125,8 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
         writes: applied.writes, state, appliedAt, authorization: context.automatic ? 'SIGNED_OWNER' : undefined,
         recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
         reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'pluginId', 'version', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
-            'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'requestPath', 'requestId', 'requestSha256', 'reasonCode', 'recoveryRequired', 'organizationRepresentationRequired']
-            .filter(key => version.checked[key] !== undefined).map(key => [key, version.checked[key]])), publicationBindingSha256: version.publicationBindingSha256,
+            'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'singlePr', 'ownerConfirmationInRequest', 'requestPath', 'requestId', 'requestSha256', 'reasonCode', 'recoveryRequired', 'organizationRepresentationRequired']
+            .filter(key => version.checked[key] !== undefined).map(key => [key, version.checked[key]])), publicationBindingSha256: version.publicationBindingSha256, transferRepresentations: version.transferRepresentations,
             ...(version.candidate ? { candidate: { inputSha256: version.candidate.inputSha256, evidence: admission.input.evidence,
                 scan: { riskReportRef: version.candidate.scan.riskReportRef } }, report: version.report } : {}) } });
     const file = path.join(sdk.workspace, 'publication.json');
@@ -156,6 +163,8 @@ export async function storeResult(context, file, bundle, sdk, inputs, { call = a
 
 export function waitingProjection(pr, code) {
     const messages = {
+        TRANSFER_OWNER_CONFIRMATION_REQUIRED: 'The current owner must approve this request on its original pull request. Do not merge an incomplete transfer. Private organization representation requires explicit verification in this workflow.',
+        TRANSFER_OWNER_REJECTED: 'The current owner rejected this transfer. Close the unmerged request; no ownership state has changed.',
         MAINTAINER_EDITS_REQUIRED: 'Please enable **Allow edits from maintainers** on this pull request, then retry Apply signed version status for an eligible signed status request, or Complete community review for a human-reviewed request. No files or releases were published.',
         REVIEW_OPEN_READY_PR_REQUIRED: 'Mark this pull request ready for review before completing the review.',
         REVIEW_OPERATION_REQUIRED: 'This form completes community submissions and management requests. Maintenance PRs use the existing review checks.',

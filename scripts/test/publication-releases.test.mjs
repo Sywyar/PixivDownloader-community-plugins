@@ -236,6 +236,8 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
     certificate.buildTrigger = 'workflow_run';
     assert.deepEqual(verify(file, bundle, current, readGit), certificate);
     fs.writeFileSync(file, encoded({ ...result.value, operation: 'OWNERSHIP_TRANSFER', authorization: 'SIGNED_OWNER' }));
+    assert.deepEqual(verify(file, bundle, current, readGit), certificate);
+    fs.writeFileSync(file, encoded({ ...result.value, operation: 'UPDATE', authorization: 'SIGNED_OWNER' }));
     assert.throws(() => verify(file, bundle, current, readGit), /APPLY_RECEIPT_INVALID/);
     assert.throws(() => makeReceipt({ ...result.value, current: source, pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } }, run: { id: 7, run_attempt: 1 },
         writes: new Map([['tools/sdk-tools.jar', Buffer.from('replacement')]]), state: { raw: () => null } }), /APPLY_WRITE_FORBIDDEN/);

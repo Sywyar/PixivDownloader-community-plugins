@@ -180,6 +180,10 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         const proposal = changes.has(proposalPath) ? read(proposalPath, 'TRANSFER') : state.read(proposalPath, 'TRANSFER');
         if (!proposal) throw new Error('TRANSFER_PROPOSAL_MISSING');
         const p = proposal.value.payload;
+        const singlePr = changes.has(proposalPath);
+        if (singlePr && (!authorize(p.to, user) || !changes.has(`${directory}/approvals/to/${user.id}.json`))) {
+            throw new Error('TRANSFER_RECIPIENT_CONFIRMATION_REQUIRED');
+        }
         currentBinding(p.pluginId, p.from, p.pluginBindingSha256);
         const target = p.targetPublisherRecordSha256 === null ? null : currentPublisher(p.to);
         if (target?.sha256 !== p.targetPublisherRecordSha256 && p.targetPublisherRecordSha256 !== null
@@ -203,7 +207,8 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
             allowed.add(reference.path);
         }
         result = { operation: 'OWNERSHIP_TRANSFER', requestId: proposal.value.requestId, from: p.from, to: p.to,
-            pluginId: p.pluginId, requestPath: proposal.path, requestSha256: proposal.sha256,
+            pluginId: p.pluginId, requestPath: proposal.path, requestSha256: proposal.sha256, singlePr,
+            ownerConfirmationInRequest: singlePr && changes.has(`${directory}/approvals/from/${user.id}.json`),
             bindingSha256: p.pluginBindingSha256, publisherSha256: target?.sha256 ?? null, recoveryRequired: p.mode === 'RECOVERY' };
     }
     if (files.some(file => !allowed.has(file))) throw new Error('UNEXPECTED_SUBMISSION_FILE');

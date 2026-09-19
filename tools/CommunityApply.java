@@ -77,7 +77,7 @@ public final class CommunityApply {
             }
             case "OWNERSHIP_TRANSFER" -> {
                 result = OwnershipTransfer.apply(context, document("binding", CommunityJson.Kind.BINDING), document("targetPublisher", CommunityJson.Kind.PUBLISHER),
-                        input.path("targetLogin").asText(null), transferApprovals()).result();
+                        input.path("targetLogin").asText(null), transferApprovals(), document("sourcePublisher", CommunityJson.Kind.PUBLISHER)).result();
             }
             default -> throw new IllegalArgumentException("APPLY_OPERATION_INVALID");
         }
@@ -93,8 +93,13 @@ public final class CommunityApply {
         for (var node : input.withArray("approvals")) {
             var record = evidence(node.get("reference"));
             approvals.add(new TransferApproval.Input(CommunityJson.parse(CommunityJson.Kind.APPROVAL, record.bytes()),
-                    record.reference().path(), JSON.treeToValue(node.get("pr"), CommunityPr.class),
-                    JSON.treeToValue(node.get("author"), Account.class), true));
+                    node.hasNonNull("review") ? node.get("path").textValue() : record.reference().path(), JSON.treeToValue(node.get("pr"), CommunityPr.class),
+                    JSON.treeToValue(node.get("author"), Account.class), true,
+                    node.hasNonNull("review") ? new HumanReviews.NativeReview(node.get("review").get("id").textValue(),
+                        node.get("review").get("githubRepositoryId").textValue(), node.get("review").get("prNumber").intValue(),
+                        JSON.treeToValue(node.get("review").get("reviewer"), Account.class), node.get("review").get("headSha").textValue(),
+                        HumanReviews.NativeState.valueOf(node.get("review").get("state").textValue()), node.get("review").get("submittedAt").textValue(),
+                        evidence(node.get("review").get("evidence")), null) : null, node.path("ownerProof").asText(null)));
         }
         return approvals;
     }

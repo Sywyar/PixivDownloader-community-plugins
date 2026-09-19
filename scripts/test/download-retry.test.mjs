@@ -105,6 +105,7 @@ test('共享下载重试使用一个截止时间并清理半文件，安全与�
     assert.equal(rebound.error.retryable, false);
     const protectedFile = path.join(folder, String(sequence + 1)); fs.writeFileSync(protectedFile, 'existing');
     const local = await run([200]);
+    assert.equal(local.error.message, 'LOCAL_FILE_EXISTS');
     assert.equal(local.error.downloadStage, 'FILE'); assert.equal(local.error.retryable, false);
     assert.equal(fs.readFileSync(protectedFile, 'utf8'), 'existing');
 });

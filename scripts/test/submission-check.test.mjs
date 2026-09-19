@@ -234,9 +234,12 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
     const directory = `ownership-transfers/demo/${transfer.requestId}`;
     const proposalPath = `${directory}/proposal.json`;
     const transferChanges = new Map([[proposalPath, Buffer.from(JSON.stringify(transfer))]]);
-    assert.equal((await validateChanges({ ...input, changes: transferChanges })).operation, 'OWNERSHIP_TRANSFER');
+    await assert.rejects(validateChanges({ ...input, changes: transferChanges }), /TRANSFER_RECIPIENT_CONFIRMATION_REQUIRED/);
+    transferChanges.set(`${directory}/approvals/to/202.json`, Buffer.from(JSON.stringify({ schemaVersion: 1, requestId: transfer.requestId, role: 'TO' })));
+    const transferChecked = await validateChanges({ ...input, changes: transferChanges, user: { id: '202', type: 'User' } });
+    assert.equal(transferChecked.operation, 'OWNERSHIP_TRANSFER'); assert.equal(transferChecked.singlePr, true);
     transferChanges.set(`${directory}/approvals/to/101.json`, Buffer.from(JSON.stringify({ schemaVersion: 1, requestId: transfer.requestId, role: 'TO' })));
-    await assert.rejects(validateChanges({ ...input, changes: transferChanges }), /OWNER_AUTHORIZATION_REQUIRED/u);
+    await assert.rejects(validateChanges({ ...input, changes: transferChanges }), /TRANSFER_RECIPIENT_CONFIRMATION_REQUIRED/u);
     store(proposalPath, 'TRANSFER', transfer);
     const approval = new Map([[`${directory}/approvals/to/202.json`, Buffer.from(JSON.stringify({ schemaVersion: 1, requestId: transfer.requestId, role: 'TO' }))]]);
     assert.equal((await validateChanges({ ...input, changes: approval, user: { id: '202', type: 'User' } })).operation, 'OWNERSHIP_TRANSFER');

@@ -18,6 +18,23 @@ const checked = (operation, request) => ({ operation, validation: 'STATIC_VALIDA
     version: request.payload?.version ?? request.version,
     requestPath: 'requests/example.json', requestSha256: hash(Buffer.from(JSON.stringify(request))) });
 
+test('转移提醒仅提及数字身份解析出的原个人所有者，申请正文不能伪造提及', () => {
+    const request = vector('structure/transfer');
+    request.payload.explanation = 'Please ask @someone-else';
+    const value = { ...checked('OWNERSHIP_TRANSFER', request), singlePr: true, from: request.payload.from };
+    let account = { id: value.from.accountId, type: 'User', login: 'renamed-owner' };
+    const call = withRepositoryFiles(endpoint => {
+        if (endpoint.includes('/files?')) return [[]];
+        assert.equal(endpoint, `user/${value.from.accountId}`); return account;
+    }, pr.head.repo.full_name, new Map([[head, new Map([[value.requestPath, Buffer.from(JSON.stringify(request))]])]]));
+    const sdk = { document: (_kind, bytes) => ({ value: JSON.parse(bytes) }) };
+    const body = readRequestInfo(sdk, value, pr, call);
+    assert.equal(body.split('@renamed-owner').length - 1, 1);
+    assert(!body.includes('@someone-else'));
+    account = { ...account, id: '999999' };
+    assert.throws(() => readRequestInfo(sdk, value, pr, call), /TRANSFER_OWNER_IDENTITY_CHANGED/);
+});
+
 test('各类请求按自身字段展示，证明缺席与验签成功有别且不泄漏签名字节', () => {
     for (const operation of ['FIRST_RELEASE', 'UPDATE', 'KEY_ROTATION', 'YANK', 'UNYANK', 'REVOKE', 'OWNERSHIP_TRANSFER', 'DECLARE_KEY_COMPROMISE']) {
         const file = { FIRST_RELEASE: 'submission', UPDATE: 'submission', KEY_ROTATION: 'structure/rotation',
@@ -91,8 +108,14 @@ test('每个 PR 只更新原生机器人唯一详情评论，保留状态和用�
         const comments = [{ id: 1, user: bot, body: '<!-- community-review-summary -->\nstatus' },
             { id: 2, user: { id: 101, type: 'User' }, body: REQUEST_INFO_MARKER + '\nuser' }];
         const original = structuredClone(comments), writes = [];
+        const operationLabels = baseRef === policy.emergencyBranch ? ['type:key-compromise'] : undefined;
+        const assigned = [];
         const call = (endpoint, options = {}) => {
             if (endpoint === prefix + '/pulls/7') return structuredClone(current);
+            if (endpoint === prefix + '/issues/7/labels?per_page=100') return [assigned.map((name, index) => ({ id: index + 1, name }))];
+            if (endpoint === prefix + '/issues/7/labels') {
+                assert.equal(options.method, 'POST'); assigned.push(...options.body.labels); return;
+            }
             if (!options.method) {
                 assert.equal(endpoint, prefix + '/issues/7/comments?per_page=100');
                 return [structuredClone(comments)];
@@ -101,7 +124,7 @@ test('每个 PR 只更新原生机器人唯一详情评论，保留状态和用�
             if (options.method === 'POST') comments.push({ id: 3, user: bot, body: options.body.body });
             else { assert.equal(endpoint, prefix + '/issues/comments/3'); comments[2].body = options.body.body; }
         };
-        const projection = { number: 7, head, baseRef, state: 'open', merged: false, requestInfo: 'request' };
+        const projection = { number: 7, head, baseRef, state: 'open', merged: false, requestInfo: 'request', operationLabels };
         notify([projection], call); notifyRequestInfo(projection, call);
         assert.equal(writes.length, 1);
         notifyRequestInfo({ ...projection, requestInfo: 'updated' }, call);
@@ -110,6 +133,7 @@ test('每个 PR 只更新原生机器人唯一详情评论，保留状态和用�
         for (const patch of [{ head: 'b'.repeat(40) }, { baseRef: baseRef === policy.defaultBranch ? policy.emergencyBranch : policy.defaultBranch },
             { state: 'closed', merged: true }]) notifyRequestInfo({ ...projection, ...patch }, call);
         assert.equal(writes.length, 2);
+        assert.deepEqual(assigned, operationLabels ?? []);
         comments.push({ ...comments[2], id: 4 });
         assert.throws(() => notifyRequestInfo(projection, call), /SUMMARY_COMMENT_AMBIGUOUS/);
     }

@@ -50,7 +50,8 @@ export function uploadGithubBinary(repository, releaseId, file, name, execute = 
         '-H', 'Content-Type: application/octet-stream', `https://uploads.github.com/${repository}/releases/${id(releaseId)}/assets?name=${encodeURIComponent(name)}`,
         '--input', file], { encoding: 'utf8', windowsHide: true, timeout, maxBuffer: API_BYTES,
         stdio: ['ignore', 'pipe', 'pipe'] })), { method: 'POST' });
-    return JSON.parse(result);
+    try { return JSON.parse(result); }
+    catch { throw new Error('GITHUB_RESPONSE_INVALID'); }
 }
 
 export function unpackCandidate(sdk, file) {

@@ -2,6 +2,7 @@ import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { repositoryTree, readBlob } from './submission-github.mjs';
 import { optionNames } from './submission-messages.mjs';
+import { updateRequestLabels } from './sync-labels.mjs';
 
 export const COMMENT_BYTES = 65536;
 export const REQUEST_INFO_MARKER = '<!-- community-request-info -->';
@@ -25,7 +26,7 @@ const owner = value => `${value.publisherId} · ${value.accountType} #${value.ac
 const proof = (value, keyId) => `${value ? '已验证签名 / Signature verified' : '未提供签名证明 / No signature proof'}${keyId ? ' · keyId: ' + keyId : ''}`;
 
 // 仅在请求已通过合同、身份和签名校验后调用；字段来自原始请求，不读取 PR 正文。
-export function formatRequestInfo(checked, request, pr, { approvals = [] } = {}) {
+export function formatRequestInfo(checked, request, pr, { approvals = [], ownerLogin } = {}) {
     const operation = operations[checked.operation];
     if (!operation) return undefined;
     const p = request.payload, rows = [['操作 / Operation', `${operation[0]} (${checked.operation})`],
@@ -59,14 +60,17 @@ export function formatRequestInfo(checked, request, pr, { approvals = [] } = {})
         add('原所有者 / Previous owner', owner(p.from));
         add('新所有者 / New owner', owner(p.to));
         add('接收方密钥证明 / Recipient key proof', proof(request.proofs.targetKey, p.targetKey.keyId));
-        add('本次确认角色 / Approvals in this PR', approvals.map(value => `${option(value.role)} · #${value.accountId}`).join('\n'));
+        add('申请文件中的确认角色 / Confirmations in request files', approvals.map(value => `${option(value.role)} · #${value.accountId}`).join('\n'));
         if (p.recoveryEvidence) add('恢复证据数量 / Recovery evidence count', p.recoveryEvidence.length);
     } else {
         add('身份验证 / Identity verification', 'GitHub 账号权限已核验；此操作不要求私钥证明 / GitHub authority verified; no private-key proof required');
         add('声明密钥数量 / Declared key count', p.keys.length);
     }
     add('申请原因 / Request explanation', p?.explanation);
-    const note = '\n\n此评论展示请求内容及本次验签结果；审核和执行进度见状态评论或检查。 / This comment describes the request and its signature verification; see the status comment or checks for review and execution.\n';
+    const handoff = checked.operation === 'OWNERSHIP_TRANSFER' && checked.singlePr
+        ? `\n\n${ownerLogin ? '@' + ownerLogin + ' ' : ''}原所有者：请运行向导在本 PR 确认或拒绝。不同个人账号提供双方有效密钥证明后可自动处理；网页 Approve 或缺少证明仍需维护者审核。不要先合并申请。 / Current owner: use the wizard to approve or reject this PR. Distinct personal accounts with valid proofs from both keys can use automatic processing; web approval or missing proof still requires maintainer review. Keep the request open until completion.\n`
+        : '';
+    const note = handoff + '\n\n此评论展示请求内容及本次验签结果；审核和执行进度见状态评论或检查。 / This comment describes the request and its signature verification; see the status comment or checks for review and execution.\n';
     const reference = `\n[请求原文 / Request source](${source}) · SHA-256: \`${digest}\`\n`;
     const overflow = '\n部分条目因评论长度限制未展开，请查看请求原文。 / Some entries exceed the comment limit; see the request source.\n';
     let body = '### 请求信息 / Request information\n\n| 字段 / Field | 内容 / Value |\n| --- | --- |\n';
@@ -96,7 +100,15 @@ export function readRequestInfo(sdk, checked, pr, call = api) {
     const approvals = checked.operation === 'OWNERSHIP_TRANSFER' ? list(`${prefix}/pulls/${id(pr.number)}/files`, null, call)
         .map(row => /^ownership-transfers\/[^/]+\/[a-f0-9]{64}\/approvals\/(from|to)\/([1-9][0-9]*)\.json$/u.exec(row.filename))
         .filter(Boolean).map(match => ({ role: match[1].toUpperCase(), accountId: match[2] })) : [];
-    return formatRequestInfo(checked, request, pr, { approvals });
+    let ownerLogin;
+    if (checked.operation === 'OWNERSHIP_TRANSFER' && checked.singlePr && checked.from.accountType === 'User') {
+        const account = call(`user/${id(checked.from.accountId)}`);
+        if (id(account.id) !== checked.from.accountId || account.type !== 'User' || !/^[A-Za-z0-9-]+$/u.test(account.login)) {
+            throw new Error('TRANSFER_OWNER_IDENTITY_CHANGED');
+        }
+        ownerLogin = account.login;
+    }
+    return formatRequestInfo(checked, request, pr, { approvals, ownerLogin });
 }
 
 export function updateComment(number, marker, body, matches, call = api) {
@@ -123,6 +135,7 @@ export function notifyRequestInfo(projection, call = api) {
             && pr.head.sha === sha(projection.head) && pr.state === projection.state && pr.merged === projection.merged;
     };
     if (!matches()) return;
+    if (projection.operationLabels !== undefined) updateRequestLabels(projection.number, { operations: projection.operationLabels }, call);
     updateComment(projection.number, REQUEST_INFO_MARKER,
         `${REQUEST_INFO_MARKER}\nHead: ${projection.head}\n\n${projection.requestInfo}`, matches, call);
 }

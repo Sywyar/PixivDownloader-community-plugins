@@ -18,7 +18,7 @@ export async function retryStep(key, work, { retry, wait = ms => new Promise(res
     for (;;) {
         try { return await observe(key, '', work); }
         catch (error) {
-            if (!(error.github || error.download && error.retryable)) throw error;
+            if (!(error.github && error.recoverable !== false || error.download && error.retryable)) throw error;
             error.failureStep ??= key;
             attempts += error.attempts ?? 1;
             totalAttempts += error.attempts ?? 1;

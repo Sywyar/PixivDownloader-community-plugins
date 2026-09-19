@@ -1,7 +1,24 @@
 import fs from 'node:fs';
-import { api, list, main, prefix, repository } from './github.mjs';
+import { api, id, list, main, prefix, repository } from './github.mjs';
 
 export const labels = JSON.parse(fs.readFileSync(new URL('labels.json', import.meta.url), 'utf8'));
+
+// 操作类型保留为检索线索；只有状态投影会删除旧标签，标签均不参与授权。
+export function updateRequestLabels(number, { operations = [], states }, call = api) {
+    if (!Array.isArray(operations) || states !== undefined && !Array.isArray(states)
+        || operations.some(name => typeof name !== 'string' || !name.startsWith('type:'))
+        || states?.some(name => typeof name !== 'string' || name.startsWith('type:'))) throw new Error('LABEL_PROJECTION_INVALID');
+    const desired = [...operations, ...(states ?? [])];
+    if (desired.some(name => !labels.some(label => label.name === name))) throw new Error('LABEL_PROJECTION_INVALID');
+    const endpoint = `${prefix}/issues/${id(number)}/labels`;
+    const current = list(endpoint, null, call).map(label => label.name);
+    for (const name of current.filter(name => states !== undefined && !name.startsWith('type:')
+        && labels.some(label => label.name === name) && !states.includes(name))) {
+        call(`${endpoint}/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    }
+    const missing = [...new Set(desired)].filter(name => !current.includes(name));
+    if (missing.length) call(endpoint, { method: 'POST', body: { labels: missing } });
+}
 
 export function labelChanges(current, desired = labels) {
     if (new Set(desired.map(label => label.name)).size !== desired.length

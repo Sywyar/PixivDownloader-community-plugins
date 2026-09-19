@@ -5,7 +5,7 @@ import { main, policy } from './github.mjs';
 import { preflight, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { terminal, failureCode, failureDetails } from './submission-ui.mjs';
-import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails } from './submission-github.mjs';
+import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails, authenticationRequired } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from './submission-operations.mjs';
@@ -70,8 +70,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             } };
         const initialize = async () => {
             if (context.state) return;
-            sdk ??= await ui.task('preparing', () => prepare());
             const snapshot = await ui.task('loading', () => protectedSnapshot(call));
+            sdk ??= await ui.task('preparing', () => prepare());
             Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: context.sign ?? signingTool(sdk) });
             if (!project.gitRoot && !resumePending) {
                 context.store = openManagement(snapshot.actor.id, { home: stateHome });
@@ -99,8 +99,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         let retryRound = 1;
         const retry = async error => {
             if (ui.retryRequest) return ui.retryRequest(error, error.retryRound ?? retryRound++);
-            ui.say('requestFailed', { code: failureCode(error), retryRound: error.retryRound ?? retryRound, ...requestDetails(error), ...failureDetails(error) });
-            if (await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) !== 'retry') throw new Error('WIZARD_SAVE');
+            const authentication = authenticationRequired(error.message);
+            ui.say(authentication ? 'readingActor' : 'requestFailed', { code: failureCode(error), retryRound: error.retryRound ?? retryRound, ...requestDetails(error), ...failureDetails(error) });
+            if (await ui.select(authentication ? 'authenticationRecovery' : 'retrySubmission', ['retry', 'saveExit'],
+                key => ui.text(authentication && key === 'retry' ? 'checkAuthentication' : key)) !== 'retry') throw new Error('WIZARD_SAVE');
             retryRound++;
             context.resumePrepared = Boolean(context.store?.record.session?.prepared);
             return true;
@@ -114,6 +116,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, emergency: null, generatedKey: null, resumePrepared: false, operation: undefined });
         } });
         context.ui = navigator.ui;
+        context.seal = () => navigator.seal();
         context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };
         const outcome = await navigator.run(async ui => {
         await restoreSession();
@@ -167,6 +170,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         else if (operation === 'rotation') prepared = await prepareRotation(context);
         else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
+        if (prepared.outcome) return prepared.outcome;
         if (prepared.original) {
             unchanged(snapshot, call);
             presentOriginal(context, prepared.original);
@@ -212,7 +216,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             ui.say('statusRequestSubmitted');
             ui.say('effect' + context.operation);
         }
-        ui.say(outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : outcome.reused ? 'requestPending' : 'submitted', outcome);
+        ui.say(outcome.transferReviewed ? (outcome.rejected ? 'transferRejected' : outcome.signed ? 'transferSigned' : 'transferApproved') : outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : outcome.reused ? 'requestPending' : 'submitted',
+            outcome.transferReviewed ? { url: outcome.url } : outcome);
         return outcome;
     } catch (error) {
         if (error.message === 'WIZARD_SAVE') {
