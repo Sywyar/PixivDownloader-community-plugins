@@ -158,7 +158,8 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         const active = new AbortController();
         let navigation;
         const keypress = (_character, key) => {
-            if (navigationEnabled && key?.ctrl && ['b', 's'].includes(key.name)) {
+            if (navigationEnabled && key?.ctrl && ['b', 's'].includes(key.name)
+                && (key.name !== 'b' || options.navigationBack !== false)) {
                 navigation = key.name === 'b' ? 'WIZARD_BACK' : 'WIZARD_SAVE';
                 active.abort();
             }
@@ -185,13 +186,14 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         });
         return actual(value);
     };
-    const select = async (key, options, label = value => optionText(value, text), initialValue) => {
+    const select = async (key, options, label = value => optionText(value, text), initialValue, { back = true } = {}) => {
         if (!options.length) {
             say('operationUnavailable', { code: 'NO_SELECTABLE_VALUES', field: text(key) });
             throw new Error('WIZARD_MENU');
         }
-        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation') + ' · ' + text('formNavigation'));
+        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation') + ' · ' + text(back ? 'formNavigation' : 'saveNavigation'));
         const selected = await prompt(prompts.select, {
+            navigationBack: back,
             message: text(key),
             initialValue: Math.max(0, options.indexOf(initialValue)),
             options: options.map((value, i) => ({ value: i, label: visible(label(value)) })),
@@ -241,17 +243,20 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         return loading;
     };
     const task = async (key, work) => {
-        const loading = activity(key, undefined, false);
+        let loading = activity(key, undefined, false);
+        const update = (step, detail) => loading?.message(text(key) + ' · ' + text(step) + (detail ? ' · ' + visible(detail) : ''));
+        update.pause = () => { loading?.clear(); loading = null; };
+        update.resume = () => { loading ??= activity(key, undefined, false); };
         try {
             await setImmediate();
             if (controller.signal.aborted) throw new Error('CANCELLED');
-            const result = await work((step, detail) => loading.message(text(key) + ' · ' + text(step) + (detail ? ' · ' + visible(detail) : '')));
+            const result = await work(update);
             if (controller.signal.aborted) throw new Error('CANCELLED');
-            loading.stop(text(key) + ' · ' + text('done'));
+            loading?.stop(text(key) + ' · ' + text('done'));
             return result;
         } catch (error) {
             error.failureStep ??= key;
-            (error.message === 'CANCELLED' ? loading.cancel : loading.error)(text(key));
+            if (loading) (error.message === 'CANCELLED' ? loading.cancel : loading.error)(text(key));
             throw error;
         }
     };

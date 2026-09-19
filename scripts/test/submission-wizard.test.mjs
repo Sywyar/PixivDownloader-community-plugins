@@ -60,6 +60,56 @@ function consoleStreams() {
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
 
+for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内失败步骤${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
+    const originalCI = process.env.CI; process.env.CI = 'false';
+    t.after(() => { if (originalCI === undefined) delete process.env.CI; else process.env.CI = originalCI; });
+    const tty = consoleStreams();
+    const cancelled = new Int32Array(new SharedArrayBuffer(4));
+    const worker = new Worker(new URL('data:text/javascript,' + encodeURIComponent(`
+        import { parentPort, workerData } from 'node:worker_threads';
+        import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
+        import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
+        import { githubRequest } from ${JSON.stringify(new URL('../submission-github.mjs', import.meta.url).href)};
+        import { requestRecovery } from ${JSON.stringify(new URL('../submission-retry.mjs', import.meta.url).href)};
+        const ui = await workerTerminal(parentPort, workerData.cancelled);
+        const close = requestRecovery(ui.retryRequest);
+        let before = 0, attempts = 0, after = 0, error;
+        try {
+            await ui.task('loading', () => {
+                before++;
+                githubRequest(() => observe('readingGitObjects', '', () => {
+                    if (++attempts <= 6) throw Object.assign(new Error('private output'), { stderr: 'unexpected EOF' });
+                }), { wait() {} });
+                after++;
+            });
+        } catch (e) { error = e.message; }
+        close(); ui.close();
+        parentPort.postMessage({ method: 'result', args: [{ before, attempts, after, error }] });
+        parentPort.close();
+    `)), { workerData: { cancelled } });
+    t.after(() => worker.terminate());
+    const result = connectTerminal(worker, cancelled, tty.input, tty.output); result.catch(() => {});
+    const until = async text => {
+        for (let i = 0; i < 200 && !tty.rendered().includes(text); i++) await setTimeout(20);
+        assert(tty.rendered().includes(text), text + '\n' + tty.rendered());
+    };
+    await until(localizedText('en-US', 'language')); await tty.key('\x1b[B\r');
+    await until(localizedText('en-US', 'retryCurrentStep'));
+    await until(localizedText('en-US', 'retryRoundLabel') + ': 1');
+    assert(tty.rendered().includes(localizedText('en-US', 'readingGitObjects')));
+    if (outcome === 'retry') {
+        await tty.key('\r');
+        await until(localizedText('en-US', 'retryRoundLabel') + ': 2');
+        await until(localizedText('en-US', 'totalAttemptsLabel') + ': 6');
+        await tty.key('\r');
+        assert.deepEqual(await result, { before: 1, attempts: 7, after: 1, error: undefined });
+    } else {
+        await tty.key(outcome === 'save-key' ? '\x13' : outcome === 'save' ? '\x1b[B\r' : '\x1b');
+        assert.deepEqual(await result, { before: 1, attempts: 3, after: 0, error: outcome.startsWith('save') ? 'WIZARD_SAVE' : 'CANCELLED' });
+    }
+    assert(!tty.rendered().includes('private output'));
+});
+
 test('公共终端会话在问题和加载切换时保持逐键模式，退出恢复原状态', { timeout: 10000 }, async () => {
     const tty = consoleStreams();
     const originalRawMode = tty.input.setRawMode;

@@ -10,6 +10,7 @@ import { hash } from '../sdk.mjs';
 import { navigation } from '../submission-navigation.mjs';
 import { observe, progressReporter } from '../submission-progress.mjs';
 import { requestDetails } from '../submission-github.mjs';
+import { requestRecovery } from '../submission-retry.mjs';
 
 const reset = () => Object.assign(new Error('private URL and proxy password'), { code: 'ECONNRESET' });
 const bytes = Buffer.from('verified package');
@@ -23,6 +24,28 @@ const reply = (action, callback) => {
     });
     return req;
 };
+
+test('下载耗尽自动重试后仅恢复原文件，连续手动轮次递增且不重放前后步骤', async t => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'download-step-'));
+    t.after(() => fs.rmSync(folder, { recursive: true }));
+    const file = path.join(folder, 'package');
+    let before = 0, calls = 0, after = 0;
+    const rounds = [];
+    const close = requestRecovery((error, round) => {
+        assert.equal(error.failureStep, 'downloadingPackage'); assert.equal(error.attempts, 3);
+        assert(!fs.existsSync(file)); rounds.push(round); return true;
+    });
+    try {
+        before++;
+        await observe('downloadingPackage', '', () => download('https://example.org/package', file, 100, expected, {
+            lookup, proxyForUrl: async () => null, wait: async () => {},
+            request: (_url, _options, callback) => reply(++calls <= 6 ? reset() : 200, callback),
+        }));
+        after++;
+        assert.deepEqual([before, calls, after], [1, 7, 1]); assert.deepEqual(rounds, [1, 2]);
+        assert.deepEqual(fs.readFileSync(file), bytes);
+    } finally { close(); }
+});
 
 test('共享下载重试使用一个截止时间并清理半文件，安全与文件错误不得重试', async t => {
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'download-retry-'));

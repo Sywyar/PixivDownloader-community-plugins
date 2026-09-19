@@ -12,7 +12,9 @@ export const git = (directory, ...args) => observe(['fetch', 'push', 'commit'].i
         stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd(); }
     catch (error) {
         if (['fetch', 'push'].includes(args[0]) && !['ENOENT', 'ENOBUFS'].includes(error.code)) {
-            throw Object.assign(new Error('GIT_TRANSFER_FAILED'), { github: true, method: args[0].toUpperCase() });
+            const temporary = ['ETIMEDOUT', 'ECONNRESET', 'EPIPE'].includes(error.code)
+                || /unexpected EOF|connection reset|connection refused|timed out|could not resolve|HTTP (?:408|500|502|503|504)/iu.test(String(error.stderr ?? ''));
+            throw Object.assign(new Error('GIT_TRANSFER_FAILED'), { github: true, retryable: temporary, method: args[0].toUpperCase(), failureStep: 'git_' + args[0] });
         }
         throw error;
     }

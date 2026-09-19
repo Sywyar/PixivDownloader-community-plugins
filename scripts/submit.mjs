@@ -20,6 +20,8 @@ import { sessionLocator, saveSession, savePrepared, restorePrepared } from './su
 import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from './submission-emergency.mjs';
 import { presentOriginal, requestVersionNotice, versionState } from './submission-version-state.mjs';
 
+import { requestRecovery } from './submission-retry.mjs';
+
 function appliedRequest(sdk, state, changes) {
     const kinds = { 'key-rotations': 'ROTATION', 'version-status-requests': 'STATUS_REQUEST', 'ownership-transfers': 'TRANSFER' };
     for (const [file, bytes] of changes) {
@@ -42,10 +44,12 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
     let ui = suppliedUi;
     let sdk;
     let context;
+    let closeRecovery;
     try {
         const locator = sessionLocator(project.cwd, stateHome);
         const saved = locator.read();
         ui ??= await uiFactory({ resumeLocale: saved?.session.locale });
+        closeRecovery = requestRecovery(ui.retryRequest);
         let history = ui.resume && saved ? saved.session.navigation : [];
         context = { ui, projectRoot: project.gitRoot, call,
             bindPublisher(owner) {
@@ -84,15 +88,19 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             context.operation = saved.session.operation;
             resumePending = false;
         };
+        let retryRound = 1;
         const retry = async error => {
-            ui.say('requestFailed', { code: failureCode(error), ...requestDetails(error) });
+            if (ui.retryRequest) return ui.retryRequest(error, error.retryRound ?? retryRound++);
+            ui.say('requestFailed', { code: failureCode(error), retryRound: error.retryRound ?? retryRound, ...requestDetails(error), ...failureDetails(error) });
             if (await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) !== 'retry') throw new Error('WIZARD_SAVE');
+            retryRound++;
             context.resumePrepared = Boolean(context.store?.record.session?.prepared);
             return true;
         };
         const navigator = navigation(ui, () => context.store, { history, onFailure: retry, onChange: values => {
             history = values; saveSession(context, { navigation: history, operation: context.operation, prepared: null });
         }, onBack: () => { context.resumePrepared = false; }, onMenu: () => {
+            retryRound = 1;
             context.store?.update({ session: null });
             context.store?.close(); context.sign?.close();
             Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, emergency: null, generatedKey: null, resumePrepared: false, operation: undefined });
@@ -210,6 +218,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         process.exitCode = 1;
         return { failed: code };
     } finally {
+        closeRecovery?.();
         context?.sign?.close();
         try { context?.store?.close(); } catch { ui?.say('cleanupFailed', { workspace: context.store.folder }); }
         try {

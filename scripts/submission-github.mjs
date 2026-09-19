@@ -3,34 +3,52 @@ import { createHash } from 'node:crypto';
 import { API_BYTES, API_TIMEOUT, id, sha, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { observe } from './submission-progress.mjs';
+import { retryRequest } from './submission-retry.mjs';
 
 // 传输 owner 决定可恢复性；身份、摘要、证书及本地文件错误不能被 UI 放宽。
 export const recoverableRequest = error => Boolean(error.github || error.download && error.retryable);
 export const requestDetails = error => ({
-    ...(Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? { status: error.status } : {}),
+    ...(!error.tool && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599 ? { status: error.status } : {}),
     ...(Number.isInteger(error.attempts) && error.attempts >= 0 && error.attempts <= 3 ? { attempts: error.attempts } : {}),
+    ...(Number.isSafeInteger(error.totalAttempts) && error.totalAttempts >= 0 ? { totalAttempts: error.totalAttempts } : {}),
     ...(['DNS', 'PROXY', 'PROXY_CONNECT', 'CONNECT', 'TLS', 'HEADERS', 'BODY', 'FILE'].includes(error.downloadStage) ? { stage: error.downloadStage } : {}),
 });
 
 // gh 的 HTTP 失败带有状态标记；其余输出只用于分类，绝不作为用户诊断返回。
-export function githubRequest(work, { method = 'GET', timeout = API_TIMEOUT, now = Date.now,
+export function githubRequest(work, options = {}) {
+    let totalAttempts = 0;
+    for (let round = 1; ; round++) {
+        try { return githubRequestRound(work, options); }
+        catch (error) {
+            if ((options.method ?? 'GET') !== 'GET' || !error.github || error.message === 'GITHUB_NOT_FOUND') throw error;
+            error.totalAttempts = totalAttempts += error.attempts ?? 0;
+            if (!retryRequest(error, round)) throw new Error('WIZARD_SAVE');
+        }
+    }
+}
+
+function githubRequestRound(work, { method = 'GET', timeout = API_TIMEOUT, now = Date.now,
     wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
     const deadline = now() + timeout;
     for (let attempt = 1; ; attempt++) {
         const remaining = deadline - now();
-        if (remaining <= 0) throw Object.assign(new Error('GITHUB_TIMEOUT'), { github: true, method, attempts: attempt - 1 });
+        if (remaining <= 0) throw Object.assign(new Error('GITHUB_TIMEOUT'), { github: true, retryable: true, method, attempts: attempt - 1 });
         try { return work(remaining); }
         catch (error) {
-            if (error.message === 'CANCELLED') throw error;
+            if (['CANCELLED', 'WIZARD_SAVE'].includes(error.message)) throw error;
             if (error.code === 'ENOBUFS') throw new Error('INPUT_SIZE_EXCEEDED');
             if (error.code === 'ENOENT') throw new Error('GITHUB_CLI_REQUIRED');
             const status = Number(/\(HTTP ([1-5][0-9]{2})\)/u.exec(String(error.stderr ?? ''))?.[1]) || undefined;
             const code = status === 404 ? 'GITHUB_NOT_FOUND' : error.code === 'ETIMEDOUT' ? 'GITHUB_TIMEOUT'
                 : status === 401 ? 'GITHUB_AUTH_REQUIRED' : status === 403 ? 'GITHUB_ACCESS_DENIED'
                     : status === 429 ? 'GITHUB_RATE_LIMITED' : 'GITHUB_REQUEST_FAILED';
-            const failure = Object.assign(new Error(code), { github: true, method, status, attempts: attempt });
+            const temporary = [408, 500, 502, 503, 504].includes(status) || !status &&
+                (['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'].includes(error.code)
+                    || /unexpected EOF|connection reset|connection refused|i\/o timeout|TLS handshake timeout|temporary failure in name resolution|no such host/iu.test(String(error.stderr ?? '')));
+            const failure = Object.assign(new Error(code), { github: true, retryable: temporary, method, status, attempts: attempt,
+                ...(error.failureStep ? { failureStep: error.failureStep } : {}) });
             const delay = attempt * 1000;
-            if (method !== 'GET' || ![408, 500, 502, 503, 504].includes(status)
+            if (method !== 'GET' || !temporary
                 || attempt >= 3 || now() + delay >= deadline) throw failure;
             observe('retryingGithub', `${attempt + 1}/3`, () => wait(delay));
         }
@@ -55,7 +73,7 @@ export function github(endpoint, { method = 'GET', body, pages = false } = {}) {
             maxBuffer: API_BYTES, input: body === undefined ? undefined : JSON.stringify(body), stdio: ['pipe', 'pipe', 'pipe'] })), { method });
         return output.trim() ? JSON.parse(output) : null;
     } catch (error) {
-        if (error.github || ['CANCELLED', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED'].includes(error.message)) throw error;
+        if (error.github || ['CANCELLED', 'WIZARD_SAVE', 'INPUT_SIZE_EXCEEDED', 'GITHUB_CLI_REQUIRED'].includes(error.message)) throw error;
         // 不把原生命令、认证环境或带参数的请求输出带入错误预览。
         throw new Error('GITHUB_REQUEST_FAILED');
     }

@@ -7,9 +7,9 @@ $SubmitExitCode = 0
 $SubmitFailure = $null
 $DownloadClient = $null
 $BootstrapMessages = if ([Globalization.CultureInfo]::CurrentUICulture.Name -like 'zh*') {
-    ConvertFrom-Json '{"activity":"\u51c6\u5907\u6295\u7a3f\u5de5\u5177","retry":"\u4e0b\u8f7d {0} \u4e2d\u65ad\uff08{1}\uff09\uff0c\u6b63\u5728\u91cd\u8bd5 {2}/{3}","failed":"{0}: \u4e0b\u8f7d {1} \u5931\u8d25\uff1b\u9636\u6bb5={2}\uff0c\u539f\u56e0={3}\uff0c\u5df2\u5c1d\u8bd5={4}\uff0c\u6bcf\u8f6e\u6700\u591a={5}\uff1b\u505c\u6b62\u539f\u56e0\uff1a{6}","deadlineExpired":"\u672c\u8f6e\u603b\u65f6\u95f4\u5df2\u8017\u5c3d","attemptsExhausted":"\u672c\u8f6e\u5c1d\u8bd5\u6b21\u6570\u5df2\u8017\u5c3d","notRetryable":"\u6b64\u9519\u8bef\u4e0d\u80fd\u91cd\u8bd5","resume":"\u662f\u5426\u91cd\u65b0\u4e0b\u8f7d\u5f53\u524d\u6587\u4ef6\uff1f\u5df2\u6821\u9a8c\u7684\u7f13\u5b58\u4f1a\u4fdd\u7559\u3002","retryChoice":"\u91cd\u65b0\u5c1d\u8bd5(&R)","exitChoice":"\u9000\u51fa(&E)"}'
+    ConvertFrom-Json '{"activity":"\u51c6\u5907\u6295\u7a3f\u5de5\u5177","retry":"\u4e0b\u8f7d {0} \u4e2d\u65ad\uff08{1}\uff09\uff0c\u6b63\u5728\u91cd\u8bd5 {2}/{3}","failed":"{0}: \u4e0b\u8f7d {1} \u5931\u8d25\uff1b\u9636\u6bb5={2}\uff0c\u539f\u56e0={3}\uff0c\u5df2\u5c1d\u8bd5={4}\uff0c\u6bcf\u8f6e\u6700\u591a={5}\uff1b\u505c\u6b62\u539f\u56e0\uff1a{6}","deadlineExpired":"\u672c\u8f6e\u603b\u65f6\u95f4\u5df2\u8017\u5c3d","attemptsExhausted":"\u672c\u8f6e\u5c1d\u8bd5\u6b21\u6570\u5df2\u8017\u5c3d","notRetryable":"\u6b64\u9519\u8bef\u4e0d\u80fd\u91cd\u8bd5","resume":"\u662f\u5426\u91cd\u65b0\u4e0b\u8f7d\u5f53\u524d\u6587\u4ef6\uff1f\u5df2\u6821\u9a8c\u7684\u7f13\u5b58\u4f1a\u4fdd\u7559\u3002","retryChoice":"\u91cd\u65b0\u5c1d\u8bd5(&R)","exitChoice":"\u9000\u51fa(&E)","round":"; \u8f6e\u6b21={0}, \u7d2f\u8ba1\u5c1d\u8bd5={1}"}'
 } else {
-    ConvertFrom-Json '{"activity":"Preparing submission tools","retry":"Download of {0} interrupted ({1}); retrying {2}/{3}","failed":"{0}: download of {1} failed; stage={2}, reason={3}, attempts={4}, maximum per round={5}; stopped: {6}","deadlineExpired":"total time for this round exhausted","attemptsExhausted":"attempt limit for this round exhausted","notRetryable":"this error cannot be retried","resume":"Download the current file again? Verified cache files will be kept.","retryChoice":"&Retry","exitChoice":"&Exit"}'
+    ConvertFrom-Json '{"activity":"Preparing submission tools","retry":"Download of {0} interrupted ({1}); retrying {2}/{3}","failed":"{0}: download of {1} failed; stage={2}, reason={3}, attempts={4}, maximum per round={5}; stopped: {6}","deadlineExpired":"total time for this round exhausted","attemptsExhausted":"attempt limit for this round exhausted","notRetryable":"this error cannot be retried","resume":"Download the current file again? Verified cache files will be kept.","retryChoice":"&Retry","exitChoice":"&Exit","round":"; round={0}, total attempts={1}"}'
 }
 
 $Repository = 'Sywyar/PixivDownloader-community-plugins'
@@ -225,10 +225,14 @@ function Download-Pinned([string]$Url, [string]$File, [long]$Maximum, $Client) {
     if ($Url -cne $ChannelUrl -and (-not $RuntimeCommit -or -not $Url.StartsWith($prefix, [StringComparison]::Ordinal))) { throw 'BOOTSTRAP_URL_INVALID' }
     $resource = if ($Url -ceq $ChannelUrl) { 'tools/submission-channel.json' } else { $Url.Substring($prefix.Length) }
     $attempts = 3
+    $round = 0
+    $totalAttempts = 0
     while ($true) {
+        $round++
         $deadline = [Threading.CancellationTokenSource]::new(60000)
         try {
             for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+                $totalAttempts++
                 $response = $null; $inputStream = $null; $outputStream = $null
                 $created = $false; $failure = $null; $code = 'BOOTSTRAP_DOWNLOAD_FAILED'; $stage = 'connect'
                 $operation = [Threading.CancellationTokenSource]::CreateLinkedTokenSource($deadline.Token)
@@ -291,6 +295,7 @@ function Download-Pinned([string]$Url, [string]$File, [long]$Maximum, $Client) {
             }
         } finally { $deadline.Dispose() }
         $message = $BootstrapMessages.failed -f $code, $resource, $stage, $failure.Reason, $attempt, $attempts, $BootstrapMessages.$stopReason
+        $message += $BootstrapMessages.round -f $round, $totalAttempts
         if (-not $failure.Retryable -or -not (Confirm-DownloadRetry $message)) { throw $message }
     }
 }

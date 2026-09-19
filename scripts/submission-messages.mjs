@@ -78,11 +78,22 @@ export const optionNames = {
 };
 
 export const additions = {
+    retryRoundLabel: ["本次操作的尝试轮次","Attempt round for this operation","本次操作的嘗試輪次","この操作の試行ラウンド","이 작업의 시도 회차"],
     exitCodeLabel: ["退出码","Exit code","結束碼","終了コード","종료 코드"],
     toolVersionLabel: ["检测到的工具版本","Detected tool version","偵測到的工具版本","検出されたバージョン","감지된 도구 버전"],
     toolLabel: ["失败工具","Failed tool","失敗工具","失敗したツール","실패한 도구"],
     verifyingTools: ["核对固定工具文件","Verify pinned tool files","核對固定工具檔案","固定ツールのファイルを検証","고정 도구 파일 검증"],
     checkingJava: ["检查 Java 工具版本","Check Java tool versions","檢查 Java 工具版本","Java ツールのバージョンを確認","Java 도구 버전 확인"],
+    downloadingPackage: ['下载插件安装包', 'Download the plugin package', '下載外掛安裝套件', 'プラグインパッケージをダウンロード', '플러그인 패키지 다운로드'],
+    downloadingSource: ['下载固定提交的源码', 'Download source at the pinned commit', '下載固定提交的原始碼', '固定コミットのソースをダウンロード', '고정 커밋의 소스 다운로드'],
+    uploadingCandidate: ['上传候选附件', 'Upload the candidate asset', '上傳候選附件', '候補の添付ファイルをアップロード', '후보 첨부 파일 업로드'],
+    creatingCandidate: ['创建固定源码候选归档', 'Create the pinned source candidate archive', '建立固定原始碼候選封存', '固定ソース候補のアーカイブを作成', '고정 소스 후보 아카이브 만들기'],
+    creatingPull: ['创建投稿 PR', 'Create the submission PR', '建立投稿 PR', '投稿 PR を作成', '제출 PR 만들기'],
+    creatingFork: ['准备社区仓库 fork', 'Prepare the community repository fork', '準備社群儲存庫 fork', 'コミュニティリポジトリの fork を準備', '커뮤니티 저장소 fork 준비'],
+    publishingCandidate: ['发布已核对的源码候选', 'Publish the verified source candidate', '發布已核對的原始碼候選', '検証済みソース候補を公開', '검증된 소스 후보 게시'],
+    retryCurrentStep: ['是否重试此失败步骤？', 'Retry this failed step?', '是否重試此失敗步驟？', '失敗したこの処理を再試行しますか？', '실패한 이 단계만 다시 시도할까요?'],
+    totalAttemptsLabel: ['此步骤累计尝试次数', 'Total attempts for this step', '此步驟累計嘗試次數', 'この処理の累計試行回数', '이 단계의 누적 시도 횟수'],
+    saveNavigation: ['Ctrl+S 保存退出', 'Ctrl+S save and exit', 'Ctrl+S 儲存離開', 'Ctrl+S 保存して終了', 'Ctrl+S 저장 후 종료'],
     revokedRequestState: ['该请求的目标版本目前已被撤销（REVOKED），旧请求不能恢复它。请取消尚未合并的旧请求；继续发布须升级插件版本。', 'The request targets a version that is now revoked (REVOKED). An old request cannot restore it. Withdraw any unmerged stale request; further publication requires a new plugin version.', '此請求的目標版本目前已被撤銷（REVOKED），舊請求無法恢復。請取消尚未合併的舊請求；繼續發布須升級外掛版本。', 'この申請の対象は現在失効済み（REVOKED）です。古い申請では復元できません。未マージの古い申請を取り下げ、公開を続けるにはバージョンを上げてください。', '이 요청의 대상 버전은 현재 철회됨(REVOKED) 상태입니다. 기존 요청으로 복원할 수 없습니다. 병합되지 않은 이전 요청을 취소하고 계속 게시하려면 새 버전을 사용하세요.'],
     rotationVersionNotice: ['换钥不恢复已隐藏或已撤销的版本。隐藏版本使用 UNYANK；已撤销版本须升级版本后重新投稿。', 'Key rotation does not restore hidden or revoked versions. Use UNYANK for hidden versions; submit a new version after revocation.', '換鑰不會恢復已隱藏或已撤銷的版本。隱藏版本使用 UNYANK；已撤銷版本須升級版本後重新投稿。', '鍵の変更では非表示や失効済みのバージョンは復元されません。非表示には UNYANK を使い、失効後は新しいバージョンを投稿してください。', '키 교체는 숨기거나 철회한 버전을 복원하지 않습니다. 숨긴 버전에는 UNYANK를 사용하고 철회 후에는 새 버전을 제출하세요.'],
     versionACTIVE: ['此版本已发布且处于活动状态（ACTIVE），无需重复投稿；更新内容请升级插件版本。', 'This version is already published and active (ACTIVE). No resubmission is needed; use a new plugin version for changes.', '此版本已發布且為有效狀態（ACTIVE），無需重複投稿；更新內容請升級外掛版本。', 'このバージョンは公開済みで有効（ACTIVE）です。再投稿は不要です。変更を公開するにはバージョンを上げてください。', '이 버전은 이미 게시되어 활성 상태(ACTIVE)입니다. 다시 제출할 필요가 없습니다. 변경 사항을 게시하려면 플러그인 버전을 올리세요.'],

@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { API_TIMEOUT } from './github.mjs';
 import { resolveProxy, tunnelAgent } from './download-proxy.mjs';
-import { observe } from './submission-progress.mjs';
+import { observe, currentStep } from './submission-progress.mjs';
+import { retryRequest } from './submission-retry.mjs';
 
 const excluded = new BlockList();
 for (const [address, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
@@ -34,7 +35,20 @@ export function httpsUrl(text) {
 }
 
 // 每跳固定已验证的 IP，TLS 仍按原主机验证；不继承 Cookie 或 GitHub 凭据。
-export async function download(urlText, file, maximum, expected, {
+export async function download(urlText, file, maximum, expected, options) {
+    let totalAttempts = 0;
+    for (let round = 1; ; round++) {
+        try { return await downloadRound(urlText, file, maximum, expected, options); }
+        catch (error) {
+            if (!error.download || !error.retryable) throw error;
+            error.failureStep ??= currentStep() ?? 'downloading';
+            error.totalAttempts = totalAttempts += error.attempts ?? 0;
+            if (!retryRequest(error, round)) throw new Error('WIZARD_SAVE');
+        }
+    }
+}
+
+async function downloadRound(urlText, file, maximum, expected, {
     lookup = dns.lookup, request = https.get, proxyForUrl = resolveProxy, timeout = API_TIMEOUT,
     now = Date.now, wait = (ms, signal) => delay(ms, undefined, { signal }),
 } = {}) {

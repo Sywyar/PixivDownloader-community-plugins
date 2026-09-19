@@ -34,6 +34,14 @@ export async function workerTerminal(port, cancelled, options) {
     });
     const { locale, resume } = await request('open', [options]);
     const ui = { locale, resume, signal: controller.signal, text: key => localizedText(locale, key),
+        retryRequest(error, retryRound) {
+            const gate = new Int32Array(new SharedArrayBuffer(4));
+            port.postMessage({ method: 'retryRequest', gate, args: [{ code: failureCode(error), retryRound,
+                ...requestDetails(error), ...failureDetails(error) }] });
+            Atomics.wait(gate, 0, 0);
+            if (Atomics.load(gate, 0) === 1) return true;
+            throw new Error(Atomics.load(gate, 0) === 3 ? 'CANCELLED' : 'WIZARD_SAVE');
+        },
         ask: (key, initial, validate) => request('ask', [key, initial], validate),
         password: (key, validate) => request('password', [key], validate),
         async select(key, values, label = value => optionText(value, ui.text), initial) {
@@ -101,6 +109,23 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                     return;
                 }
                 if (method === 'say') { clear(); ui.say(...args); return; }
+                if (method === 'retryRequest') {
+                    let answer = 3;
+                    try {
+                        clear();
+                        for (const task of tasks.values()) task.update.pause();
+                        ui.say('requestFailed', args[0]);
+                        answer = await ui.select('retryCurrentStep', ['retry', 'saveExit'], key => ui.text(key), undefined, { back: false }) === 'retry' ? 1 : 2;
+                    } catch (error) {
+                        if (error.message === 'WIZARD_SAVE') answer = 2;
+                        else throw error;
+                    } finally {
+                        Atomics.store(message.gate, 0, answer);
+                        Atomics.notify(message.gate, 0);
+                        if (answer === 1) for (const task of tasks.values()) task.update.resume();
+                    }
+                    return;
+                }
                 if (method === 'close') { clear(); ui.close(); return; }
                 if (method === 'result') { resolve(args[0]); return; }
                 clear();

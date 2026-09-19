@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { policy, id, sha } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { git } from './project.mjs';
-import { github, checkedRepository, unchanged, paged, recoverableRequest, repositoryTree, readBlob } from './submission-github.mjs';
+import { github, checkedRepository, unchanged, paged, repositoryTree, readBlob } from './submission-github.mjs';
 import { checkEmergency } from './emergency-request.mjs';
+import { retryStep } from './submission-retry.mjs';
 
 function verifyPreparedFiles(snapshot, pull, files, changes, call, sdk) {
     if (files.some(file => file.status !== 'added')) throw new Error('EXISTING_PR_CONFLICT');
@@ -98,29 +99,21 @@ function verifyCommit(checkout, head, preview, changes, readGit) {
 
 // 确认对象是完整预览；所有外部写入都在两次原生复核之后，普通 push 不覆盖远端分支。
 export async function submitPreview(options) {
-    let approved;
-    for (;;) {
-        try { return await submitOnce({ ...options, confirm: async preview => {
-            if (isDeepStrictEqual(preview, approved)) return true;
-            if (!await options.confirm(preview)) return false;
-            approved = structuredClone(preview); return true;
-        } }); }
-        catch (error) {
-            if (!recoverableRequest(error) || !options.retry || !await options.retry(error)) throw error;
-        }
-    }
+    return submitOnce(options);
 }
 
 async function submitOnce({ sdk, snapshot, changes, result, title, confirm, recheck,
-    actions = [], beforeWrite, write = work => work(),
+    actions = [], beforeWrite, write = work => work(), retry,
     call = github, readGit = git, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+    // 每个写入步骤自行回读结果后才可重试；已完成的步骤不重放。
+    const step = (key, work) => retryStep(key, () => { unchanged(snapshot, call); return work(); }, { retry, wait });
     unchanged(snapshot, call);
     const fork = forkTarget(snapshot, call);
     const preview = writePreview(snapshot, changes, result, fork, title);
     preview.branch = submissionBranch(snapshot, preview.branch, call);
     preview.actions.unshift(...actions);
     if (!await confirm(preview)) return { cancelled: true };
-    await recheck();
+    await step('rechecking', recheck);
     return write(async () => {
     unchanged(snapshot, call);
     if (!isDeepStrictEqual(forkTarget(snapshot, call), fork)) throw new Error('FORK_CHANGED');
@@ -129,10 +122,12 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
         if (!bytes || bytes.length !== file.size || hash(bytes) !== file.sha256) throw new Error('PREVIEW_CHANGED');
     }
     if (changes.size !== preview.files.length) throw new Error('PREVIEW_CHANGED');
-    await beforeWrite?.();
+    if (beforeWrite) await step('publishingCandidate', beforeWrite);
     unchanged(snapshot, call);
     if (!isDeepStrictEqual(forkTarget(snapshot, call), fork)) throw new Error('FORK_CHANGED');
     if (fork.create) {
+        await step('creatingFork', async () => {
+        if (!forkTarget(snapshot, call).create) return;
         let uncertain;
         try { call(`repos/${policy.repository}/forks`, { method: 'POST', body: { default_branch_only: true } }); }
         catch (error) { if (!error.github) throw error; uncertain = error; }
@@ -143,6 +138,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
             await wait(1000);
         }
         if (!ready) throw uncertain ?? new Error('FORK_NOT_READY');
+        });
     }
     const repository = checkedRepository(fork.name, call);
     const existing = paged(`repos/${policy.repository}/pulls?state=all&head=${encodeURIComponent(snapshot.actor.login + ':' + preview.branch)}`, call);
@@ -160,14 +156,14 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     readGit(checkout, 'init');
     readGit(checkout, 'remote', 'add', 'upstream', `https://github.com/${policy.repository}.git`);
     readGit(checkout, 'remote', 'add', 'origin', `https://github.com/${fork.name}.git`);
-    readGit(checkout, 'fetch', '--depth=1', 'upstream', snapshot.base);
+    await step('git_fetch', () => readGit(checkout, 'fetch', '--depth=1', 'upstream', snapshot.base));
     if (readGit(checkout, 'rev-parse', 'FETCH_HEAD') !== snapshot.base) throw new Error('FETCHED_BASE_CHANGED');
     let head;
     try { head = sha(call(`repos/${fork.name}/git/ref/heads/${preview.branch}`).object.sha); }
     catch (error) { if (error.message !== 'GITHUB_NOT_FOUND') throw error; }
     const resume = Boolean(head);
     if (resume) {
-        readGit(checkout, 'fetch', '--depth=2', 'origin', head);
+        await step('git_fetch', () => readGit(checkout, 'fetch', '--depth=2', 'origin', head));
         if (readGit(checkout, 'rev-parse', 'FETCH_HEAD') !== head) throw new Error('REMOTE_HEAD_CHANGED');
     } else {
         readGit(checkout, 'switch', '--create', preview.branch, snapshot.base);
@@ -186,6 +182,14 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     // 交互期间或创建 fork 后再次变化也拒绝提交远端候选。
     unchanged(snapshot, call);
     if (!resume) {
+        await step('git_push', () => {
+        let previous;
+        try { previous = call(`repos/${fork.name}/git/ref/heads/${preview.branch}`).object.sha; }
+        catch (error) { if (error.message !== 'GITHUB_NOT_FOUND') throw error; }
+        if (previous) {
+            if (previous !== head) throw new Error('REMOTE_HEAD_CHANGED');
+            return;
+        }
         try { readGit(checkout, 'push', 'origin', `HEAD:refs/heads/${preview.branch}`); }
         catch (error) {
             // push 响应丢失不能证明失败；只承认远端仍是本次已验证的精确 head。
@@ -196,9 +200,14 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
             if (!remote) throw error;
             if (remote !== head) throw new Error('REMOTE_HEAD_CHANGED');
         }
+        });
     }
     if (sha(call(`repos/${fork.name}/git/ref/heads/${preview.branch}`).object.sha) !== head) throw new Error('REMOTE_HEAD_CHANGED');
     unchanged(snapshot, call);
+    const pull = await step('creatingPull', () => {
+    const prior = paged(`repos/${policy.repository}/pulls?state=all&head=${encodeURIComponent(snapshot.actor.login + ':' + preview.branch)}`, call);
+    if (prior.length > 1) throw new Error('EXISTING_PR_CONFLICT');
+    if (prior.length) return prior[0];
     let pull;
     try { pull = call(`repos/${policy.repository}/pulls`, { method: 'POST', body: {
         title, head: `${snapshot.actor.login}:${preview.branch}`, base: snapshot.branch ?? policy.defaultBranch, draft: false, maintainer_can_modify: true,
@@ -211,6 +220,8 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
         if (found.length !== 1) throw new Error('EXISTING_PR_CONFLICT');
         pull = found[0];
     }
+    return pull;
+    });
     const actual = call(`repos/${policy.repository}/pulls/${id(pull.number)}`);
     if (actual.draft || actual.state !== 'open' || actual.head.sha !== head || actual.base.sha !== snapshot.base
         || actual.base.ref !== (snapshot.branch ?? policy.defaultBranch)
