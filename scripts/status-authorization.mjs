@@ -3,12 +3,19 @@ import { hash, evidence } from './sdk.mjs';
 import { stateReader, repositoryTree, readBlob } from './submission-github.mjs';
 import { applySdk } from './apply-sdk.mjs';
 import { applyOperation } from './apply-operations.mjs';
+import { nativeTransferApproval, transferReview, transferProof } from './transfer-reviews.mjs';
 
-export const signedOwnerOperations = Object.freeze(['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION']);
+export const signedOwnerOperations = Object.freeze(['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION', 'OWNERSHIP_TRANSFER']);
 export const signedStatusEligible = checked => signedOwnerOperations.includes(checked?.operation)
     && (checked.operation !== 'KEY_ROTATION' || checked.reasonCode === 'ROUTINE_ROTATION')
-    && checked.recoveryRequired === false && checked.owner?.accountType === 'User'
-    && checked.owner.accountId === checked.pr?.user.id && !checked.organizationRepresentationRequired?.length;
+    && checked.recoveryRequired === false && !checked.organizationRepresentationRequired?.length
+    && (checked.operation === 'OWNERSHIP_TRANSFER'
+        ? checked.singlePr && !checked.ownerConfirmationInRequest && checked.from?.accountType === 'User'
+            && checked.to?.accountType === 'User' && checked.to.accountId === checked.pr?.user.id
+            && checked.from.accountId !== checked.to.accountId
+        : checked.owner?.accountType === 'User' && checked.owner.accountId === checked.pr?.user.id);
+
+export const recipientApprovalPath = checked => `ownership-transfers/${checked.pluginId}/${checked.requestId}/approvals/to/${checked.to.accountId}.json`;
 
 // 只有请求文件来自投稿分支，其余管理状态始终读取当前受保护主线。
 export function statusState(sdk, current, checked, pr, call = api) {
@@ -16,10 +23,15 @@ export function statusState(sdk, current, checked, pr, call = api) {
     const tree = repositoryTree(pr.head.repo.full_name, checked.pr.head, call);
     const bytes = readBlob(pr.head.repo.full_name, tree.get(checked.requestPath), call);
     if (hash(bytes) !== checked.requestSha256) throw new Error('APPLY_REQUEST_CHANGED');
-    return { ...state, tree: new Map([...state.tree, [checked.requestPath, tree.get(checked.requestPath)]]),
-        raw: file => file === checked.requestPath ? bytes : state.raw(file),
-        read: (file, kind) => file === checked.requestPath
-            ? { ...sdk.document(kind, bytes, file), bytes, path: file } : state.read(file, kind) };
+    const inputs = new Map([[checked.requestPath, bytes]]);
+    if (checked.operation === 'OWNERSHIP_TRANSFER') {
+        const file = recipientApprovalPath(checked);
+        inputs.set(file, readBlob(pr.head.repo.full_name, tree.get(file), call));
+    }
+    return { ...state, tree: new Map([...state.tree, ...[...inputs.keys()].map(file => [file, tree.get(file)])]),
+        raw: file => inputs.has(file) ? inputs.get(file) : state.raw(file),
+        read: (file, kind) => inputs.has(file)
+            ? { ...sdk.document(kind, inputs.get(file), file), bytes: inputs.get(file), path: file } : state.read(file, kind) };
 }
 
 export function signedStatusAuthority(request, pr, adapter, native) {
@@ -32,10 +44,13 @@ export function signedStatusAuthority(request, pr, adapter, native) {
 
 export function authorizeStatus(input, sdk, context, version, pr, call = api) {
     if (!signedStatusEligible(version?.checked)) return input;
+    const transfer = version.checked.operation === 'OWNERSHIP_TRANSFER';
+    const ownerReview = transfer ? transferReview(version.checked, pr, call) : undefined;
+    if (transfer && transferProof(version.checked, ownerReview) === undefined) return input;
     // 只复用固定源码与请求上的纯验签结果；原生审核和紧急状态由调用方每次重读。
     const binding = hash(Buffer.from(JSON.stringify({ source: context.current, runId: id(context.run.id),
         attempt: context.run.run_attempt, createdAt: context.run.created_at, pr: input.after.pr,
-        checked: version.checked, appliedAt: version.completion?.receipt.appliedAt ?? null })));
+        checked: version.checked, ownerReview, appliedAt: version.completion?.receipt.appliedAt ?? null })));
     if (version.statusAuthorization) {
         if (version.statusAuthorization.binding !== binding) throw new Error('STATUS_AUTHORIZATION_CHANGED');
         const ref = version.statusAuthorization.audit;
@@ -43,13 +58,22 @@ export function authorizeStatus(input, sdk, context, version, pr, call = api) {
     }
     const state = statusState(sdk, context.current, version.checked, pr, call);
     const adapter = applySdk(sdk);
-    const request = state.read(version.checked.requestPath, version.checked.operation === 'KEY_ROTATION' ? 'ROTATION' : 'STATUS_REQUEST').value;
+    const request = state.read(version.checked.requestPath, transfer ? 'TRANSFER' : version.checked.operation === 'KEY_ROTATION' ? 'ROTATION' : 'STATUS_REQUEST').value;
     const native = { sourceCommit: context.current, runId: id(context.run.id), runAttempt: context.run.run_attempt };
     const authorization = signedStatusAuthority(request, input.after.pr, adapter, native);
     const appliedAt = version.completion?.receipt.appliedAt ?? context.run.created_at;
     const nextUpdate = new Date(Date.parse(appliedAt) + 30 * 86400000).toISOString().replace(/\.\d{3}Z$/u, 'Z');
+    let approvals = [], checked = version.checked;
+    if (transfer) {
+        const file = recipientApprovalPath(checked), author = { id: id(pr.user.id), type: 'User' };
+        approvals = [{ reference: adapter.archive(state.raw(file), file), role: 'TO', pr: input.after.pr, author },
+            nativeTransferApproval(checked, input.after.pr, ownerReview, adapter)];
+        const account = call(`user/${id(checked.to.accountId)}`);
+        if (id(account.id) !== checked.to.accountId || account.type !== 'User') throw new Error('TARGET_ACCOUNT_CHANGED');
+        checked = { ...checked, targetLogin: account.login };
+    }
     let result;
-    try { result = applyOperation({ sdk, adapter, state, checked: version.checked, ...authorization, appliedAt, nextUpdate }); }
+    try { result = applyOperation({ sdk, adapter, state, checked, ...authorization, approvals, appliedAt, nextUpdate }); }
     catch (error) {
         if (!String(error.stderr ?? error.message).includes('COMMUNITY_RESTRICTION_REVIEW_REQUIRED')) throw error;
         version.statusManualReason = 'COMMUNITY_RESTRICTION_REVIEW_REQUIRED';

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { requireTransferReview } from './transfer-reviews.mjs';
 import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -90,7 +91,7 @@ export function operationAuthority({ request, proposal, approvals, context, inpu
 
 export function currentAdmission(number, sdk, context, version, call = api, readGit = git) {
     const reviewCall = version.completion?.reviewCall ?? call;
-    const emergency = authorizeEmergencyKeys(sdk, version.checked, context.current, pull(number, reviewCall), call);
+    const emergency = authorizeEmergencyKeys(sdk, version.checked, context.current, pull(number, reviewCall), call, undefined, version.transferRepresentations);
     const collect = () => {
         const input = facts(number, sdk, context.current, reviewCall, version);
         if (version.publicationBindingSha256) {
@@ -100,14 +101,17 @@ export function currentAdmission(number, sdk, context, version, call = api, read
         return authorizeStatus(attachDecisions(input, loadDecisions(number, sdk, context.current, reviewCall, readGit, undefined, input.after.version)),
             sdk, context, version, pull(number, reviewCall), call);
     };
+    const confirmation = () => requireTransferReview(version.checked, pull(number, reviewCall), reviewCall, version.transferRepresentations);
+    const ownerReview = confirmation();
     const input = collect(), result = evaluate(sdk, input);
     if (!result.validationPassed || !result.riskPassed
         || !(result.authorization === 'SIGNED_OWNER' && result.human.status !== 'CHANGES_REQUESTED'
             || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status))) throw new Error('PUBLICATION_REVIEW_REQUIRED');
     if (context.automatic && result.authorization !== 'SIGNED_OWNER') throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     if (fingerprint(input) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
+    if (!isDeepStrictEqual(ownerReview, confirmation())) throw new Error('REVIEW_FACTS_CHANGED');
     emergency?.unchanged();
-    return { input, result };
+    return { input, result, ownerReview };
 }
 
 export function archiveAdmission(adapter, sdk, input) {

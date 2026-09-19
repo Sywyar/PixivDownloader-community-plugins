@@ -234,7 +234,7 @@ export const REVIEW_READBACK_ATTEMPTS = 5;
 
 export function requestSubject(receipt) {
     const checked = receipt.reviewContext?.checked;
-    const publisher = (checked?.owner ?? checked?.from)?.publisherId;
+    const publisher = (receipt.operation === 'OWNERSHIP_TRANSFER' ? checked?.from : checked?.owner)?.publisherId;
     const plugin = checked?.pluginId ?? checked?.submission?.pluginId;
     const version = checked?.version ?? checked?.submission?.version;
     return publisher && plugin ? `${publisher} / ${plugin}${version ? `-v${version}` : ''}${checked.to ? ` → ${checked.to.publisherId}` : ''}`

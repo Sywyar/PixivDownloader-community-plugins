@@ -116,6 +116,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, emergency: null, generatedKey: null, resumePrepared: false, operation: undefined });
         } });
         context.ui = navigator.ui;
+        context.seal = () => navigator.seal();
         context.ui.task = (key, work) => { saveSession(context, { phase: key }); return ui.task(key, work); };
         const outcome = await navigator.run(async ui => {
         await restoreSession();
@@ -169,6 +170,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         else if (operation === 'rotation') prepared = await prepareRotation(context);
         else if (operation === 'transfer') prepared = await prepareTransfer(context);
         else prepared = await prepareStatus(context, operation);
+        if (prepared.outcome) return prepared.outcome;
         if (prepared.original) {
             unchanged(snapshot, call);
             presentOriginal(context, prepared.original);
@@ -214,7 +216,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             ui.say('statusRequestSubmitted');
             ui.say('effect' + context.operation);
         }
-        ui.say(outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : outcome.reused ? 'requestPending' : 'submitted', outcome);
+        ui.say(outcome.transferReviewed ? (outcome.rejected ? 'transferRejected' : outcome.signed ? 'transferSigned' : 'transferApproved') : outcome.cancelled ? 'cancelled' : outcome.withdrawn ? 'withdrawn' : outcome.reused ? 'requestPending' : 'submitted',
+            outcome.transferReviewed ? { url: outcome.url } : outcome);
         return outcome;
     } catch (error) {
         if (error.message === 'WIZARD_SAVE') {

@@ -11,7 +11,7 @@ export function api(endpoint, { method = 'GET', body, token, pages = false, raw 
     if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(repositoryName)
         || repositoryName.split('/').some(part => part === '.' || part === '..')) throw new Error('GITHUB_TARGET_MISMATCH');
     const target = `repos/${repositoryName}`;
-    const organizationRead = method === 'GET' && /^(?:organizations\/[1-9][0-9]*|orgs\/[A-Za-z0-9-]+\/memberships\/[A-Za-z0-9-]+)$/u.test(endpoint);
+    const organizationRead = method === 'GET' && /^(?:(?:organizations|user)\/[1-9][0-9]*|orgs\/[A-Za-z0-9-]+\/memberships\/[A-Za-z0-9-]+)$/u.test(endpoint);
     if (!endpoint.startsWith(`${target}/`) && endpoint !== target && endpoint !== 'user' && !organizationRead) {
         throw new Error('GITHUB_TARGET_MISMATCH');
     }

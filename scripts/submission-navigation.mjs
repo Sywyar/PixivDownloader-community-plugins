@@ -4,7 +4,7 @@ import { recoverableRequest } from './submission-github.mjs';
 // 工具临时路径和 Buffer 不属于选择身份；恢复后返回本次重新读取的对象。
 const selectionIdentity = value => value?.candidate ? { candidate: value.candidate }
     : value?.value && value?.sha256 ? { path: value.path, sha256: value.sha256 } : value;
-const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'withdrawConfirm', 'licenseTemplate', 'deleteRequestBranch', 'retryBranchCleanup', 'emergencyConfirm']);
+const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'transferReview', 'withdrawConfirm', 'licenseTemplate', 'deleteRequestBranch', 'retryBranchCleanup', 'emergencyConfirm']);
 
 export function unavailable(ui, code, details = {}) {
     ui.say('operationUnavailable', { code, ...details });

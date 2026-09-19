@@ -29,8 +29,8 @@ main(import.meta.url, async () => {
             if (pr.state !== 'open' || pr.merged || pr.draft) { output({ ready: 'false', projections: '[]' }); return; }
             const files = list(`${prefix}/pulls/${pr.number}/files`, null);
             const type = classify(pr, files);
-            if (!['status', 'rotation'].includes(type) && !(type === 'review-completed'
-                && files.some(file => /^(?:version-status-requests|key-rotations)\//u.test(file.filename)))) {
+            if (!['status', 'rotation', 'transfer'].includes(type) && !(type === 'review-completed'
+                && files.some(file => /^(?:version-status-requests|key-rotations|ownership-transfers)\//u.test(file.filename)))) {
                 output({ ready: 'false', projections: '[]' }); return;
             }
         }

@@ -91,7 +91,7 @@ export function invalidatePending(context, fingerprints, sdk, call = api, token 
                 const keys = operationKeys(operation, request, owner => {
                     const file = publisherPath(owner);
                     return state.read(file, 'PUBLISHER')?.value ?? sdk.document('PUBLISHER', raw(file), file).value;
-                });
+                }, operation === 'OWNERSHIP_TRANSFER');
                 if (keys.some(key => fingerprints.has(keyFingerprint(key)))) affected = true;
             }
         } catch {

@@ -159,6 +159,11 @@ public class WorkflowJson {
     assert.equal(archive.jobs.archive.concurrency.group, read('community-publication').concurrency.group);
     const cleanup = read('community-candidate-cleanup');
     const emergency = read('community-emergency');
+    const reviewEvent = read('community-review-event'), automatic = read('community-status');
+    assert(automatic.on.workflow_run.workflows.includes(reviewEvent.name));
+    assert.deepEqual(automatic.on.workflow_run.types, ['completed']);
+    assert.deepEqual(reviewEvent.permissions, {});
+    assert.deepEqual(reviewEvent.on.pull_request_review.types, ['submitted', 'edited', 'dismissed']);
     assert.deepEqual(emergency.on.pull_request_target.branches, ['emergency-state']);
     assert.equal(emergency.jobs.apply.environment, 'community-status');
     assert.equal(emergency.concurrency.group, read('community-gate').jobs.gate.concurrency.group);

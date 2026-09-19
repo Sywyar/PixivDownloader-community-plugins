@@ -4,7 +4,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { prepareSubmission, withRepositoryFiles } from './local-sdk.mjs';
-import { signingTool, signOperation } from '../submission-signing.mjs';
+import { signingTool, signOperation, signOperationProof } from '../submission-signing.mjs';
+import { nativeTransferApproval, approvalBody } from '../transfer-reviews.mjs';
 import { applySdk } from '../apply-sdk.mjs';
 import { applyOperation } from '../apply-operations.mjs';
 import { hash, evaluate, evidence } from '../sdk.mjs';
@@ -40,9 +41,9 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
     store('revocations.json', { schemaVersion: 1, repositoryId: 'pixivdownloader-community', sequence: 1,
         generatedTime: '2026-01-01T00:00:00Z', nextUpdate: '2026-02-01T00:00:00Z', entries: [] });
     store('revocations/restrictions.json', []);
-    const pr = (author, number) => ({ githubRepositoryId: '300', number, authorAccountId: author,
+    const pr = (author, number) => ({ githubRepositoryId: policy.repositoryId, number, authorAccountId: author,
         headRepositoryId: '400', headSha: 'b'.repeat(40), baseSha: 'c'.repeat(40), mergeSha: 'd'.repeat(40) });
-    const execute = (operation, request, file, { recovery = false, author = '101', approvals = [], signed = false, decisionBytes } = {}) => {
+    const execute = (operation, request, file, { recovery = false, author = '101', approvals = [], signed = false, decisionBytes, nativeReview } = {}) => {
         const adapter = applySdk(sdk);
         store(file, request);
         const decision = adapter.archive(decisionBytes ?? { requestId: request.requestId, approved: true, recovery });
@@ -51,6 +52,8 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
                 recoveryApproved: recovery, evidence: adapter.evidence(decision) }, authorizedReviewers: ['999'] };
         if (signed) authority = signedStatusAuthority(request, authority.proposalPr, adapter, { sourceCommit: 'c'.repeat(40), runId: '51', runAttempt: 1 }).authority;
         for (const approval of approvals) adapter.archive(records.get(approval.reference.path), approval.reference.path);
+        if (nativeReview) approvals = [...approvals, nativeTransferApproval({ pluginId: 'demo', requestId: request.requestId, requestSha256: hash(records.get(file)) },
+            authority.proposalPr, { status: 'APPROVED', review: nativeReview }, adapter)];
         return applyOperation({ sdk, adapter, state, checked: { operation, requestPath: file, requestSha256: hash(records.get(file)), owner, targetLogin: 'target' },
             authority, approvals, appliedAt: '2026-01-02T00:00:00Z', nextUpdate: '2026-02-02T00:00:00Z', recoveryEvidence: recovery ? [decision] : [] });
     };
@@ -155,6 +158,22 @@ test('真实 SDK 执行换钥、版本处置及转移，保留证据并拒绝缺
         return { reference: { path: file, size: bytes.length, sha256: hash(bytes) }, pr: pr(author, index + 2), author: { id: author, type: 'User' } };
     });
     assert.throws(() => execute('OWNERSHIP_TRANSFER', transfer, `${transferRoot}/proposal.json`, { approvals: approvals.slice(1) }), /APPROVAL_REQUIRED/);
+    const review = { id: '51', user: { id: '101', type: 'User' }, commit_id: 'b'.repeat(40),
+        submitted_at: '2026-01-01T12:00:00Z', state: 'APPROVED' };
+    const inOriginal = [{ ...approvals[1], pr: { ...pr('202', 1), mergeSha: null } }];
+    const native = execute('OWNERSHIP_TRANSFER', transfer, `${transferRoot}/proposal.json`, { author: '202', approvals: inOriginal, nativeReview: review });
+    assert.equal(native.audit.prEvidence.length, 1); assert.equal(native.audit.result, 'PREPARED');
+    assert.ok(native.audit.relatedRecords.some(ref => ref.sha256 === hash(Buffer.from(JSON.stringify(review) + '\n'))));
+    assert.deepEqual(state.read('plugin-bindings/demo.json', 'BINDING').value.owner, owner);
+    const ownerSignature = signOperationProof(sdk, sign, 'TRANSFER', transfer, next);
+    const signedReview = { ...review, body: approvalBody(hash(encode(transfer)), ownerSignature) };
+    const signedTransfer = execute('OWNERSHIP_TRANSFER', transfer, `${transferRoot}/proposal.json`,
+        { author: '202', approvals: inOriginal, nativeReview: signedReview, signed: true });
+    assert.equal(signedTransfer.audit.authorization, 'SIGNED_OWNER');
+    assert.equal(signedTransfer.audit.prEvidence.length, 1);
+    admitted(signedTransfer, `${transferRoot}/proposal.json`, transfer.payload.pluginBindingSha256);
+    assert.throws(() => execute('OWNERSHIP_TRANSFER', transfer, `${transferRoot}/proposal.json`,
+        { author: '202', approvals: inOriginal, nativeReview: review, signed: true }), /PROOF_REQUIRED/);
     const transferred = execute('OWNERSHIP_TRANSFER', transfer, `${transferRoot}/proposal.json`, { approvals });
     transferred.writes.forEach((bytes, file) => store(file, bytes));
     assert.deepEqual(state.read('plugin-bindings/demo.json', 'BINDING').value.owner, to);

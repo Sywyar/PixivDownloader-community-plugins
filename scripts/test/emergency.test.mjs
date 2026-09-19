@@ -1,12 +1,14 @@
 import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { prepareSubmission } from './local-sdk.mjs';
+import { prepareSubmission, withRepositoryFiles } from './local-sdk.mjs';
 import { hash } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { checkEmergency, emergencyAuthority } from '../emergency-request.mjs';
 import { emergencyState, keyFingerprint } from '../emergency-state.mjs';
-import { applyEmergency } from '../community-emergency.mjs';
+import { applyEmergency, invalidatePending } from '../community-emergency.mjs';
+import { authorizeEmergencyKeys } from '../emergency-authorization.mjs';
+import { approvalBody } from '../transfer-reviews.mjs';
 import { freezeVersions, restoreVersions } from '../community-gate.mjs';
 import { prepareEmergency, validateEmergencySubmission, appliedEmergency, keyLabel } from '../submission-emergency.mjs';
 import { localizedText, locales } from '../submission-ui.mjs';
@@ -167,6 +169,41 @@ test('本人批量声明经真实 SDK 生成固定封禁记录，阻断改 keyId
     assert.deepEqual(bytes(f.publisher), before);
     f.advance(f.base); assert.throws(state.unchanged, /EMERGENCY_STATE_CHANGED/u);
     f.unprotect(); assert.throws(() => emergencyState(sdk, f.call), /EMERGENCY_BRANCH_UNPROTECTED/u);
+});
+
+test('双边转移检查原所有者密钥紧急状态并撤回开放请求的旧成功，人工确认不冒用旧钥', () => {
+    const f = fixture();
+    const blocked = checkEmergency(5, f.head, sdk, f.current, f.call);
+    f.setTree(f.generated, new Map([...f.records.get(f.head), ...blocked.writes])); f.advance(f.generated);
+    const targetKey = { keyId: crypto.randomUUID(), algorithm: 'Ed25519',
+        publicKeySpkiBase64: crypto.generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' }).toString('base64') };
+    const from = f.request.payload.owner, request = { payload: { from, targetPublisherRecordSha256: null, targetKey } };
+    const file = `ownership-transfers/demo/${'1'.repeat(64)}/proposal.json`, head = '8'.repeat(40), requestBytes = bytes(request);
+    const pr = { number: 7, head: { sha: head, repo: { full_name: 'recipient/fork' } }, changed_files: 1 };
+    const checked = { operation: 'OWNERSHIP_TRANSFER', singlePr: true, from, requestPath: file, requestSha256: hash(requestBytes) };
+    let proof = true; const writes = [];
+    const call = withRepositoryFiles((endpoint, options = {}) => {
+        if (endpoint.includes('/pulls/7/reviews?')) return [[{ id: '70', user: { id: from.accountId, type: 'User' },
+            state: 'APPROVED', commit_id: head, submitted_at: '2026-01-01T00:00:00Z',
+            pull_request_url: `https://api.github.com/${prefix}/pulls/7`,
+            body: proof ? approvalBody(checked.requestSha256, { keyId: f.keys[0].keyId }) : '' }]];
+        if (endpoint.startsWith(`${prefix}/pulls?state=open&base=`)) return [[pr]];
+        if (endpoint.startsWith(`${prefix}/pulls/7/files?`)) return [[{ filename: file }]];
+        if (endpoint === `${prefix}/check-runs` && options.method === 'POST') {
+            writes.push(options.body); return { ...options.body, id: '71', app: policy.gateApp };
+        }
+        if (endpoint === `${prefix}/check-runs/71`) return { ...writes.at(-1), id: '71', app: policy.gateApp };
+        return f.call(endpoint, options);
+    }, pr.head.repo.full_name, new Map([[head, new Map([[file, requestBytes]])]]));
+    assert.throws(() => authorizeEmergencyKeys(sdk, checked, f.current, pr, call), /KEY_DECLARED_COMPROMISED/);
+    proof = false;
+    assert.doesNotThrow(() => authorizeEmergencyKeys(sdk, checked, f.current, pr, call));
+    const affected = invalidatePending({ current: f.current, run: { id: '72', run_attempt: 1 } },
+        new Set([keyFingerprint(f.keys[0])]), sdk, call, 'test-only');
+    assert.deepEqual(affected, [7]); assert.equal(writes.length, 1);
+    assert.equal(writes[0].head_sha, head); assert.equal(writes[0].conclusion, 'failure');
+    assert.deepEqual(invalidatePending({ current: f.current, run: { id: '72', run_attempt: 1 } },
+        new Set(['0'.repeat(64)]), sdk, call, 'test-only'), []);
 });
 
 test('紧急向导可多选当前与历史密钥，无需密码；生效后原字节恢复且不重复写入', async () => {

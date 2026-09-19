@@ -2,12 +2,12 @@ name: Apply signed owner request
 run-name: 'Signed owner request ${{ github.event.workflow_run.display_title || format(''PR #{0} head {1}'', inputs.prNumber, inputs.expectedHeadSha) }}'
 on:
   workflow_run:
-    workflows: [Submission static check]
+    workflows: [Submission static check, Community review event]
     types: [completed]
   workflow_dispatch:
     inputs:
       prNumber:
-        description: Signed version status or routine key rotation PR number
+        description: Signed version status, routine key rotation or ownership transfer PR number
         required: true
         type: string
       expectedHeadSha:

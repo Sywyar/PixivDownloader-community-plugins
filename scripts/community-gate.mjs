@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { transferReview, closeRejectedTransfer } from './transfer-reviews.mjs';
 import path from 'node:path';
 import { api, id, list, policy, prefix, main, API_BYTES } from './github.mjs';
 import { evaluate, hash } from './sdk.mjs';
@@ -70,12 +71,14 @@ export async function publish(number, context, prepared, call = api, write = api
         const version = await resolveVersion(number, prepared, context.current, call, readGit);
         const reviewCall = version?.completion?.reviewCall ?? call;
         const requestInfo = readRequestInfo(prepared, version?.checked, pull(number, reviewCall), reviewCall);
-        const emergency = authorizeEmergencyKeys(prepared, version?.checked, context.current, pull(number, reviewCall), call);
+        const emergency = authorizeEmergencyKeys(prepared, version?.checked, context.current, pull(number, reviewCall), call, undefined, version?.transferRepresentations);
         const collect = () => {
             const input = facts(number, prepared, context.current, reviewCall, version);
             return authorizeStatus(attachDecisions(input, loadDecisions(number, prepared, context.current, reviewCall, readGit, undefined, input.after.version)),
                 prepared, context, version, pull(number, reviewCall), call);
         };
+        const confirmation = () => transferReview(version?.checked, pull(number, reviewCall), reviewCall, version?.transferRepresentations);
+        const ownerReview = confirmation();
         const before = collect();
         if (before.after.pr.headSha !== (version?.completion?.receipt.headSha ?? head)) throw new Error('PR_HEAD_CHANGED');
         const result = evaluate(prepared, before);
@@ -86,9 +89,11 @@ export async function publish(number, context, prepared, call = api, write = api
         if (result.human.status === 'PENDING' && result.authorization !== 'SIGNED_OWNER') states[2] = 'pending';
         if (!pr.draft && (version && !version.completion || states[2] === 'pending') && states[0] === 'success' && states[1] === 'success'
             && states[2] !== 'failure') states[3] = 'pending';
+        if (ownerReview && ownerReview.status !== 'APPROVED') states[3] = ownerReview.status === 'PENDING' ? 'pending' : 'failure';
         const summary = 'Operation: ' + (version ? version.checked.operation : 'maintenance') + '\n\nInput: ' + result.snapshot.inputSha256
             + '\n\nHuman review: ' + result.human.status + '\n\nFlow: ' + result.flow
             + '\n\nAuthorization: ' + result.authorization
+            + (ownerReview ? '\n\nOriginal owner confirmation: ' + ownerReview.status : '')
             + (version?.report ? '\n\nPlugin scan: ' + version.report.status + '; blocking findings: ' + result.blockingFindingIds.length
                 + '\n\nFinding IDs (first 20): ' + result.blockingFindingIds.slice(0, 20).join(', ')
                 + '\n\nRisk declaration: ' + (before.declaration.present ? before.declaration.signals.join(', ') || 'empty' : 'not declared')
@@ -108,6 +113,7 @@ export async function publish(number, context, prepared, call = api, write = api
         for (let i = 0; i < checks.length; i++) patch(checks[i], states[i], summary);
         if (fingerprint(before) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
         emergency?.unchanged();
+        if (JSON.stringify(ownerReview) !== JSON.stringify(confirmation())) throw new Error('REVIEW_FACTS_CHANGED');
         const latest = pull(number, call);
         if (latest.head.sha !== head || latest.base.sha !== pr.base.sha || latest.state !== pr.state || latest.merged !== pr.merged) throw new Error('PR_OR_BASE_CHANGED');
         for (let i = 0; i < checks.length; i++) {
@@ -119,14 +125,16 @@ export async function publish(number, context, prepared, call = api, write = api
         const type = { FIRST_RELEASE: 'new-plugin', UPDATE: 'update', KEY_ROTATION: 'key-rotation',
             YANK: 'yank', UNYANK: 'unyank', REVOKE: 'revoke', OWNERSHIP_TRANSFER: 'ownership-transfer' }[version?.checked.operation] ?? 'maintenance';
         const labels = [...result.labels, 'type:' + type, ...(version?.checked.recoveryRequired ? ['flow:recovery'] : [])];
-        if (states[3] === 'pending') {
+        if (states[3] !== 'success') {
             const ready = labels.indexOf('state:ready');
             if (ready >= 0) labels.splice(ready, 1);
             if (result.authorization !== 'SIGNED_OWNER' && !labels.includes('review:pending')) labels.push('review:pending');
         }
         // 维护合并没有目录应用动作；只有发布执行器能显示 awaiting-apply/completed。
         if (!version && result.snapshot.state === 'MERGED') labels.splice(labels.indexOf('state:awaiting-apply'), 1);
-        return { ...identity, labels, summary, ...(requestInfo ? { requestInfo } : {}) };
+        return { ...identity, labels, summary, ...(requestInfo ? { requestInfo } : {}),
+            ...(ownerReview?.status === 'REJECTED' ? { rejectedTransfer: { checked: version.checked,
+                requestHead: pull(number, reviewCall).head.sha } } : {}) };
     } catch (error) {
         const pending = error.message === 'CANDIDATE_ARCHIVE_PENDING';
         const failures = [];
@@ -171,6 +179,11 @@ export function notify(projections, call = api) {
         const body = marker + '\nHead: ' + projection.head + '\n\n' + projection.summary;
         updateComment(number, marker, body, matches, call);
         notifyRequestInfo(projection, call);
+        if (projection.rejectedTransfer && closeRejectedTransfer(projection, call)) {
+            // job token 的关闭动作不会再唤醒其它 workflow，当前通知直接记录终态。
+            notify([{ ...projection, rejectedTransfer: undefined, state: 'closed', merged: false, labels: ['state:closed'],
+                summary: 'The original owner rejected this transfer. The request is closed; ownership was not changed.' }], call);
+        }
     }
 }
 

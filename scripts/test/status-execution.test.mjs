@@ -36,6 +36,13 @@ test('签名授权只选择个人当前作者，请求取自原 head，管理状
     assert.ok(signedStatusEligible(checked));
     const rotation = { ...checked, operation: 'KEY_ROTATION', reasonCode: 'ROUTINE_ROTATION' };
     assert.ok(signedStatusEligible(rotation));
+    const transfer = { ...checked, operation: 'OWNERSHIP_TRANSFER', singlePr: true,
+        from: checked.owner, to: { accountType: 'User', accountId: '202' }, pr: { user: { id: '202' } } };
+    assert.ok(signedStatusEligible(transfer));
+    for (const patch of [{ singlePr: false }, { recoveryRequired: true }, { ownerConfirmationInRequest: true },
+        { from: { accountType: 'Organization', accountId: '101' } }, { to: { accountType: 'User', accountId: '101' } }]) {
+        assert.equal(Boolean(signedStatusEligible({ ...transfer, ...patch })), false);
+    }
     for (const reasonCode of ['KEY_LOST', 'KEY_COMPROMISED', undefined]) assert.equal(signedStatusEligible({ ...rotation, reasonCode }), false);
     for (const patch of [{ operation: 'KEY_ROTATION' }, { recoveryRequired: true }, { organizationRepresentationRequired: ['202'] },
         { owner: { accountType: 'Organization', accountId: '101' } }, { pr: { user: { id: '202' } } }]) assert.equal(signedStatusEligible({ ...checked, ...patch }), false);
@@ -78,17 +85,18 @@ function fixture() {
 }
 
 test('自动合并复用所有者凭据、等待绑定 App 检查并恢复合并响应丢失', async () => {
-    for (const operation of ['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION']) for (const failure of [null, 'lost', 'protected']) {
+    for (const operation of ['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION', 'OWNERSHIP_TRANSFER']) for (const failure of [null, 'lost', 'protected']) {
         const f = fixture(); f.failure = failure;
         f.completion.receipt.operation = operation;
-        f.completion.receipt.reviewContext.checked = { owner: { publisherId: 'example' },
+        f.completion.receipt.reviewContext.checked = { owner: { publisherId: 'example' }, from: { publisherId: 'previous' }, to: { publisherId: 'next' },
             ...(operation === 'KEY_ROTATION' ? {} : { pluginId: 'demo', version: '2.3.4-rc.2' }) };
         const result = await mergeStatus(f.context, {}, 7, head, f.options);
         assert.equal(result.merged === true, failure !== 'protected');
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('/merge')).length, 1);
         const title = f.writes.find(row => row.endpoint.endsWith('/merge')).body.commit_title;
         assert(title.includes(operation));
-        assert(title.includes(operation === 'KEY_ROTATION' ? '发布者 example' : 'example / demo-v2.3.4-rc.2'));
+        assert(title.includes(operation === 'KEY_ROTATION' ? '发布者 example' : operation === 'OWNERSHIP_TRANSFER' ? 'demo' : 'example / demo-v2.3.4-rc.2'));
+        if (operation === 'OWNERSHIP_TRANSFER') assert(title.includes('previous') && title.includes('next'));
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('community-publication.yml/dispatches')).length, failure === 'protected' ? 0 : 1);
         assert.equal(f.refreshed, 1);
         assert.deepEqual(result.projection, { number: 7, head, state: f.pr.state, merged: f.pr.merged, requestInfo: 'verified request' });
@@ -114,9 +122,16 @@ test('缺少凭据、错误身份、人工拒绝、head 改变和失败检查均
     assert.equal(f.time, STATUS_CHECK_WAIT_MS);
     assert.equal(f.refreshed, 1);
     assert.equal(f.writes.length, 0);
+    for (const reason of ['KEY_DECLARED_COMPROMISED', 'TRANSFER_OWNER_CONFIRMATION_REQUIRED']) {
+        const changed = fixture(); let checks = 0;
+        changed.completion.receipt.operation = 'OWNERSHIP_TRANSFER';
+        changed.options.admission = () => { if (++checks === 2) throw new Error(reason); };
+        await assert.rejects(mergeStatus(changed.context, {}, 7, head, changed.options), { message: reason });
+        assert.equal(checks, 2); assert.equal(changed.refreshed, 1); assert.equal(changed.writes.length, 0);
+    }
 });
 
-test('自动运行只接受静态检查唤醒和无人工审批的 master 环境', () => {
+test('自动运行只接受静态检查或原生 Review 唤醒和无人工审批的 master 环境', () => {
     const f = fixture();
     const run = { id: 71, repository: { id: policy.repositoryId }, status: 'completed', conclusion: 'success',
         path: '.github/workflows/submission-check.yml', display_title: 'Submission PR #7' };
@@ -128,6 +143,8 @@ test('自动运行只接受静态检查唤醒和无人工审批的 master 环境
         if (endpoint.includes('/deployment-branch-policies?')) return [{ branch_policies: branches, total_count: branches.length }];
         return f.call(endpoint, options);
     };
+    assert.equal(statusInputs(f.context, { workflow_run: { id: 71 } }, call).expectedHeadSha, head);
+    run.path = '.github/workflows/community-review-event.yml'; run.display_title = 'Review PR #7';
     assert.equal(statusInputs(f.context, { workflow_run: { id: 71 } }, call).expectedHeadSha, head);
     assert.equal(statusEnvironment(f.context, {}, call).authorization, 'SIGNED_OWNER');
     run.path = '.github/workflows/untrusted.yml';

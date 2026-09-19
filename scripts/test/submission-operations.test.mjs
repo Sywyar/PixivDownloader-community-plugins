@@ -12,9 +12,9 @@ function context() {
     values.set('plugin-bindings/demo.json', binding);
     const result = { projectRoot: process.cwd(), snapshot: { actor: { id: '101', type: 'User', login: 'original' } },
         state: { tree: values, read: file => values.get(file) ?? null, published: () => [], currentStatus: () => ({ state: 'ACTIVE' }) },
-        ui: { text: key => key, say: (key, value) => notices.push({ key, value }), select: async (key, items) => { choices.push({ key, items }); return items[0]; },
+        ui: { task: async (_key, work) => work(), text: key => key, say: (key, value) => notices.push({ key, value }), select: async (key, items) => { choices.push({ key, items }); return items[0]; },
             ask: async key => key === 'targetLogin' ? 'recipient' : 'recipient', confirm: async () => true },
-        sdk: { invoke: () => ({ valid: true }) }, call: () => ({ id: 202, type: 'User', login: 'recipient' }) };
+        sdk: { invoke: () => ({ valid: true }) }, call: endpoint => endpoint.includes('/pulls?') ? [[]] : ({ id: 202, type: 'User', login: 'recipient' }) };
     return { result, values, binding, notices, choices };
 }
 

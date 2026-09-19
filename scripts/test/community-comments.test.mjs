@@ -18,6 +18,23 @@ const checked = (operation, request) => ({ operation, validation: 'STATIC_VALIDA
     version: request.payload?.version ?? request.version,
     requestPath: 'requests/example.json', requestSha256: hash(Buffer.from(JSON.stringify(request))) });
 
+test('转移提醒仅提及数字身份解析出的原个人所有者，申请正文不能伪造提及', () => {
+    const request = vector('structure/transfer');
+    request.payload.explanation = 'Please ask @someone-else';
+    const value = { ...checked('OWNERSHIP_TRANSFER', request), singlePr: true, from: request.payload.from };
+    let account = { id: value.from.accountId, type: 'User', login: 'renamed-owner' };
+    const call = withRepositoryFiles(endpoint => {
+        if (endpoint.includes('/files?')) return [[]];
+        assert.equal(endpoint, `user/${value.from.accountId}`); return account;
+    }, pr.head.repo.full_name, new Map([[head, new Map([[value.requestPath, Buffer.from(JSON.stringify(request))]])]]));
+    const sdk = { document: (_kind, bytes) => ({ value: JSON.parse(bytes) }) };
+    const body = readRequestInfo(sdk, value, pr, call);
+    assert.equal(body.split('@renamed-owner').length - 1, 1);
+    assert(!body.includes('@someone-else'));
+    account = { ...account, id: '999999' };
+    assert.throws(() => readRequestInfo(sdk, value, pr, call), /TRANSFER_OWNER_IDENTITY_CHANGED/);
+});
+
 test('各类请求按自身字段展示，证明缺席与验签成功有别且不泄漏签名字节', () => {
     for (const operation of ['FIRST_RELEASE', 'UPDATE', 'KEY_ROTATION', 'YANK', 'UNYANK', 'REVOKE', 'OWNERSHIP_TRANSFER', 'DECLARE_KEY_COMPROMISE']) {
         const file = { FIRST_RELEASE: 'submission', UPDATE: 'submission', KEY_ROTATION: 'structure/rotation',
