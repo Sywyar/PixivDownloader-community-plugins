@@ -15,6 +15,11 @@
     "description": "有效路径及 payload 为发布者换钥"
   },
   {
+    "name": "type:key-compromise",
+    "color": "b60205",
+    "description": "已识别的签名密钥泄露声明；不代表已生效"
+  },
+  {
     "name": "type:yank",
     "color": "5319e7",
     "description": "有效状态请求 action=YANK"

@@ -299,7 +299,7 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     const projection = { number: 7, head, labels: ['ci:blocked', 'review:pending'], summary: 'Pending review' };
     state.comments.push({ id: 89, user: { id: 123, type: 'User' }, body: '<!-- community-review-summary --> forged' });
     notify([projection], call);
-    assert.deepEqual(state.labels.sort(), ['ci:blocked', 'custom', 'review:pending']);
+    assert.deepEqual(state.labels.sort(), ['ci:blocked', 'custom', 'review:pending', 'type:maintenance']);
     assert.equal(state.comments.length, 2);
     notify([{ ...projection, summary: 'Blocked after a new decision' }], call);
     assert.equal(state.comments.length, 2);
@@ -317,7 +317,8 @@ test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒�
             filename: `submissions/${policy.repositoryOwnerId}/sample/2.3.4.json`, status: 'added',
         }];
         Object.assign(state.pr, { state: 'closed', merged });
-        state.labels.push('ci:passed', 'review:self-approved');
+        const operationLabel = operation === 'maintenance' ? 'type:maintenance' : 'type:new-plugin';
+        state.labels.push('ci:passed', 'review:self-approved', operationLabel);
         for (const name of policy.requiredContexts) {
             const checkId = String(state.checks.size + 1);
             state.checks.set(checkId, { id: checkId, name, head_sha: head, status: 'completed', conclusion: 'success' });
@@ -335,7 +336,7 @@ test('关闭的维护与版本 PR 只更新终态通知，保留原检查且拒�
         assert.equal(state.writes.length, 0);
         assert.deepEqual([...state.checks], checks);
         notify([projection], call);
-        assert.deepEqual(state.labels.sort(), ['custom', ...labels].sort());
+        assert.deepEqual(state.labels.sort(), [...new Set(['custom', operationLabel, ...labels])].sort());
         assert.equal(state.comments.length, 1);
         assert(state.comments[0].body.endsWith(projection.summary));
         const writes = state.writes.length;

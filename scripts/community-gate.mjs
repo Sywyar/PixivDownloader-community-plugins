@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { transferReview, closeRejectedTransfer } from './transfer-reviews.mjs';
+import { updateRequestLabels } from './sync-labels.mjs';
 import path from 'node:path';
 import { api, id, list, policy, prefix, main, API_BYTES } from './github.mjs';
 import { evaluate, hash } from './sdk.mjs';
@@ -28,7 +29,6 @@ export function appliedProjection(pr, files, result) {
             : 'PR merged. Protected state application or release readback is pending.' };
 }
 
-const managedLabels = new Set(JSON.parse(fs.readFileSync(new URL('labels.json', import.meta.url), 'utf8')).map(row => row.name));
 function conclusions(result) {
     return [result.validationPassed, result.riskPassed,
         result.authorization === 'SIGNED_OWNER' && result.human.status !== 'CHANGES_REQUESTED'
@@ -167,13 +167,9 @@ export function notify(projections, call = api) {
             return pr.head.sha === projection.head && (projection.state === undefined || pr.state === projection.state && pr.merged === projection.merged);
         };
         if (!matches()) continue;
-        if (!Array.isArray(projection.labels) || projection.labels.some(name => !managedLabels.has(name))) throw new Error('LABEL_PROJECTION_INVALID');
-        const current = list(prefix + '/issues/' + number + '/labels', null, call).map(label => label.name);
-        for (const label of current.filter(name => managedLabels.has(name) && !projection.labels.includes(name))) {
-            call(prefix + '/issues/' + number + '/labels/' + encodeURIComponent(label), { method: 'DELETE' });
-        }
-        const missing = projection.labels.filter(name => !current.includes(name));
-        if (missing.length) call(prefix + '/issues/' + number + '/labels', { method: 'POST', body: { labels: missing } });
+        if (!Array.isArray(projection.labels) || projection.labels.some(name => typeof name !== 'string')) throw new Error('LABEL_PROJECTION_INVALID');
+        updateRequestLabels(number, { operations: projection.labels.filter(name => name.startsWith('type:')),
+            states: projection.labels.filter(name => !name.startsWith('type:')) }, call);
         if (typeof projection.summary !== 'string') throw new Error('SUMMARY_PROJECTION_INVALID');
         const marker = '<!-- community-review-summary -->';
         const body = marker + '\nHead: ' + projection.head + '\n\n' + projection.summary;

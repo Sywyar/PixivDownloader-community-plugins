@@ -15,6 +15,7 @@ import { formatRequestInfo, notifyRequestInfo } from './community-comments.mjs';
 
 function requestProjection(pr, request, requestPath, bytes) {
     return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged, baseRef: policy.emergencyBranch,
+        operationLabels: ['type:key-compromise'],
         requestInfo: formatRequestInfo({ operation: 'DECLARE_KEY_COMPROMISE', owner: request.payload.owner,
             requestPath, requestSha256: hash(bytes) }, request, pr) };
 }

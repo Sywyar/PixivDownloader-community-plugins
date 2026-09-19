@@ -131,6 +131,7 @@ for (const sameRepository of [false, true]) test(`紧急请求${sameRepository ?
         const resumed = await applyEmergency(context, sdk, 5, f.head, { call, token: 'test-only' });
         assert.deepEqual(resumed.projection, result.projection);
         assert.deepEqual(resumed.pendingRefresh, []); assert.equal(patched, 1); assert.equal(merged, 1); assert.equal(refreshes, 2);
+        assert.deepEqual(result.projection.operationLabels, ['type:key-compromise']);
     } finally {
         if (previous === undefined) delete process.env.COMMUNITY_REVIEW_BRANCH_TOKEN;
         else process.env.COMMUNITY_REVIEW_BRANCH_TOKEN = previous;

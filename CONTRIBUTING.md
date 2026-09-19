@@ -32,6 +32,8 @@
 
 `npm run labels:plan` 预览受管标签差异；`npm run labels:apply` 应用名称、颜色和说明。未列入目录的标签保留。
 
+操作标签 `type:*` 只追加，持续标识已识别的请求类型；其中 `type:key-compromise` 标识密钥泄露声明。状态标签单独更新，失败、关闭或完成不会移除操作标签。标签只供展示和检索，不能证明身份、审核通过或操作已生效。标签目录变化时，维护者须应用目录后再使用新增标签。
+
 ## 检查与表单
 
 四个必需检查为 `community/validation`、`community/risk-review`、`community/human-review` 和 `community/admission`，均绑定 `sywyar-pixivdownloader-gate` App。维护操作经身份与路径核对后明确判定插件扫描不适用。普通 CI 的同名检查不能授予准入权。

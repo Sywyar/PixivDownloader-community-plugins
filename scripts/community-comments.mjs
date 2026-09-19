@@ -2,6 +2,7 @@ import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { repositoryTree, readBlob } from './submission-github.mjs';
 import { optionNames } from './submission-messages.mjs';
+import { updateRequestLabels } from './sync-labels.mjs';
 
 export const COMMENT_BYTES = 65536;
 export const REQUEST_INFO_MARKER = '<!-- community-request-info -->';
@@ -134,6 +135,7 @@ export function notifyRequestInfo(projection, call = api) {
             && pr.head.sha === sha(projection.head) && pr.state === projection.state && pr.merged === projection.merged;
     };
     if (!matches()) return;
+    if (projection.operationLabels !== undefined) updateRequestLabels(projection.number, { operations: projection.operationLabels }, call);
     updateComment(projection.number, REQUEST_INFO_MARKER,
         `${REQUEST_INFO_MARKER}\nHead: ${projection.head}\n\n${projection.requestInfo}`, matches, call);
 }
