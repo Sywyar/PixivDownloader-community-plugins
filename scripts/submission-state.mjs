@@ -10,7 +10,7 @@ export const CACHE_BYTES = 768 * 1024 * 1024;
 export const CACHE_FILES = 8;
 const fields = new Set(['profile', 'artifact', 'licenseFiles', 'license', 'locale', 'name', 'summary', 'description',
     'category', 'tags', 'icon', 'screenshots', 'alt', 'homepage', 'owner', 'organization', 'publisher', 'display',
-    'publicKey', 'privateKey', 'keyId', 'keyDirectory', 'keyAction', 'imageAction']);
+    'publicKey', 'privateKey', 'keyId', 'keyDirectory', 'keyAction', 'imageAction', 'transferPlugin']);
 
 export function submissionHome() {
     const base = process.platform === 'win32' ? process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData/Local')
@@ -70,8 +70,24 @@ export function lockState(folder, name = 'project.lock', code = 'PROJECT_STATE_L
 
 // 项目数据不是授权源；每次使用都重新核对平台身份、源码和包字节。
 export function openProject(identity, actorId, { home = submissionHome() } = {}) {
+    return openRecord(identity, actorId, projectFolder(identity, home));
+}
+
+export function managementIdentity(actorId) {
     if (!/^[1-9][0-9]*$/u.test(String(actorId))) throw new Error('PROJECT_IDENTITY_INVALID');
-    const folder = projectFolder(identity, home);
+    return { host: 'github.com', scope: 'community-management', actorId: String(actorId) };
+}
+
+export function managementFolder(actorId, home = submissionHome()) {
+    return path.resolve(home, 'management', managementIdentity(actorId).actorId);
+}
+
+export function openManagement(actorId, { home = submissionHome() } = {}) {
+    return openRecord(managementIdentity(actorId), actorId, managementFolder(actorId, home));
+}
+
+function openRecord(identity, actorId, folder) {
+    if (!/^[1-9][0-9]*$/u.test(String(actorId))) throw new Error('PROJECT_IDENTITY_INVALID');
     const release = lockState(folder);
     const file = path.join(folder, 'profile.json');
     let data;

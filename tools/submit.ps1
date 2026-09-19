@@ -100,9 +100,6 @@ if (process.argv[1] === 'verify-channel') {
     } catch (error) { process.stderr.write(error.message + '\n'); process.exitCode = 1; }
 }
 '@
-$MarkerName = '.pixivdownloader-plugin-project'
-# Keep this entry ASCII for both -File and irm | iex on PowerShell 5.1.
-$MarkerMissing = ConvertFrom-Json '"\u672a\u68c0\u6d4b\u5230\u9879\u76ee\u6807\u8bc6\uff0c\u60a8\u7684SDK\u7248\u672c\u53ef\u80fd\u4f4e\u4e8e3600837c\u6216\u975eSDK\u76ee\u5f55"'
 
 function Assert-PlainPath([string]$Value) {
     $current = [IO.Path]::GetFullPath($Value)
@@ -133,29 +130,11 @@ function Read-Bounded([string]$File, [long]$Maximum) {
 }
 
 function Confirm-Project([string]$Directory) {
-    $resolved = (Get-Item -LiteralPath $Directory -Force).FullName
+    $item = Get-Item -LiteralPath $Directory -Force
+    if (-not $item.PSIsContainer) { throw 'START_DIRECTORY_INVALID' }
+    $resolved = $item.FullName
     Assert-PlainPath $resolved
-    try {
-        $gitArgs = @('--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', $resolved, 'rev-parse', '--show-toplevel')
-        $gitRoot = & git @gitArgs 2>$null
-        if ($LASTEXITCODE -ne 0) { throw $MarkerMissing }
-        $gitRoot = [IO.Path]::GetFullPath([string]$gitRoot)
-    } catch { throw $MarkerMissing }
-    $gitArgs = @('--no-optional-locks', '-c', 'core.fsmonitor=false', '-C', $gitRoot, 'ls-files', '--stage', '-z', '--', (':(glob)**/' + $MarkerName))
-    $output = & git @gitArgs
-    if ($LASTEXITCODE -ne 0) { throw 'PROJECT_MARKER_INVALID' }
-    $found = $false
-    foreach ($record in ([string]::Join("`n", @($output))).Split([char]0)) {
-        if (-not $record) { continue }
-        if ($record -notmatch '^100(?:644|755) [0-9a-f]{40}(?:[0-9a-f]{24})? 0\t(.+)$') { throw 'PROJECT_MARKER_INVALID' }
-        $marker = [IO.Path]::GetFullPath([IO.Path]::Combine($gitRoot, $Matches[1]))
-        if (-not $marker.StartsWith($gitRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'PROJECT_MARKER_INVALID' }
-        $text = [Text.UTF8Encoding]::new($false, $true).GetString((Read-Bounded $marker ([Text.Encoding]::UTF8.GetByteCount('pixivdownloader-plugin-project-v1') + 5)))
-        if ($text -notmatch '^\uFEFF?pixivdownloader-plugin-project-v1(?:\r?\n)?$') { throw 'PROJECT_MARKER_INVALID' }
-        $project = [IO.Path]::GetDirectoryName($marker)
-        if ($project -eq $resolved -or $resolved -eq $gitRoot) { $found = $true }
-    }
-    if (-not $found) { throw $MarkerMissing }
+    # The signed wizard owns project detection and the project-independent operation menu.
     return $resolved
 }
 

@@ -58,6 +58,7 @@ test('下载逐跳固定公共 IP，无凭据且校验实际大小与摘要', as
 test('项目标识必须受 Git 跟踪，错误目录先失败；模型批处理保留真实参数', () => {
     const folder = temporary();
     assert.throws(() => preflight(folder), error => error.message === markerMissing);
+    assert.deepEqual(preflight(folder, { allowMissing: true }), { cwd: fs.realpathSync(folder), gitRoot: null, candidates: [] });
     git(folder, 'init');
     const marker = path.join(folder, '.pixivdownloader-plugin-project');
     fs.writeFileSync(marker, 'pixivdownloader-plugin-project-v1\n');
@@ -66,6 +67,7 @@ test('项目标识必须受 Git 跟踪，错误目录先失败；模型批处理
     assert.deepEqual(preflight(folder).candidates.map(item => item.projectDir), ['.']);
     fs.appendFileSync(marker, 'invalid');
     assert.throws(() => preflight(folder), /PROJECT_MARKER_INVALID/u);
+    assert.throws(() => preflight(folder, { allowMissing: true }), /PROJECT_MARKER_INVALID/u);
     fs.writeFileSync(marker, '\ufeffpixivdownloader-plugin-project-v1\r\n');
     assert.equal(preflight(folder).candidates.length, 1);
     assert.throws(() => sourceFacts(folder), /SOURCE_COMMIT_REQUIRED/u);

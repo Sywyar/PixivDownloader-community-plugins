@@ -648,10 +648,12 @@ test('向导投影下载错误码及阶段，不输出原始异常或凭据', as
     } finally { process.exitCode = previous; }
 });
 
-test('真实入口连续切换不可用操作后仍可返回菜单，不重复创建固定签名工具', async () => {
+for (const marked of [true, false]) test(`真实入口在${marked ? '插件项目' : '普通目录'}连续切换不可用操作后仍可返回菜单`, async () => {
     const sdk = prepareSubmission(), project = path.join(sdk.workspace, 'menu-project'); fs.mkdirSync(project);
-    fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
-    git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    if (marked) {
+        fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
+        git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    }
     const spoken = [], operations = ['REVOKE', 'YANK', 'rotation', 'withdraw'];
     let base = 'a'.repeat(40);
     const call = endpoint => {
@@ -665,12 +667,17 @@ test('真实入口连续切换不可用操作后仍可返回菜单，不重复�
     const previous = process.exitCode;
     try {
         const result = await runWizard(project, { call, stateHome: project, ui: { locale: 'en-US', text: key => key,
-            select: key => { assert.equal(key, 'operation'); if (!operations.length) throw new Error('CANCELLED'); return operations.shift(); },
+            select: (key, values) => {
+                assert.equal(key, 'operation'); assert.equal(values.includes('publish'), marked);
+                assert(values.includes('transfer')); assert(values.includes('emergency')); assert(values.includes('UNYANK'));
+                if (!operations.length) throw new Error('CANCELLED'); return operations.shift();
+            },
             task: (_key, work) => work(), say: (...args) => {
                 spoken.push(args);
                 if (args[0] === 'operationUnavailable') base = (base[0] === 'a' ? 'b' : 'a').repeat(40);
             }, close() {} } });
         assert.deepEqual(result, { cancelled: true });
+        assert.equal(spoken.some(([key]) => key === 'limitedOperations'), !marked);
         assert.deepEqual(spoken.filter(([key]) => key === 'operationUnavailable').map(([, value]) => value.code),
             ['NO_OWNED_PLUGINS', 'NO_OWNED_PLUGINS', 'NO_OWNED_PUBLISHERS', 'NO_WITHDRAWABLE_REQUESTS']);
     } finally { process.exitCode = previous; }

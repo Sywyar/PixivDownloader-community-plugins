@@ -303,8 +303,8 @@
     },
     {
       "path": "scripts/project.mjs",
-      "size": 3766,
-      "sha256": "766e811d3e238978c983d13de4c9cba16eb35c2209be241fbd57be5a2487231a"
+      "size": 4035,
+      "sha256": "7f4ec8b5d1e90a9da04eb25195f628d4dafb01aa8366e079688da32cfca04f80"
     },
     {
       "path": "scripts/receipt-storage.mjs",
@@ -358,8 +358,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 111986,
-      "sha256": "132905086388a02b08c4e4130eab82144a0dd37f35d3d236a10410d7da0a1d5d"
+      "size": 119391,
+      "sha256": "78d08e9b4a373947707f5c7fdb677a4e1a072c080400c37c235f9093ba201e18"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -368,13 +368,13 @@
     },
     {
       "path": "scripts/submission-operations.mjs",
-      "size": 17481,
-      "sha256": "770d67124445a9cfbb53e395de3c8405176f390cd907da7fda6c7e5f4e328ff1"
+      "size": 19390,
+      "sha256": "5ad7e9e88222485536e7e117ec7dfc7fbd85d67240887f141041663d5e0b82d2"
     },
     {
       "path": "scripts/submission-presentation.mjs",
-      "size": 4517,
-      "sha256": "5498350efb04209726a744239e807f74aa4e4d004d0590d0169361c97858b4cc"
+      "size": 4551,
+      "sha256": "5acdbd774cc64b1b97a1e2bec06a368882fd3dad5298fb267abb66324ab34e77"
     },
     {
       "path": "scripts/submission-progress.mjs",
@@ -388,8 +388,8 @@
     },
     {
       "path": "scripts/submission-release.mjs",
-      "size": 15414,
-      "sha256": "25dac97b16aa8137973508bf480ee941e4a965d9dfe4c817af16ae664d099d2c"
+      "size": 15420,
+      "sha256": "39a05e9ccb18891a59067f05f1ad091b559c62a7155c4f23ec4db4a34d0d0318"
     },
     {
       "path": "scripts/submission-retry.mjs",
@@ -403,18 +403,18 @@
     },
     {
       "path": "scripts/submission-session.mjs",
-      "size": 7343,
-      "sha256": "da76353dbd852514e3818ab8f748389f701a88f24d9daab27702d2d8bde378cd"
+      "size": 7761,
+      "sha256": "9c33a27aa3e39e5bb1049372c172b8ccfe1f66ade6571e82b2857f1206ceb436"
     },
     {
       "path": "scripts/submission-signing.mjs",
-      "size": 6376,
-      "sha256": "83bb0397e4870a2004d05233438fe895d4df7e6293665e6d42b600a47ec1b0ce"
+      "size": 6392,
+      "sha256": "3ab117b21d602769b2cf8740b0a9f4f83c7d93d5c031830390210df45e92e891"
     },
     {
       "path": "scripts/submission-state.mjs",
-      "size": 10312,
-      "sha256": "1ce5d66872cfe4b13a1deb1bed4c1166b9536a70a27f27a14c5518a21dfffa8f"
+      "size": 10967,
+      "sha256": "4d6b9d74bb17e6a9f52376b76df41435f24644aba29c73ee7e1214057550d8a2"
     },
     {
       "path": "scripts/submission-terminal.mjs",
@@ -423,8 +423,8 @@
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 31737,
-      "sha256": "c08dfd8a8596b162037842e85b7a28eb92a49d92949659bb2e94f53c26d95c64"
+      "size": 32317,
+      "sha256": "e405caa56dcb4dd106154d1290765027ba713c463128512b55e1c549787c7492"
     },
     {
       "path": "scripts/submission-version-state.mjs",
@@ -448,8 +448,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 15845,
-      "sha256": "9974062139493cb20f2b9c1232b739ef6a1eeeff8276afff8b32451772abd9c8"
+      "size": 16710,
+      "sha256": "1d9e081ac4398c3b9849bfd01c35e71abdb5fcecec7bebb4b5b9cd704d56882d"
     },
     {
       "path": "scripts/tool-process.mjs",

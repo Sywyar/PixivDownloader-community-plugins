@@ -47,7 +47,7 @@ export function keyLocation(requested, projectRoot, newDirectory = false) {
         if (['EACCES', 'EPERM'].includes(error.code)) throw new Error('KEY_ACCESS_DENIED');
         throw error;
     }
-    for (const directory of [projectRoot, root, os.tmpdir()]) {
+    for (const directory of [projectRoot, root, os.tmpdir()].filter(Boolean)) {
         const relative = path.relative(fs.realpathSync(directory), file);
         if (!relative || !relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative)) throw new Error('KEY_OUTSIDE_PROJECT_AND_TEMP_REQUIRED');
     }

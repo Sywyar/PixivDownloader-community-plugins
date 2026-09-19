@@ -297,8 +297,9 @@ for (const shell of shells) {
 
     test(`${shell} 的文件与管道入口校验实际下载并保留 Unicode 参数、退出码和调用终端`, async t => {
         const f = await fixture(t, shell, 7);
-        const invalid = await f.invoke('file', f.folder);
-        assert.equal(invalid.code, 1); assert.equal(f.state.requests.length, 0);
+        const standalone = await f.invoke('file', f.folder);
+        assert.equal(standalone.code, 7, standalone.stderr);
+        assert.deepEqual(JSON.parse(standalone.stdout.trim().split(/\r?\n/u)[0]), [f.folder]);
         for (const mode of ['file', 'pipeline']) {
             const result = await f.invoke(mode);
             assert.equal(result.code, 7, result.stderr);

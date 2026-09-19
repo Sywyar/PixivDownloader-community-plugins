@@ -78,6 +78,32 @@ export async function prepareRotation(context, rotation) {
 
 async function selectBinding(context, partiesOnly = true) {
     const { state, ui, snapshot, call = github } = context;
+    if (!partiesOnly) {
+        if (![...state.tree.keys()].some(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))) unavailable(ui, 'NO_REGISTERED_PLUGINS');
+        const format = value => {
+            if (!/^[a-z0-9._-]+\/[a-z0-9._-]+$/u.test(value)) throw new Error('PLUGIN_IDENTITY_INVALID');
+        };
+        const lookup = value => {
+            format(value);
+            const [publisherId, pluginId] = value.split('/');
+            const binding = state.read(`plugin-bindings/${pluginId}.json`, 'BINDING');
+            if (!binding) throw new Error('PLUGIN_NOT_REGISTERED');
+            if (binding.value.owner.publisherId !== publisherId) throw new Error('PLUGIN_PUBLISHER_MISMATCH');
+            if (binding.value.owner.accountType === 'User' && binding.value.owner.accountId === snapshot.actor.id) throw new Error('TRANSFER_SAME_OWNER');
+            return binding;
+        };
+        for (;;) {
+            const value = await ui.ask('transferPlugin', '', format);
+            try {
+                const selected = lookup(value);
+                bindHistory(context, selected.value.pluginId);
+                return selected;
+            } catch (error) {
+                if (!['PLUGIN_NOT_REGISTERED', 'PLUGIN_PUBLISHER_MISMATCH', 'TRANSFER_SAME_OWNER'].includes(error.message)) throw error;
+                ui.say('transferPlugin', { code: error.message });
+            }
+        }
+    }
     const cache = new Map();
     const authorized = owner => {
         const key = `${owner.accountType}/${owner.accountId}`;
@@ -85,15 +111,16 @@ async function selectBinding(context, partiesOnly = true) {
         return cache.get(key);
     };
     const bindings = [...state.tree.keys()].filter(file => /^plugin-bindings\/[^/]+\.json$/u.test(file))
-        .map(file => state.read(file, 'BINDING')).filter(record => !partiesOnly || authorized(record.value.owner));
-    if (!bindings.length) unavailable(ui, partiesOnly ? 'NO_OWNED_PLUGINS' : 'NO_REGISTERED_PLUGINS');
+        .map(file => state.read(file, 'BINDING')).filter(record => authorized(record.value.owner));
+    if (!bindings.length) unavailable(ui, 'NO_OWNED_PLUGINS');
     const selected = await ui.select('plugin', bindings, record => `${record.value.pluginId} (${record.value.owner.publisherId})`);
     bindHistory(context, selected.value.pluginId);
-    if (partiesOnly && selected.value.owner.accountType === 'Organization' && !await ui.confirm('representation', selected.value.owner)) throw new Error('CANCELLED');
+    if (selected.value.owner.accountType === 'Organization' && !await ui.confirm('representation', selected.value.owner)) throw new Error('CANCELLED');
     return selected;
 }
 
 function bindHistory(context, pluginId) {
+    if (context.projectRoot === null) return;
     const prior = context.state.published(pluginId)[0];
     if (!prior) return;
     const submission = context.sdk.document('SUBMISSION', context.state.reference(prior.value.submissionRef), prior.value.submissionRef.path).value;
@@ -152,23 +179,31 @@ export async function confirmRevocation(ui, result, changes) {
 export async function prepareTransfer(context) {
     const { state, ui, snapshot, sdk, sign, call = github } = context;
     ui.say('transferHelp');
-    const requests = [...state.tree.keys()].filter(file => /^ownership-transfers\/[^/]+\/[^/]+\/proposal\.json$/u.test(file))
-        .map(file => state.read(file, 'TRANSFER')).filter(record => {
-            const request = record.value;
-            if (state.read(`audits/${request.requestId}.json`, 'AUDIT')) return false;
-            if (state.read(`plugin-bindings/${request.payload.pluginId}.json`, 'BINDING')?.sha256 !== request.payload.pluginBindingSha256) return false;
-            const target = state.read(publisherPath(request.payload.to), 'PUBLISHER');
-            if ((target?.sha256 ?? null) !== request.payload.targetPublisherRecordSha256) return false;
-            return ['FROM', 'TO'].some(role => eligible(role === 'FROM' ? request.payload.from : request.payload.to, snapshot.actor, call)
-                && !state.tree.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`));
-        });
-    const proposal = await ui.select('proposal', [...requests, null, 'handoff'], record => record === 'handoff' ? ui.text('transferHandoff')
-        : record ? `${record.value.payload.pluginId} · ${record.value.payload.from.publisherId} → ${record.value.payload.to.publisherId} (${record.value.requestId})` : ui.text('newProposal'));
-    if (proposal === 'handoff') {
+    const action = await ui.select('transferAction', ['newProposal', 'transferConfirmFrom', 'transferConfirmTo', 'transferHandoff'], value => ui.text(value));
+    if (action === 'transferHandoff') {
         const binding = await selectBinding(context);
         transferVersionNotice(context, binding.value.pluginId);
-        ui.say('transferHandoffHelp', { pluginId: binding.value.pluginId, from: binding.value.owner });
+        ui.say('transferHandoffHelp', { pluginIdentity: `${binding.value.owner.publisherId}/${binding.value.pluginId}` });
         throw new Error('WIZARD_MENU');
+    }
+    const selectedRole = action === 'transferConfirmFrom' ? 'FROM' : action === 'transferConfirmTo' ? 'TO' : null;
+    let proposal;
+    if (selectedRole) {
+        const requests = [...state.tree.keys()].filter(file => /^ownership-transfers\/[^/]+\/[^/]+\/proposal\.json$/u.test(file))
+            .map(file => state.read(file, 'TRANSFER')).filter(record => {
+                const request = record.value;
+                if (state.read(`audits/${request.requestId}.json`, 'AUDIT')) return false;
+                if (state.read(`plugin-bindings/${request.payload.pluginId}.json`, 'BINDING')?.sha256 !== request.payload.pluginBindingSha256) return false;
+                const target = state.read(publisherPath(request.payload.to), 'PUBLISHER');
+                if ((target?.sha256 ?? null) !== request.payload.targetPublisherRecordSha256) return false;
+                return eligible(selectedRole === 'FROM' ? request.payload.from : request.payload.to, snapshot.actor, call)
+                    && !state.tree.has(`ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${selectedRole.toLowerCase()}/${snapshot.actor.id}.json`);
+            });
+        if (!requests.length) {
+            ui.say(selectedRole === 'FROM' ? 'noTransferFrom' : 'noTransferTo');
+            throw new Error('WIZARD_MENU');
+        }
+        proposal = await ui.select('proposal', requests, record => `${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
     }
     const changes = new Map();
     let request;
@@ -197,7 +232,7 @@ export async function prepareTransfer(context) {
                 let total = 0;
                 const hashes = new Set();
                 for (const file of files) {
-                    const bytes = readFile(path.resolve(context.projectRoot, file));
+                    const bytes = readFile(path.resolve(context.projectRoot ?? context.directory, file));
                     if (!bytes.length) throw new Error('RECOVERY_EVIDENCE_REQUIRED');
                     if ((total += bytes.length) > 32 * 1024 * 1024) throw new Error('INPUT_SIZE_EXCEEDED');
                     if (hashes.has(hash(bytes))) throw new Error('RECOVERY_EVIDENCE_DUPLICATED');
@@ -207,7 +242,7 @@ export async function prepareTransfer(context) {
             payload.recoveryEvidence = [];
             let total = 0;
             for (const file of files.split(',').map(value => value.trim())) {
-                const bytes = readFile(path.resolve(context.projectRoot, file));
+                const bytes = readFile(path.resolve(context.projectRoot ?? context.directory, file));
                 if (!bytes.length || (total += bytes.length) > 32 * 1024 * 1024) throw new Error('INPUT_SIZE_EXCEEDED');
                 const relative = `ownership-transfer-evidence/${payload.pluginId}/${hash(bytes)}.bin`;
                 if (payload.recoveryEvidence.some(ref => ref.path === relative)) throw new Error('RECOVERY_EVIDENCE_DUPLICATED');
@@ -222,6 +257,7 @@ export async function prepareTransfer(context) {
         changes.set(`ownership-transfers/${payload.pluginId}/${request.requestId}/proposal.json`, encoded(request));
     }
     for (const role of ['FROM', 'TO']) {
+        if (selectedRole && selectedRole !== role) continue;
         const owner = role === 'FROM' ? request.payload.from : request.payload.to;
         const approvalPath = `ownership-transfers/${request.payload.pluginId}/${request.requestId}/approvals/${role.toLowerCase()}/${snapshot.actor.id}.json`;
         if (state.tree.has(approvalPath)) continue;

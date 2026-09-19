@@ -124,21 +124,49 @@ test('社区独立隐藏而非作者隐藏的版本不提供 UNYANK', async () =
     assert(!f.choices.some(choice => choice.key === 'version'));
 });
 
-test('原维护者不被要求取得接收方私钥，目标身份变化的旧请求不再列出', async () => {
+test('原维护者的转出指引提供完整插件标识，不要求接收方私钥', async () => {
     const f = context();
-    f.result.ui.select = async (key, items) => key === 'proposal' ? 'handoff' : items[0];
+    f.result.ui.select = async (key, items) => key === 'transferAction' ? 'transferHandoff' : items[0];
     f.result.ui.ask = async () => assert.fail('转出指引不询问接收方身份或私钥');
     await assert.rejects(prepareTransfer(f.result), /WIZARD_MENU/);
     assert.equal(f.notices.at(-1).key, 'transferHandoffHelp');
-    assert.equal(f.notices.at(-1).value.pluginId, 'demo');
-    const request = { requestId: 'a'.repeat(64), payload: { pluginId: 'demo', from: f.binding.value.owner,
-        to: { accountId: '101', accountType: 'User', publisherId: 'next' }, pluginBindingSha256: f.binding.sha256, targetPublisherRecordSha256: 'c'.repeat(64) } };
-    f.values.set(`ownership-transfers/demo/${request.requestId}/proposal.json`, { value: request });
-    f.values.set('publishers/101/next.json', { sha256: 'd'.repeat(64) });
-    f.result.ui.select = async (key, items) => {
-        assert.equal(key, 'proposal'); assert.deepEqual(items, [null, 'handoff']); throw new Error('STALE_REQUEST_FILTERED');
-    };
-    await assert.rejects(prepareTransfer(f.result), /STALE_REQUEST_FILTERED/);
+    assert.deepEqual(f.notices.at(-1).value, { pluginIdentity: 'original/demo' });
+});
+
+test('转移确认按所选身份筛选，空请求给出说明，确认只生成本角色的批准', async () => {
+    for (const role of ['FROM', 'TO']) for (const state of ['pending', 'missing', 'confirmed', 'complete', 'bindingChanged', 'publisherChanged', 'wrongAccount']) {
+        const f = context();
+        const request = { requestId: 'a'.repeat(64), payload: { pluginId: 'demo', from: f.binding.value.owner,
+            to: { accountId: '202', accountType: 'User', publisherId: 'next' }, pluginBindingSha256: f.binding.sha256, targetPublisherRecordSha256: 'c'.repeat(64) } };
+        f.result.snapshot.actor.id = state === 'wrongAccount' ? '303' : role === 'FROM' ? '101' : '202';
+        const prefix = `ownership-transfers/demo/${request.requestId}`;
+        const approvalPath = `${prefix}/approvals/${role.toLowerCase()}/${f.result.snapshot.actor.id}.json`;
+        if (state !== 'missing') f.values.set(`${prefix}/proposal.json`, { value: request });
+        f.values.set('publishers/202/next.json', { sha256: state === 'publisherChanged' ? 'd'.repeat(64) : 'c'.repeat(64) });
+        if (state === 'confirmed') f.values.set(approvalPath, {});
+        if (state === 'complete') f.values.set(`audits/${request.requestId}.json`, {});
+        if (state === 'bindingChanged') f.binding.sha256 = 'e'.repeat(64);
+        f.result.ui.select = async (key, items, label) => {
+            if (key === 'transferAction') {
+                assert.deepEqual(items, ['newProposal', 'transferConfirmFrom', 'transferConfirmTo', 'transferHandoff']);
+                return role === 'FROM' ? 'transferConfirmFrom' : 'transferConfirmTo';
+            }
+            assert.equal(state, 'pending'); assert.equal(key, 'proposal'); assert.equal(items.length, 1);
+            assert(label(items[0]).includes('original/demo')); assert(label(items[0]).includes('next'));
+            return items[0];
+        };
+        f.result.ui.ask = async () => assert.fail('确认既有请求不重新填写身份或私钥');
+        f.result.ui.confirm = async (key, value) => { assert.equal(key, 'transfer'); assert.equal(value.role, role); return true; };
+        if (state === 'pending') {
+            const prepared = await prepareTransfer(f.result);
+            assert.deepEqual([...prepared.changes.keys()], [approvalPath]);
+            assert.deepEqual(JSON.parse(prepared.changes.get(approvalPath)), { schemaVersion: 1, requestId: request.requestId, role });
+        } else {
+            await assert.rejects(prepareTransfer(f.result), /WIZARD_MENU/);
+            assert.equal(f.notices.at(-1).key, role === 'FROM' ? 'noTransferFrom' : 'noTransferTo');
+            assert.equal(f.notices.at(-1).value, undefined);
+        }
+    }
 });
 
 test('接收申请复用本人账号和已登记发布者标识，不允许代填第三方账号', async () => {
@@ -146,7 +174,8 @@ test('接收申请复用本人账号和已登记发布者标识，不允许代�
     f.result.snapshot.actor = { id: '202', type: 'User', login: 'recipient' };
     f.values.set('publishers/202/registered.json', { value: { publisherId: 'registered', signingKeys: [] } });
     let asked = false;
-    f.result.ui.ask = async (key, suggestion) => {
+    f.result.ui.ask = async (key, suggestion, validate) => {
+        if (key === 'transferPlugin') { validate('original/demo'); return 'original/demo'; }
         assert.equal(key, 'recipientPublisher'); assert.equal(suggestion, 'registered'); asked = true; return suggestion;
     };
     f.result.ui.select = async (key, items) => {
@@ -157,4 +186,22 @@ test('接收申请复用本人账号和已登记发布者标识，不允许代�
     await assert.rejects(prepareTransfer(f.result), /RECIPIENT_KEY_REACHED/);
     assert(f.notices.some(row => row.key === 'transferHelp'));
     assert(f.notices.some(row => row.key === 'transferRecipientHelp'));
+});
+
+test('接收方按发布者和插件标识输入，错误身份在请求密钥前原地拒绝', async () => {
+    for (const [value, code] of [['demo', 'PLUGIN_IDENTITY_INVALID'], ['original/demo/extra', 'PLUGIN_IDENTITY_INVALID'],
+        ['original/missing', 'PLUGIN_NOT_REGISTERED'], ['previous/demo', 'PLUGIN_PUBLISHER_MISMATCH'],
+        ['original/demo', 'TRANSFER_SAME_OWNER']]) {
+        const f = context();
+        f.result.ui.select = async (key, values) => { assert.equal(key, 'transferAction'); return values[0]; };
+        let prompts = 0;
+        f.result.ui.ask = async (key, initial, validate) => {
+            assert.equal(key, 'transferPlugin'); assert.equal(initial, '');
+            if (++prompts > 1) throw new Error('CANCELLED');
+            validate(value); return value;
+        };
+        await assert.rejects(prepareTransfer(f.result), new RegExp(code === 'PLUGIN_IDENTITY_INVALID' ? code : 'CANCELLED'));
+        if (code !== 'PLUGIN_IDENTITY_INVALID') assert.equal(f.notices.at(-1).value.code, code);
+        assert(errors[code]?.length === locales.length);
+    }
 });

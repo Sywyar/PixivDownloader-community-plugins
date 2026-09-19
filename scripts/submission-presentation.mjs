@@ -23,7 +23,7 @@ const labels = {
     currentState: 'currentStateLabel', requestedState: 'requestedStateLabel', versions: 'versionsLabel',
     packageSha256: 'digestLabel',
     tool: 'toolLabel', toolVersion: 'toolVersionLabel', exitCode: 'exitCodeLabel', failureStep: 'stageLabel',
-    retryRound: 'retryRoundLabel', totalAttempts: 'totalAttemptsLabel',
+    retryRound: 'retryRoundLabel', totalAttempts: 'totalAttemptsLabel', pluginIdentity: 'transferPlugin',
 };
 
 export function formatMetadata(value, text, depth = 0, field = '') {

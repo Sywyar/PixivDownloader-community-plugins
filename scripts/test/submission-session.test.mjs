@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { openProject, projectIdentity } from '../submission-state.mjs';
+import { openProject, projectIdentity, openManagement } from '../submission-state.mjs';
 import { sessionLocator, saveSession, savePrepared, preparedChanges, restorePrepared } from '../submission-session.mjs';
 import { navigation } from '../submission-navigation.mjs';
 import { API_BYTES } from '../github.mjs';
@@ -12,6 +12,44 @@ import { policy, prefix } from '../github.mjs';
 import { git } from '../project.mjs';
 import { runWizard, withRepositoryFiles } from './local-sdk.mjs';
 import { runWizard as productionWizard } from '../submit.mjs';
+
+test('无项目管理记录按账号隔离，恢复不读取 Git 源码且继续核对登录身份', async t => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'management-session-'));
+    t.after(() => fs.rmSync(home, { recursive: true }));
+    const store = openManagement('201', { home });
+    store.remember('transferPlugin:0', 'publisher/example');
+    saveSession({ store, ui: { locale: 'zh-CN' } }, { operation: 'withdraw', sourceCommit: null });
+    sessionLocator(home, home).bind(store, '201');
+    store.close();
+    assert.equal(sessionLocator(home, home).read().session.locale, 'zh-CN');
+    const other = openManagement('202', { home });
+    assert.equal(other.answer('transferPlugin:0'), undefined); other.close();
+    const project = openProject(projectIdentity('101', '.', 'example'), '201', { home });
+    assert.equal(project.answer('transferPlugin:0'), undefined); project.close();
+    let accountId = '202';
+    const call = endpoint => {
+        if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId }, default_branch: 'master' };
+        if (endpoint === `${prefix}/git/ref/heads/master`) return { object: { sha: 'a'.repeat(40) } };
+        if (endpoint === 'user') return { id: accountId, type: 'User', login: 'author' };
+        if (endpoint.includes('/git/trees/')) return { tree: [], truncated: false };
+        if (endpoint.includes('/pulls?')) return [[]];
+        assert.fail(endpoint);
+    };
+    const previous = process.exitCode;
+    t.after(() => { process.exitCode = previous; });
+    const notices = [];
+    const options = { call, stateHome: home, prepare: () => ({ workspace: fs.mkdtempSync(path.join(home, 'sdk-')) }), ui: {
+        locale: 'zh-CN', resume: true, task: (_key, work) => work(), close() {}, text: key => key,
+        say: (key, value) => notices.push({ key, value }),
+        select: (key, values) => { assert.equal(key, 'operation'); assert(!values.includes('publish')); return 'withdraw'; },
+    } };
+    assert.deepEqual(await productionWizard(home, options), { failed: 'SESSION_ACCOUNT_CHANGED' });
+    accountId = '201';
+    let selections = 0;
+    options.ui.select = (_key, values) => { assert(!values.includes('publish')); if (selections++) throw new Error('CANCELLED'); return 'withdraw'; };
+    assert.deepEqual(await productionWizard(home, options), { cancelled: true });
+    assert(notices.some(notice => notice.value?.code === 'NO_WITHDRAWABLE_REQUESTS'));
+});
 
 test('新进程按项目恢复语言和已答问题，未签名时仍解锁，完成预览不能清除待提交内容', async t => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-session-'));
