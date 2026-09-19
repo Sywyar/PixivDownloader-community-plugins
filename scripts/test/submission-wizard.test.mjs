@@ -60,6 +60,56 @@ function consoleStreams() {
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
 
+for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内失败步骤${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
+    const originalCI = process.env.CI; process.env.CI = 'false';
+    t.after(() => { if (originalCI === undefined) delete process.env.CI; else process.env.CI = originalCI; });
+    const tty = consoleStreams();
+    const cancelled = new Int32Array(new SharedArrayBuffer(4));
+    const worker = new Worker(new URL('data:text/javascript,' + encodeURIComponent(`
+        import { parentPort, workerData } from 'node:worker_threads';
+        import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
+        import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
+        import { githubRequest } from ${JSON.stringify(new URL('../submission-github.mjs', import.meta.url).href)};
+        import { requestRecovery } from ${JSON.stringify(new URL('../submission-retry.mjs', import.meta.url).href)};
+        const ui = await workerTerminal(parentPort, workerData.cancelled);
+        const close = requestRecovery(ui.retryRequest);
+        let before = 0, attempts = 0, after = 0, error;
+        try {
+            await ui.task('loading', () => {
+                before++;
+                githubRequest(() => observe('readingGitObjects', '', () => {
+                    if (++attempts <= 6) throw Object.assign(new Error('private output'), { stderr: 'unexpected EOF' });
+                }), { wait() {} });
+                after++;
+            });
+        } catch (e) { error = e.message; }
+        close(); ui.close();
+        parentPort.postMessage({ method: 'result', args: [{ before, attempts, after, error }] });
+        parentPort.close();
+    `)), { workerData: { cancelled } });
+    t.after(() => worker.terminate());
+    const result = connectTerminal(worker, cancelled, tty.input, tty.output); result.catch(() => {});
+    const until = async text => {
+        for (let i = 0; i < 200 && !tty.rendered().includes(text); i++) await setTimeout(20);
+        assert(tty.rendered().includes(text), text + '\n' + tty.rendered());
+    };
+    await until(localizedText('en-US', 'language')); await tty.key('\x1b[B\r');
+    await until(localizedText('en-US', 'retryCurrentStep'));
+    await until(localizedText('en-US', 'retryRoundLabel') + ': 1');
+    assert(tty.rendered().includes(localizedText('en-US', 'readingGitObjects')));
+    if (outcome === 'retry') {
+        await tty.key('\r');
+        await until(localizedText('en-US', 'retryRoundLabel') + ': 2');
+        await until(localizedText('en-US', 'totalAttemptsLabel') + ': 6');
+        await tty.key('\r');
+        assert.deepEqual(await result, { before: 1, attempts: 7, after: 1, error: undefined });
+    } else {
+        await tty.key(outcome === 'save-key' ? '\x13' : outcome === 'save' ? '\x1b[B\r' : '\x1b');
+        assert.deepEqual(await result, { before: 1, attempts: 3, after: 0, error: outcome.startsWith('save') ? 'WIZARD_SAVE' : 'CANCELLED' });
+    }
+    assert(!tty.rendered().includes('private output'));
+});
+
 test('公共终端会话在问题和加载切换时保持逐键模式，退出恢复原状态', { timeout: 10000 }, async () => {
     const tty = consoleStreams();
     const originalRawMode = tty.input.setRawMode;
@@ -598,10 +648,12 @@ test('向导投影下载错误码及阶段，不输出原始异常或凭据', as
     } finally { process.exitCode = previous; }
 });
 
-test('真实入口连续切换不可用操作后仍可返回菜单，不重复创建固定签名工具', async () => {
+for (const marked of [true, false]) test(`真实入口在${marked ? '插件项目' : '普通目录'}连续切换不可用操作后仍可返回菜单`, async () => {
     const sdk = prepareSubmission(), project = path.join(sdk.workspace, 'menu-project'); fs.mkdirSync(project);
-    fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
-    git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    if (marked) {
+        fs.writeFileSync(path.join(project, '.pixivdownloader-plugin-project'), 'pixivdownloader-plugin-project-v1\n');
+        git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
+    }
     const spoken = [], operations = ['REVOKE', 'YANK', 'rotation', 'withdraw'];
     let base = 'a'.repeat(40);
     const call = endpoint => {
@@ -615,12 +667,17 @@ test('真实入口连续切换不可用操作后仍可返回菜单，不重复�
     const previous = process.exitCode;
     try {
         const result = await runWizard(project, { call, stateHome: project, ui: { locale: 'en-US', text: key => key,
-            select: key => { assert.equal(key, 'operation'); if (!operations.length) throw new Error('CANCELLED'); return operations.shift(); },
+            select: (key, values) => {
+                assert.equal(key, 'operation'); assert.equal(values.includes('publish'), marked);
+                assert(values.includes('transfer')); assert(values.includes('emergency')); assert(values.includes('UNYANK'));
+                if (!operations.length) throw new Error('CANCELLED'); return operations.shift();
+            },
             task: (_key, work) => work(), say: (...args) => {
                 spoken.push(args);
                 if (args[0] === 'operationUnavailable') base = (base[0] === 'a' ? 'b' : 'a').repeat(40);
             }, close() {} } });
         assert.deepEqual(result, { cancelled: true });
+        assert.equal(spoken.some(([key]) => key === 'limitedOperations'), !marked);
         assert.deepEqual(spoken.filter(([key]) => key === 'operationUnavailable').map(([, value]) => value.code),
             ['NO_OWNED_PLUGINS', 'NO_OWNED_PLUGINS', 'NO_OWNED_PUBLISHERS', 'NO_WITHDRAWABLE_REQUESTS']);
     } finally { process.exitCode = previous; }

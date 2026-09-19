@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { root, hash } from './sdk.mjs';
 import { API_BYTES } from './github.mjs';
+import { toolJson } from './tool-process.mjs';
 
 export function applySdk(sdk, directory = root) {
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath, '-d', path.join(sdk.workspace, 'runtime'),
@@ -25,7 +26,7 @@ export function applySdk(sdk, directory = root) {
         const bytes = Buffer.from(JSON.stringify({ ...input, evidence: [...records.values()] }), 'utf8');
         if (bytes.length > API_BYTES) throw new Error('APPLY_INPUT_BUDGET');
         fs.writeFileSync(path.join(workspace, 'apply-input.json'), bytes);
-        return JSON.parse(sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityApply', workspace], workspace, privateBytes));
+        return toolJson(sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityApply', workspace], workspace, privateBytes));
     };
     return { workspace, archive, invoke, records, evidence: ref => ref };
 }

@@ -4,6 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import { once } from 'node:events';
 import { githubRequest } from '../submission-github.mjs';
+import { requestRecovery, retryStep } from '../submission-retry.mjs';
+import { observe } from '../submission-progress.mjs';
 
 test('实际子进程读取在临时 HTTP 失败后恢复，写入和权限失败不自动重放', async t => {
     const server = new Worker(`const { parentPort } = require('node:worker_threads');
@@ -48,4 +50,32 @@ test('读取重试共用截止时间并保留安全诊断，超限与取消直�
     let attempts = 0;
     assert.throws(() => githubRequest(() => { attempts++; throw new Error('unknown transport or TLS failure'); }), /GITHUB_REQUEST_FAILED/u);
     assert.equal(attempts, 1);
+});
+
+test('读取逐请求自动重试后只恢复失败请求，手动轮次累加，写入仍由回读方处理', async () => {
+    let before = 0, calls = 0, after = 0;
+    const rounds = [];
+    const close = requestRecovery((error, round) => {
+        assert.equal(error.failureStep, 'readingGitObjects'); assert.equal(error.attempts, 3);
+        rounds.push(round); return true;
+    });
+    try {
+        before++;
+        assert.equal(githubRequest(() => observe('readingGitObjects', '', () => {
+            if (++calls <= 6) throw Object.assign(new Error('private'), { stderr: 'unexpected EOF' });
+            return 'verified';
+        }), { wait() {} }), 'verified');
+        after++;
+        assert.deepEqual([before, calls, after], [1, 7, 1]); assert.deepEqual(rounds, [1, 2]);
+        assert.throws(() => githubRequest(() => { throw Object.assign(new Error('private'), { stderr: '(HTTP 503)' }); },
+            { method: 'POST' }), { attempts: 1 });
+        assert.deepEqual(rounds, [1, 2]);
+    } finally { close(); }
+    let writes = 0, reads = 0, prompts = 0;
+    const run = () => retryStep('creatingPull', () => {
+        reads++;
+        if (++writes <= 6) throw Object.assign(new Error('GITHUB_REQUEST_FAILED'), { github: true, retryable: true, method: 'POST' });
+        return 'created';
+    }, { wait() {}, retry: error => { assert.equal(error.retryRound, ++prompts); assert.equal(error.attempts, 3); return true; } });
+    assert.equal(await run(), 'created'); assert.deepEqual([writes, reads, prompts], [7, 7, 2]);
 });

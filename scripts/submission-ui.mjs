@@ -2,6 +2,7 @@ import { setImmediate } from 'node:timers/promises';
 import * as prompts from './vendor/clack-prompts.mjs';
 import { additions, errors, optionNames } from './submission-messages.mjs';
 import { visible, formatMetadata, previewMetadata, optionText } from './submission-presentation.mjs';
+import { toolDetails } from './tool-process.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
@@ -85,7 +86,10 @@ const messages = {
     icon: ['图标文件路径（可留空）', 'Icon file path (optional)', '圖示檔案路徑（可留空）', 'アイコンファイルのパス（任意）', '아이콘 파일 경로 (선택 사항)'],
     screenshots: ['截图文件路径，逗号分隔（可留空）', 'Screenshot paths, separated by commas (optional)', '截圖檔案路徑，以逗號分隔（可留空）', 'スクリーンショットのパス（カンマ区切り、任意）', '스크린샷 경로, 쉼표 구분 (선택 사항)'],
     alt: ['图片替代文本', 'Image alternative text', '圖片替代文字', '画像の代替テキスト', '이미지 대체 텍스트'],
-    proposal: ['确认已有转移、申请接收，或查看转出指引', 'Confirm a transfer, request ownership, or view handoff instructions', '確認既有移轉、申請接收，或查看轉出指引', '既存の移管を確認、受取を申請、または譲渡手順を表示', '기존 이전 확인, 인수 요청 또는 양도 안내 보기'],
+    transferAction: ['选择所有权转移操作', 'Choose an ownership transfer action', '選擇所有權移轉操作', '所有権の移管操作を選択', '소유권 이전 작업 선택'],
+    proposal: ['选择待您确认的转移申请', 'Select a transfer request awaiting your confirmation', '選擇待您確認的移轉申請', '確認待ちの移管申請を選択', '내 확인을 기다리는 이전 요청 선택'],
+    transferConfirmFrom: ['我是原所有者：确认接收申请', 'I am the current owner: confirm an ownership request', '我是原擁有者：確認接收申請', '現在の所有者として受取申請を確認', '현재 소유자: 인수 요청 확인'],
+    transferConfirmTo: ['我是接收方：确认已有申请', 'I am the recipient: confirm an existing request', '我是接收方：確認既有申請', '受取側として既存の申請を確認', '받는 사람: 기존 요청 확인'],
     newProposal: ['我是接收方：申请接收插件', 'I am the recipient: request plugin ownership', '我是接收方：申請接收外掛', '受取側としてプラグインを申請', '받는 사람: 플러그인 인수 요청'],
     mode: ['选择转移方式', 'Select the transfer mode', '選擇轉移方式', '移転モードを選択', '이전 방식 선택'],
     evidence: ['恢复证据文件路径，逗号分隔', 'Recovery evidence file paths, separated by commas', '復原證據檔案路徑，以逗號分隔', '復旧の証拠ファイルのパス（カンマ区切り）', '복구 증거 파일 경로, 쉼표 구분'],
@@ -99,8 +103,15 @@ const messages = {
 
 export function failureCode(error) {
     return /^[A-Z][A-Z0-9_]+$/u.test(error.message) ? error.message
-        : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1] ?? 'SUBMISSION_FAILED';
+        : /(?:Exception|Error): ([A-Z][A-Z0-9_]+)(?:[\s:]|$)/u.exec(String(error.stderr ?? ''))?.[1]
+        ?? { ENOENT: 'LOCAL_FILE_MISSING', EACCES: 'LOCAL_ACCESS_DENIED', EPERM: 'LOCAL_ACCESS_DENIED',
+            ENOSPC: 'LOCAL_STORAGE_FULL', EIO: 'LOCAL_IO_FAILED', EROFS: 'LOCAL_ACCESS_DENIED' }[error.code]
+        ?? 'SUBMISSION_FAILED';
 }
+
+export const failureDetails = error => ({ ...toolDetails(error),
+    ...(Object.hasOwn(additions, error.failureStep) || Object.hasOwn(messages, error.failureStep)
+        ? { failureStep: error.failureStep } : {}) });
 
 export const localizedText = (locale, key) => (key.startsWith('option.') ? optionNames[key.slice(7)]
     : additions[key] ?? messages[key])?.[Math.max(0, locales.indexOf(locale))] ?? key;
@@ -113,7 +124,8 @@ export async function terminal(input = process.stdin, output = process.stdout, o
     const text = key => localizedText(locales[index], key);
     const errorText = error => {
         const code = failureCode(error);
-        return (errors[code]?.[index] ?? text('invalid')) + (code ? ` (${code})` : '');
+        const details = formatMetadata(failureDetails(error), text);
+        return (errors[code]?.[index] ?? text('invalid')) + (code ? ` (${code})` : '') + (details ? '\n' + details : '');
     };
     if (!input.isTTY || !output.isTTY || process.env.TERM === 'dumb') {
         prompts.log.error(text('terminalRequired'), common);
@@ -149,7 +161,8 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         const active = new AbortController();
         let navigation;
         const keypress = (_character, key) => {
-            if (navigationEnabled && key?.ctrl && ['b', 's'].includes(key.name)) {
+            if (navigationEnabled && key?.ctrl && ['b', 's'].includes(key.name)
+                && (key.name !== 'b' || options.navigationBack !== false)) {
                 navigation = key.name === 'b' ? 'WIZARD_BACK' : 'WIZARD_SAVE';
                 active.abort();
             }
@@ -176,13 +189,14 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         });
         return actual(value);
     };
-    const select = async (key, options, label = value => optionText(value, text), initialValue) => {
+    const select = async (key, options, label = value => optionText(value, text), initialValue, { back = true } = {}) => {
         if (!options.length) {
             say('operationUnavailable', { code: 'NO_SELECTABLE_VALUES', field: text(key) });
             throw new Error('WIZARD_MENU');
         }
-        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation') + ' · ' + text('formNavigation'));
+        prompts.SELECT_INSTRUCTIONS.splice(0, prompts.SELECT_INSTRUCTIONS.length, text('navigation') + ' · ' + text(back ? 'formNavigation' : 'saveNavigation'));
         const selected = await prompt(prompts.select, {
+            navigationBack: back,
             message: text(key),
             initialValue: Math.max(0, options.indexOf(initialValue)),
             options: options.map((value, i) => ({ value: i, label: visible(label(value)) })),
@@ -232,16 +246,20 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         return loading;
     };
     const task = async (key, work) => {
-        const loading = activity(key, undefined, false);
+        let loading = activity(key, undefined, false);
+        const update = (step, detail) => loading?.message(text(key) + ' · ' + text(step) + (detail ? ' · ' + visible(detail) : ''));
+        update.pause = () => { loading?.clear(); loading = null; };
+        update.resume = () => { loading ??= activity(key, undefined, false); };
         try {
             await setImmediate();
             if (controller.signal.aborted) throw new Error('CANCELLED');
-            const result = await work((step, detail) => loading.message(text(key) + ' · ' + text(step) + (detail ? ' · ' + visible(detail) : '')));
+            const result = await work(update);
             if (controller.signal.aborted) throw new Error('CANCELLED');
-            loading.stop(text(key) + ' · ' + text('done'));
+            loading?.stop(text(key) + ' · ' + text('done'));
             return result;
         } catch (error) {
-            (error.message === 'CANCELLED' ? loading.cancel : loading.error)(text(key));
+            error.failureStep ??= key;
+            if (loading) (error.message === 'CANCELLED' ? loading.cancel : loading.error)(text(key));
             throw error;
         }
     };

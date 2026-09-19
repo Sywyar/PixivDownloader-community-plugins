@@ -3,6 +3,7 @@ import { id, policy } from './github.mjs';
 import { actor, github, paged } from './submission-github.mjs';
 import { unavailable } from './submission-navigation.mjs';
 import { cleanupRequestBranch } from './submission-cleanup.mjs';
+import { retryStep } from './submission-retry.mjs';
 
 const endpoint = `repos/${policy.repository}/pulls`;
 const requestPath = /^(?:submissions|key-rotations|version-status-requests|ownership-transfers|requests)\/.+\.json$/u;
@@ -35,11 +36,13 @@ export async function withdrawRequest(context) {
     if (current.state === 'open') {
         if (!await ui.confirm('withdrawConfirm', { number: selected.number, title: current.title,
             url: current.html_url, head: expected.head })) return { cancelled: true };
-        current = read();
-        if (current.state === 'open') {
-            try { call(`${endpoint}/${selected.number}`, { method: 'PATCH', body: { state: 'closed' } }); }
-            catch (error) { if (!error.github || read().state !== 'closed') throw error; }
-        }
+        await retryStep('withdrawConfirm', () => {
+            current = read();
+            if (current.state === 'open') {
+                try { call(`${endpoint}/${selected.number}`, { method: 'PATCH', body: { state: 'closed' } }); }
+                catch (error) { if (!error.github || read().state !== 'closed') throw error; }
+            }
+        });
     }
     current = read();
     if (current.state !== 'closed') throw new Error('WITHDRAWAL_NOT_CONFIRMED');

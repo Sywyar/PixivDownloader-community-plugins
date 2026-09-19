@@ -2,9 +2,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { root } from './sdk.mjs';
 import { main, policy } from './github.mjs';
-import { preflight, markerMissing, sourceFacts, git } from './project.mjs';
+import { preflight, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
-import { terminal, failureCode } from './submission-ui.mjs';
+import { terminal, failureCode, failureDetails } from './submission-ui.mjs';
 import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
@@ -13,12 +13,13 @@ import { withdrawRequest } from './submission-withdraw.mjs';
 import { validateChanges, versionAvailable } from './submission-check.mjs';
 import { submitPreview, pendingPrepared } from './submission-write.mjs';
 import { navigation } from './submission-navigation.mjs';
-import { openProject, projectIdentity } from './submission-state.mjs';
+import { openProject, projectIdentity, openManagement } from './submission-state.mjs';
 import { publisherKeys } from './submission-publisher-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
 import { sessionLocator, saveSession, savePrepared, restorePrepared } from './submission-session.mjs';
 import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from './submission-emergency.mjs';
 import { presentOriginal, requestVersionNotice, versionState } from './submission-version-state.mjs';
+import { requestRecovery } from './submission-retry.mjs';
 
 function appliedRequest(sdk, state, changes) {
     const kinds = { 'key-rotations': 'ROTATION', 'version-status-requests': 'STATUS_REQUEST', 'ownership-transfers': 'TRANSFER' };
@@ -37,22 +38,26 @@ function appliedRequest(sdk, state, changes) {
 }
 
 export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiFactory = terminal, call = github, stateHome, prepare = prepareSubmission } = {}) {
-    // 在创建缓存、查询账号或执行工程前检查 SDK 标识。
-    const project = preflight(directory);
     let ui = suppliedUi;
     let sdk;
     let context;
+    let closeRecovery;
     try {
+        const project = preflight(directory, { allowMissing: true });
         const locator = sessionLocator(project.cwd, stateHome);
-        const saved = locator.read();
+        const previous = locator.read();
+        const saved = previous && (project.gitRoot || previous.identity.scope === 'community-management') ? previous : null;
         ui ??= await uiFactory({ resumeLocale: saved?.session.locale });
+        closeRecovery = requestRecovery(ui.retryRequest);
+        if (!project.gitRoot) ui.say('limitedOperations');
         let history = ui.resume && saved ? saved.session.navigation : [];
-        context = { ui, projectRoot: project.gitRoot, call,
+        context = { ui, projectRoot: project.gitRoot, directory: project.cwd, call,
             bindPublisher(owner) {
                 context.publisherOwner = owner;
                 context.keyStore = publisherKeys(owner, context.snapshot.actor.id, { home: stateHome });
             },
             bindProject(repositoryId, projectDir, pluginId) {
+                if (!project.gitRoot) return;
                 const identity = projectIdentity(repositoryId, projectDir, pluginId);
                 if (JSON.stringify(context.store?.identity) === JSON.stringify(identity)) return;
                 context.store?.close(); context.generatedKey = null; context.sign?.close();
@@ -68,31 +73,42 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             sdk ??= await ui.task('preparing', () => prepare());
             const snapshot = await ui.task('loading', () => protectedSnapshot(call));
             Object.assign(context, { sdk, snapshot, state: stateReader(sdk, snapshot.base, call), sign: context.sign ?? signingTool(sdk) });
+            if (!project.gitRoot && !resumePending) {
+                context.store = openManagement(snapshot.actor.id, { home: stateHome });
+                context.store.update({ session: null });
+                saveSession(context, { navigation: history, operation: context.operation, sourceCommit: null });
+                locator.bind(context.store, snapshot.actor.id);
+            }
         };
         let resumePending = Boolean(ui.resume && saved);
         const restoreSession = async () => {
             if (!resumePending) return;
             await initialize();
             if (context.snapshot.actor.id !== saved.actorId) throw new Error('SESSION_ACCOUNT_CHANGED');
-            if (saved.session.sourceCommit !== git(project.gitRoot, 'rev-parse', 'HEAD')) throw new Error('SOURCE_CHANGED');
+            if (saved.identity.scope !== 'community-management' && saved.session.sourceCommit !== git(project.gitRoot, 'rev-parse', 'HEAD')) throw new Error('SOURCE_CHANGED');
             if (saved.session.operation === 'publish' && String(checkedRepository(sourceFacts(project.gitRoot).name, call).id) !== saved.identity.repositoryId) {
                 throw new Error('SESSION_REPOSITORY_CHANGED');
             }
-            context.store = openProject(saved.identity, saved.actorId, { home: stateHome });
+            context.store = saved.identity.scope === 'community-management' ? openManagement(saved.actorId, { home: stateHome })
+                : openProject(saved.identity, saved.actorId, { home: stateHome });
             context.generatedKey = context.store.record.session?.generatedKey;
             context.resumePrepared = Boolean(context.store.record.session?.prepared);
             context.operation = saved.session.operation;
             resumePending = false;
         };
+        let retryRound = 1;
         const retry = async error => {
-            ui.say('requestFailed', { code: failureCode(error), ...requestDetails(error) });
+            if (ui.retryRequest) return ui.retryRequest(error, error.retryRound ?? retryRound++);
+            ui.say('requestFailed', { code: failureCode(error), retryRound: error.retryRound ?? retryRound, ...requestDetails(error), ...failureDetails(error) });
             if (await ui.select('retrySubmission', ['retry', 'saveExit'], key => ui.text(key)) !== 'retry') throw new Error('WIZARD_SAVE');
+            retryRound++;
             context.resumePrepared = Boolean(context.store?.record.session?.prepared);
             return true;
         };
         const navigator = navigation(ui, () => context.store, { history, onFailure: retry, onChange: values => {
             history = values; saveSession(context, { navigation: history, operation: context.operation, prepared: null });
         }, onBack: () => { context.resumePrepared = false; }, onMenu: () => {
+            retryRound = 1;
             context.store?.update({ session: null });
             context.store?.close(); context.sign?.close();
             Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, emergency: null, generatedKey: null, resumePrepared: false, operation: undefined });
@@ -102,7 +118,9 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         const outcome = await navigator.run(async ui => {
         await restoreSession();
         if (context.state) unchanged(context.snapshot, call);
-        const operation = context.resumePrepared ? context.operation : await ui.select('operation', ['publish', 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer', 'emergency'], key => ui.text(key));
+        const operations = [...(project.gitRoot ? ['publish'] : []), 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer', 'emergency'];
+        const operation = context.resumePrepared ? context.operation : await ui.select('operation', operations, key => ui.text(key));
+        if (!operations.includes(operation)) throw new Error('PROJECT_MARKER_MISSING');
         context.operation = operation;
         await initialize();
         if (operation === 'emergency' && !context.snapshot.branch) {
@@ -202,14 +220,15 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             ui?.say('saved', { path: context.store.folder }); return { saved: true };
         }
         if (error.message === 'CANCELLED') { ui?.say('cancelled'); return { cancelled: true }; }
-        // 原生命令错误可能包含工程输出，只向终端投影固定错误码。
+        // 原生命令输出可能含凭据，只投影受控错误码与诊断字段。
         const code = failureCode(error);
-        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...requestDetails(error),
+        if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...requestDetails(error), ...failureDetails(error),
             ...(error.statePath ? { path: error.statePath } : {}) });
         else console.error(code);
         process.exitCode = 1;
         return { failed: code };
     } finally {
+        closeRecovery?.();
         context?.sign?.close();
         try { context?.store?.close(); } catch { ui?.say('cleanupFailed', { workspace: context.store.folder }); }
         try {
@@ -228,5 +247,5 @@ main(import.meta.url, async () => {
         const outcome = await runInteractive(process.argv[2]);
         if (outcome?.failed) process.exitCode = 1;
     }
-    catch (error) { throw new Error(error.message === markerMissing ? markerMissing : 'PROJECT_PREFLIGHT_FAILED'); }
+    catch (error) { throw new Error(failureCode(error)); }
 });

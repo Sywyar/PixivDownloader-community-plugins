@@ -5,7 +5,7 @@ import { API_BYTES, sha } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { sourceFacts } from './project.mjs';
 import { readFile } from './submission-fields.mjs';
-import { projectFolder, projectIdentity, submissionHome, STATE_BYTES, writeState } from './submission-state.mjs';
+import { projectFolder, projectIdentity, managementFolder, managementIdentity, submissionHome, STATE_BYTES, writeState } from './submission-state.mjs';
 import { sourceCandidate } from './submission-candidate.mjs';
 import { locales } from './submission-ui.mjs';
 import { versionAvailable } from './submission-check.mjs';
@@ -20,16 +20,19 @@ export function sessionLocator(directory, home = submissionHome()) {
             try {
                 const ref = JSON.parse(readFile(file, STATE_BYTES).toString('utf8'));
                 if (ref.schemaVersion !== 1 || ref.sourceRoot !== sourceRoot || !/^[1-9][0-9]*$/u.test(ref.actorId)) throw new Error();
-                const identity = projectIdentity(ref.identity.repositoryId, ref.identity.projectDir, ref.identity.pluginId);
-                const profile = path.join(projectFolder(identity, home), 'profile.json');
+                const management = ref.identity?.scope === 'community-management';
+                const identity = management ? managementIdentity(ref.actorId) : projectIdentity(ref.identity.repositoryId, ref.identity.projectDir, ref.identity.pluginId);
+                if (!isDeepStrictEqual(ref.identity, identity)) throw new Error();
+                const profile = path.join(management ? managementFolder(ref.actorId, home) : projectFolder(identity, home), 'profile.json');
                 if (!fs.existsSync(profile)) return null;
                 const data = JSON.parse(readFile(profile, STATE_BYTES).toString('utf8'));
                 if (data.schemaVersion !== 1 || !isDeepStrictEqual(data.identity, identity)) throw new Error();
                 const session = data.actors?.[ref.actorId]?.session;
                 if (!session) return null;
                 if (session.schemaVersion !== 1 || !Array.isArray(session.navigation)
-                    || !['publish', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer', 'emergency'].includes(session.operation)
+                    || !['publish', 'withdraw', 'YANK', 'UNYANK', 'REVOKE', 'rotation', 'transfer', 'emergency'].includes(session.operation)
                     || !locales.includes(session.locale)
+                    || management && (session.operation === 'publish' || session.sourceCommit !== null)
                     || session.navigation.some(answer => !answer || !Array.isArray(answer.signature)
                         || !['ask', 'select', 'multiselect', 'confirm'].includes(answer.signature[0]))) throw new Error();
                 return { identity, actorId: ref.actorId, session };

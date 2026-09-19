@@ -2,13 +2,14 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { github, paged, checkedRepository } from './submission-github.mjs';
+import { github, paged, checkedRepository, unchanged } from './submission-github.mjs';
 import { downloadGithubBinary, uploadGithubBinary } from './candidate-transfer.mjs';
 import { id } from './github.mjs';
 import { download, httpsUrl } from './download.mjs';
 import { readFile } from './submission-fields.mjs';
 import { hash } from './sdk.mjs';
 import { setTimeout } from 'node:timers/promises';
+import { retryStep } from './submission-retry.mjs';
 
 export const candidateTag = candidate => `candidate-${candidate.pluginId}-${candidate.version}-${candidate.sourceCommit}`;
 export const rollingCandidateTag = candidate => `candidate-${candidate.pluginId}`;
@@ -136,6 +137,10 @@ export async function sourceCandidate(context, source, selection, profileId, tra
     };
     const beforeWrite = async () => {
         await recheck();
+        const writeStep = (key, work) => retryStep(key, () => {
+            if (context.snapshot) unchanged(context.snapshot, call);
+            return work();
+        });
         if (release.tag_name === rollingCandidateTag(candidate)) {
             // 只复制已核对的本地字节，不修改滚动草稿，避免与 CI 覆盖争用同一 Release。
             const frozen = () => {
@@ -143,14 +148,15 @@ export async function sourceCandidate(context, source, selection, profileId, tra
                 if (found.length > 1) throw new Error('CANDIDATE_RELEASE_CONFLICT');
                 return found[0];
             };
-            let target = frozen();
-            if (!target) {
+            const target = await writeStep('creatingCandidate', () => {
+                const existing = frozen();
+                if (existing) return existing;
                 checkTag(call, prefix, { draft: true, tag_name: candidateTag(candidate) }, source.commit);
-                try { target = call(`${prefix}/releases`, { method: 'POST', body: { tag_name: candidateTag(candidate),
+                try { return call(`${prefix}/releases`, { method: 'POST', body: { tag_name: candidateTag(candidate),
                     target_commitish: source.commit, name: `${source.name.split('/')[0]} / ${candidate.pluginId} ${candidate.version}`,
                     body: `Source candidate for ${source.commit}. Community review is required.`, draft: true, prerelease: true, make_latest: 'false' } }); }
-                catch (error) { if (!error.github || !(target = frozen())) throw error; }
-            }
+                catch (error) { const found = error.github && frozen(); if (!found) throw error; return found; }
+            });
             if (target.tag_name !== candidateTag(candidate) || target.target_commitish !== source.commit || !target.prerelease) throw new Error('CANDIDATE_RELEASE_CONFLICT');
             checkTag(call, prefix, target, source.commit);
             const assets = () => paged(`${prefix}/releases/${id(target.id)}/assets`, call);
@@ -166,12 +172,13 @@ export async function sourceCandidate(context, source, selection, profileId, tra
                     if (found.length > 1) throw new Error('CANDIDATE_ASSET_CHANGED');
                     return found[0];
                 };
-                let existing = find();
-                if (!existing) {
+                const existing = await writeStep('uploadingCandidate', () => {
+                    const found = find();
+                    if (found) return found;
                     if (!target.draft) throw new Error('CANDIDATE_ASSET_CHANGED');
-                    try { existing = upload(prefix, id(target.id), file, name); }
-                    catch (error) { if (!error.github || !(existing = find())) throw error; }
-                }
+                    try { return upload(prefix, id(target.id), file, name); }
+                    catch (error) { const found = error.github && find(); if (!found) throw error; return found; }
+                });
                 if (existing.name !== name || existing.size !== expectedAsset.size || existing.digest !== `sha256:${expectedAsset.sha256}`
                     || existing.state !== 'uploaded') throw new Error('CANDIDATE_ASSET_CHANGED');
                 checkAssetUrl(existing, source.name, target.tag_name, target.draft);
@@ -182,13 +189,18 @@ export async function sourceCandidate(context, source, selection, profileId, tra
             await recheck();
         }
         if (!promoted) {
-            let current;
-            try { current = call(`${prefix}/releases/${id(release.id)}`, { method: 'PATCH', body: { draft: false, prerelease: true, make_latest: 'false' } }); }
-            catch (error) {
-                if (!error.github) throw error;
-                current = call(`${prefix}/releases/${id(release.id)}`);
-                if (current.draft) throw error;
-            }
+            const current = await writeStep('publishingCandidate', () => {
+                const current = call(`${prefix}/releases/${id(release.id)}`);
+                if (current.tag_name !== release.tag_name || current.target_commitish !== source.commit || !current.prerelease) throw new Error('CANDIDATE_RELEASE_CHANGED');
+                if (!current.draft) return current;
+                try { return call(`${prefix}/releases/${id(release.id)}`, { method: 'PATCH', body: { draft: false, prerelease: true, make_latest: 'false' } }); }
+                catch (error) {
+                    if (!error.github) throw error;
+                    const found = call(`${prefix}/releases/${id(release.id)}`);
+                    if (found.draft) throw error;
+                    return found;
+                }
+            });
             if (current.draft || !current.prerelease || current.tag_name !== release.tag_name || current.target_commitish !== source.commit) throw new Error('CANDIDATE_PUBLICATION_FAILED');
             promoted = true;
             store?.update({ receipt: { sourceCommit: source.commit, releaseId: id(release.id), packageSha256: expected.sha256, sourcePublished: true } });

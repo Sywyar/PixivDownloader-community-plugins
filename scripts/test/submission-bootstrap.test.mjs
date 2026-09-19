@@ -158,6 +158,16 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
 }
 
 for (const shell of shells) {
+    test(`${shell} 连续手动重试显示递增轮次与累计尝试，单轮预算不变`, async t => {
+        const f = await fixture(t, shell, 0, { deadline: 1000, input: 'R\nR\n\n' });
+        f.state.faults.set('submit.mjs', ['timeout', 'timeout', 'timeout']);
+        const result = await f.invoke('pipeline');
+        assert.equal(result.code, 1, result.stderr);
+        for (const round of [1, 2, 3]) assert(result.stderr.includes(`round=${round}, total attempts=${round}`), result.stderr);
+        assert.equal(f.state.requests.filter(request => request.url.endsWith('/submit.mjs')).length, 3);
+        assert(!fs.existsSync(f.cachedRuntime));
+    });
+
     test(`${shell} 下载等待期间渠道过期不能执行已下载工具`, async t => {
         const f = await fixture(t, shell, 0, { controlledClock: true });
         f.state.faults.set('submit.mjs', ['expire']);
@@ -287,8 +297,9 @@ for (const shell of shells) {
 
     test(`${shell} 的文件与管道入口校验实际下载并保留 Unicode 参数、退出码和调用终端`, async t => {
         const f = await fixture(t, shell, 7);
-        const invalid = await f.invoke('file', f.folder);
-        assert.equal(invalid.code, 1); assert.equal(f.state.requests.length, 0);
+        const standalone = await f.invoke('file', f.folder);
+        assert.equal(standalone.code, 7, standalone.stderr);
+        assert.deepEqual(JSON.parse(standalone.stdout.trim().split(/\r?\n/u)[0]), [f.folder]);
         for (const mode of ['file', 'pipeline']) {
             const result = await f.invoke(mode);
             assert.equal(result.code, 7, result.stderr);

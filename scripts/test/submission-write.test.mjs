@@ -189,6 +189,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     const firstHead = candidate;
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
     assert.equal(recoveredDownloads, 2);
+    assert.equal(rechecks, lostResponse ? 2 : 3); assert.equal(preparations, lostResponse ? 2 : 3);
     assert.equal(confirmations, lostResponse ? 1 : 2);
     assert.equal(body.base, policy.defaultBranch);
     assert.equal(body.maintainer_can_modify, true);

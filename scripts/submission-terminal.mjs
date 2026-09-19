@@ -1,9 +1,11 @@
 import { Worker } from 'node:worker_threads';
-import { terminal, localizedText, failureCode } from './submission-ui.mjs';
+import { terminal, localizedText, failureCode, failureDetails } from './submission-ui.mjs';
 import { progressReporter } from './submission-progress.mjs';
 import { visible, optionText } from './submission-presentation.mjs';
+import { requestDetails } from './submission-github.mjs';
 
-const failure = error => ({ message: failureCode(error), ...(error.downloadStage ? { downloadStage: error.downloadStage } : {}) });
+const failure = error => ({ message: failureCode(error), ...failureDetails(error),
+    ...(requestDetails(error).stage ? { downloadStage: requestDetails(error).stage } : {}) });
 
 // 单个可信业务线程执行既有同步工具，终端线程继续处理绘制、验证与取消。
 export async function workerTerminal(port, cancelled, options) {
@@ -32,6 +34,14 @@ export async function workerTerminal(port, cancelled, options) {
     });
     const { locale, resume } = await request('open', [options]);
     const ui = { locale, resume, signal: controller.signal, text: key => localizedText(locale, key),
+        retryRequest(error, retryRound) {
+            const gate = new Int32Array(new SharedArrayBuffer(4));
+            port.postMessage({ method: 'retryRequest', gate, args: [{ code: failureCode(error), retryRound,
+                ...requestDetails(error), ...failureDetails(error) }] });
+            Atomics.wait(gate, 0, 0);
+            if (Atomics.load(gate, 0) === 1) return true;
+            throw new Error(Atomics.load(gate, 0) === 3 ? 'CANCELLED' : 'WIZARD_SAVE');
+        },
         ask: (key, initial, validate) => request('ask', [key, initial], validate),
         password: (key, validate) => request('password', [key], validate),
         async select(key, values, label = value => optionText(value, ui.text), initial) {
@@ -44,7 +54,7 @@ export async function workerTerminal(port, cancelled, options) {
         async task(key, work) {
             const id = await request('task', [key]);
             try { const result = await work(); port.postMessage({ task: id }); return result; }
-            catch (error) { port.postMessage({ task: id, error: failure(error) }); throw error; }
+            catch (error) { error.failureStep ??= key; port.postMessage({ task: id, error: failure(error) }); throw error; }
         },
         close: () => { progressReporter(() => {}); port.postMessage({ method: 'close' }); },
     };
@@ -52,7 +62,7 @@ export async function workerTerminal(port, cancelled, options) {
     progressReporter(value => {
         if (value.active && Atomics.load(cancelled, 0)) throw new Error('CANCELLED');
         if (value.active) progress.push(value); else progress.pop();
-        port.postMessage({ method: 'progress', value: progress[0] ?? { active: false } });
+        port.postMessage({ method: 'progress', value: progress.at(-1) ?? { active: false } });
     });
     return ui;
 }
@@ -73,12 +83,12 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
         worker.on('message', async message => {
             if (message.validation) {
                 const pending = validations.get(message.validation); validations.delete(message.validation);
-                if (message.error) pending?.reject(new Error(message.error.message)); else pending?.resolve();
+                if (message.error) pending?.reject(Object.assign(new Error(message.error.message), message.error)); else pending?.resolve();
                 return;
             }
             if (message.task) {
                 const pending = tasks.get(message.task); tasks.delete(message.task);
-                if (message.error) pending?.reject(new Error(message.error.message)); else pending?.resolve();
+                if (message.error) pending?.reject(Object.assign(new Error(message.error.message), message.error)); else pending?.resolve();
                 return;
             }
             try {
@@ -99,6 +109,23 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                     return;
                 }
                 if (method === 'say') { clear(); ui.say(...args); return; }
+                if (method === 'retryRequest') {
+                    let answer = 3;
+                    try {
+                        clear();
+                        for (const task of tasks.values()) task.update.pause();
+                        ui.say('requestFailed', args[0]);
+                        answer = await ui.select('retryCurrentStep', ['retry', 'saveExit'], key => ui.text(key), undefined, { back: false }) === 'retry' ? 1 : 2;
+                    } catch (error) {
+                        if (error.message === 'WIZARD_SAVE') answer = 2;
+                        else throw error;
+                    } finally {
+                        Atomics.store(message.gate, 0, answer);
+                        Atomics.notify(message.gate, 0);
+                        if (answer === 1) for (const task of tasks.values()) task.update.resume();
+                    }
+                    return;
+                }
                 if (method === 'close') { clear(); ui.close(); return; }
                 if (method === 'result') { resolve(args[0]); return; }
                 clear();

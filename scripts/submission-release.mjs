@@ -150,7 +150,7 @@ export async function prepareRelease(context, selection, profileId) {
     const fixedSource = { repository: source.repository, commit: source.commit,
         previousReviewedCommit: state.published(facts.pluginId)[0]?.value.sourceCommit ?? null };
     const archiveFile = path.join(sdk.workspace, crypto.randomUUID() + '.zip');
-    const archive = await ui.task('downloading', () => download(sourceLocation(fixedSource).url, archiveFile, sdk.invoke({ command: 'limits' }).maxArchiveBytes));
+    const archive = await ui.task('downloadingSource', () => download(sourceLocation(fixedSource).url, archiveFile, sdk.invoke({ command: 'limits' }).maxArchiveBytes));
     fixedSource.archive = { url: archive.url, size: archive.size, sha256: archive.sha256 };
     const market = await marketFields(sdk, ui, owner, facts, changes, previous?.market ?? context.store?.record.market, file => {
         if (state.tree.has(file)) return state.raw(file);

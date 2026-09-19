@@ -7,6 +7,7 @@ import { download, httpsUrl } from './download.mjs';
 import { checkedRepository, github } from './submission-github.mjs';
 import { emergencyState } from './emergency-state.mjs';
 import { keyFingerprint } from './emergency-state.mjs';
+import { observe } from './submission-progress.mjs';
 
 export const publisherPath = owner => `publishers/${owner.accountId}/${owner.publisherId}.json`;
 export const bindingPath = pluginId => `plugin-bindings/${pluginId}.json`;
@@ -45,7 +46,7 @@ export async function sourceArchive(sdk, source, projectDir, call = github, fetc
     const commit = call(`repos/${location.name}/commits/${source.commit}`);
     if (commit.sha !== source.commit) throw new Error('SOURCE_COMMIT_CHANGED');
     const file = path.join(sdk.workspace, `source-${crypto.randomUUID()}.zip`);
-    await fetch(location.url, file, sdk.invoke({ command: 'limits' }).maxArchiveBytes, source.archive);
+    await observe('downloadingSource', '', () => fetch(location.url, file, sdk.invoke({ command: 'limits' }).maxArchiveBytes, source.archive));
     const extracted = sdk.invoke({ command: 'source', file, projectDir });
     return { ...extracted, archiveFile: file, repositoryId: String(repository.id) };
 }
@@ -125,8 +126,8 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
         }
         const extension = new URL(value.package.url).pathname.endsWith('.jar') ? '.jar' : '.zip';
         const artifact = path.join(sdk.workspace, crypto.randomUUID() + extension);
-        await fetch(value.package.url, artifact, sdk.invoke({ command: 'limits' }).maxArchiveBytes,
-            { size: value.package.expectedSize, sha256: value.package.sha256 });
+        await observe('downloadingPackage', '', () => fetch(value.package.url, artifact, sdk.invoke({ command: 'limits' }).maxArchiveBytes,
+            { size: value.package.expectedSize, sha256: value.package.sha256 }));
         const verified = sdk.invoke({ command: 'verify', file: artifact, submission: sdk.save(record.bytes),
             publisher: sdk.save(publisher.bytes), publisherPath: publisherFile, path: record.path,
             previousReviewedCommit: previousCommit, sourceRoot: source.sourceRoot, imagesRoot });
