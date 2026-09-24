@@ -2,11 +2,22 @@ import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { repositoryTree, readBlob } from './submission-github.mjs';
 import { hash } from './sdk.mjs';
 
-export const rejectionBody = digest => `PIXIVDOWNLOADER_TRANSFER_REJECT ${digest}`;
-export const approvalBody = (digest, proof) => `PIXIVDOWNLOADER_TRANSFER_APPROVE ${digest}${proof ? '\n' + JSON.stringify(proof) : ''}`;
+export const rejectionBody = digest => `I reject this ownership transfer and request that this PR be closed.\n\n<!-- PIXIVDOWNLOADER_TRANSFER_REJECT ${digest} -->`;
+export const approvalBody = (digest, proof) => `I approve this ownership transfer.\n\n<!-- PIXIVDOWNLOADER_TRANSFER_APPROVE ${digest}${proof ? '\n' + JSON.stringify(proof) : ''} -->`;
+
+export function transferReviewBody(body) {
+    if (typeof body !== 'string') return undefined;
+    const text = body.trim();
+    const payload = /^[^<>]+\n\n<!-- ([\s\S]+) -->$/u.exec(text)?.[1] ?? text;
+    if ((payload.match(/PIXIVDOWNLOADER_TRANSFER_/gu) ?? []).length !== 1) return undefined;
+    return /^PIXIVDOWNLOADER_TRANSFER_(?:REJECT [a-f0-9]{64}|APPROVE [a-f0-9]{64}(?:\n[\s\S]+)?)$/u.test(payload) ? payload : undefined;
+}
+
+export const reviewNotice = (number, reviewId) => `<!-- community-transfer-review:${id(reviewId)} -->\nOwnership transfer review submitted: [view review](https://github.com/${policy.repository}/pull/${id(number)}#pullrequestreview-${id(reviewId)}).`;
+
 export function transferProof(checked, result) {
-    const prefix = approvalBody(checked.requestSha256) + '\n';
-    const body = result?.review?.body;
+    const prefix = `PIXIVDOWNLOADER_TRANSFER_APPROVE ${checked.requestSha256}\n`;
+    const body = transferReviewBody(result?.review?.body);
     // 原文交给固定 SDK 严格解析和验签；这里仅识别绑定当前申请的证明。
     return result?.status === 'APPROVED' && body?.startsWith(prefix) ? body.slice(prefix.length) : undefined;
 }
@@ -38,13 +49,14 @@ export function transferReview(checked, pr, call = api, representations = []) {
         return members.get(person);
     };
     const latest = new Map();
+    const rejects = review => ['COMMENTED', 'CHANGES_REQUESTED'].includes(review.state)
+        && transferReviewBody(review.body) === `PIXIVDOWNLOADER_TRANSFER_REJECT ${checked.requestSha256}`;
     for (const review of list(`${prefix}/pulls/${id(pr.number)}/reviews`, null, call)) {
         if (review.state === 'PENDING' || !represents(review.user)) continue;
         if (review.pull_request_url !== `https://api.github.com/${prefix}/pulls/${pr.number}`
             || !Number.isFinite(Date.parse(review.submitted_at))) throw new Error('REVIEW_SOURCE_INVALID');
         id(review.id); sha(review.commit_id);
-        const rejected = ['COMMENTED', 'CHANGES_REQUESTED'].includes(review.state)
-            && review.body?.trim() === rejectionBody(checked.requestSha256);
+        const rejected = rejects(review);
         if (review.state === 'COMMENTED' && !rejected) continue;
         if (!['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED'].includes(review.state)) throw new Error('REVIEW_SOURCE_INVALID');
         const previous = latest.get(id(review.user.id));
@@ -54,8 +66,7 @@ export function transferReview(checked, pr, call = api, representations = []) {
         }
     }
     const values = [...latest.values()].filter(review => review.commit_id === pr.head.sha);
-    const rejected = values.find(review => ['COMMENTED', 'CHANGES_REQUESTED'].includes(review.state)
-        && review.body?.trim() === rejectionBody(checked.requestSha256));
+    const rejected = values.find(rejects);
     if (rejected) return { status: 'REJECTED', review: rejected };
     if (values.some(review => review.state === 'CHANGES_REQUESTED')) return { status: 'CHANGES_REQUESTED' };
     const approved = values.filter(review => review.state === 'APPROVED')

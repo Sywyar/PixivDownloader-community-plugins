@@ -18,6 +18,24 @@ function context() {
     return { result, values, binding, notices, choices };
 }
 
+test('所有权确认只选择开放申请，不再提供主线旧申请的补确认入口', async () => {
+    const f = context();
+    f.values.set('ownership-transfers/demo/' + 'a'.repeat(64) + '/request.json', {
+        value: { payload: { pluginId: 'demo', from: f.binding.value.owner, to: f.binding.value.owner } },
+    });
+    f.result.ui.select = async (key, items) => {
+        if (key === 'transferAction') {
+            assert(!items.includes('transferConfirmTo'));
+            return 'transferConfirmFrom';
+        }
+        assert.equal(key, 'proposal'); assert.deepEqual(items, ['changeTransferFilters']);
+        throw new Error('WIZARD_BACK');
+    };
+    f.result.sdk.invoke = () => assert.fail('no open request to sign');
+    await assert.rejects(prepareTransfer(f.result), /WIZARD_BACK/);
+    assert(f.notices.some(notice => notice.key === 'noTransferFrom'));
+});
+
 test('撤销最终确认校验完整插件版本，保存恢复不复用或预填该许可', async () => {
     const changes = new Map([['request.json', Buffer.from(JSON.stringify({ payload: { pluginId: 'demo', version: '1.0.0', packageSha256: 'a'.repeat(64) } }))]]);
     let history = [], asked = 0, remembered = 0;
@@ -133,44 +151,6 @@ test('原维护者的转出指引提供完整插件标识，不要求接收方�
     assert.deepEqual(f.notices.at(-1).value, { pluginIdentity: 'original/demo' });
 });
 
-test('转移确认按所选身份筛选，空请求给出说明，确认只生成本角色的批准', async () => {
-    for (const role of ['FROM', 'TO']) for (const state of ['pending', 'missing', 'confirmed', 'complete', 'bindingChanged', 'publisherChanged', 'wrongAccount']) {
-        const f = context();
-        const request = { requestId: 'a'.repeat(64), payload: { pluginId: 'demo', from: f.binding.value.owner,
-            to: { accountId: '202', accountType: 'User', publisherId: 'next' }, pluginBindingSha256: f.binding.sha256, targetPublisherRecordSha256: 'c'.repeat(64) } };
-        f.result.snapshot.actor.id = state === 'wrongAccount' ? '303' : role === 'FROM' ? '101' : '202';
-        const prefix = `ownership-transfers/demo/${request.requestId}`;
-        const approvalPath = `${prefix}/approvals/${role.toLowerCase()}/${f.result.snapshot.actor.id}.json`;
-        if (state !== 'missing') f.values.set(`${prefix}/proposal.json`, { value: request });
-        f.values.set('publishers/202/next.json', { sha256: state === 'publisherChanged' ? 'd'.repeat(64) : 'c'.repeat(64) });
-        if (state === 'confirmed') f.values.set(approvalPath, {});
-        if (state === 'complete') f.values.set(`audits/${request.requestId}.json`, {});
-        if (state === 'bindingChanged') f.binding.sha256 = 'e'.repeat(64);
-        f.result.ui.select = async (key, items, label) => {
-            if (key === 'transferAction') {
-                assert.deepEqual(items, ['newProposal', 'transferConfirmFrom', 'transferConfirmTo', 'transferHandoff']);
-                return role === 'FROM' ? 'transferConfirmFrom' : 'transferConfirmTo';
-            }
-            assert.equal(key, 'proposal');
-            if (role === 'FROM') assert.equal(items.at(-1), 'changeTransferFilters');
-            if (state !== 'pending') { assert.deepEqual(items, ['changeTransferFilters']); throw new Error('WIZARD_MENU'); }
-            assert.equal(items.length, role === 'FROM' ? 2 : 1);
-            assert(label(items[0]).includes('original/demo')); assert(label(items[0]).includes('next'));
-            return items[0];
-        };
-        f.result.ui.ask = async () => assert.fail('确认既有请求不重新填写身份或私钥');
-        f.result.ui.confirm = async (key, value) => { assert.equal(key, 'transfer'); assert.equal(value.role, role); return true; };
-        if (state === 'pending') {
-            const prepared = await prepareTransfer(f.result);
-            assert.deepEqual([...prepared.changes.keys()], [approvalPath]);
-            assert.deepEqual(JSON.parse(prepared.changes.get(approvalPath)), { schemaVersion: 1, requestId: request.requestId, role });
-        } else {
-            await assert.rejects(prepareTransfer(f.result), /WIZARD_MENU/);
-            assert.equal(f.notices.at(-1).key, role === 'FROM' ? 'noTransferFrom' : 'noTransferTo');
-            assert.equal(f.notices.at(-1).value, undefined);
-        }
-    }
-});
 
 test('接收申请复用本人账号和已登记发布者标识，不允许代填第三方账号', async () => {
     const f = context();

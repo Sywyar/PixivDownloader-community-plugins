@@ -79,7 +79,7 @@ function fixture() {
     };
     f.refreshed = 0;
     f.options = { call: f.call, token: 'owner-token', check: async () => completion, readState: () => ({}),
-        refresh: async () => { f.refreshed++; return { requestInfo: 'verified request' }; },
+        refresh: async () => { f.refreshed++; return { requestInfo: { 'zh-CN': '已验证', 'en-US': 'verified request' } }; },
         admission: () => {}, now: () => f.time, wait: async milliseconds => { f.time += milliseconds; } };
     return f;
 }
@@ -99,7 +99,8 @@ test('自动合并复用所有者凭据、等待绑定 App 检查并恢复合并
         if (operation === 'OWNERSHIP_TRANSFER') assert(title.includes('previous') && title.includes('next'));
         assert.equal(f.writes.filter(row => row.endpoint.endsWith('community-publication.yml/dispatches')).length, failure === 'protected' ? 0 : 1);
         assert.equal(f.refreshed, 1);
-        assert.deepEqual(result.projection, { number: 7, head, state: f.pr.state, merged: f.pr.merged, requestInfo: 'verified request' });
+        assert.deepEqual(result.projection, { number: 7, head, state: f.pr.state, merged: f.pr.merged,
+            requestInfo: { 'zh-CN': '已验证', 'en-US': 'verified request' } });
         assert(!f.writes.some(row => row.endpoint.endsWith('community-gate.yml/dispatches')));
     }
 });
@@ -172,6 +173,11 @@ test('自动运行只接受静态检查或原生 Review 唤醒和无人工审批
     assert.equal(statusInputs(f.context, { workflow_run: { id: 71 } }, call).expectedHeadSha, head);
     run.path = '.github/workflows/community-review-event.yml'; run.display_title = 'Review PR #7';
     assert.equal(statusInputs(f.context, { workflow_run: { id: 71 } }, call).expectedHeadSha, head);
+    run.event = 'issue_comment';
+    assert.equal(statusInputs(f.context, { workflow_run: { id: 71 } }, call).expectedHeadSha, head);
+    run.display_title = 'Unrelated comment';
+    assert.throws(() => statusInputs(f.context, { workflow_run: { id: 71 } }, call), /STATUS_TRIGGER_INVALID/);
+    run.display_title = 'Review PR #7';
     assert.equal(statusEnvironment(f.context, {}, call).authorization, 'SIGNED_OWNER');
     run.path = '.github/workflows/untrusted.yml';
     assert.throws(() => statusInputs(f.context, { workflow_run: { id: 71 } }, call), /STATUS_TRIGGER_INVALID/);

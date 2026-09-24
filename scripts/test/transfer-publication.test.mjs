@@ -50,11 +50,16 @@ for (const automatic of [false, true]) test(`真实 SDK ${automatic ? '双边签
     checked.pr = { user: pr.user, head: pr.head.sha };
     const actor = { id: '101', type: 'User', login: 'original' };
     let reviews = [];
+    const comments = [];
     const call = withEmergencyState(withRepositoryFiles(withRepositoryFiles((endpoint, options = {}) => {
         if (endpoint === 'user') return actor;
         if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
         if (endpoint === `${prefix}/git/ref/heads/master`) return { object: { sha: context.current } };
         if (endpoint === `${prefix}/pulls/7`) return pr;
+        if (endpoint.includes('/issues/7/comments?')) return [comments];
+        if (endpoint === `${prefix}/issues/7/comments` && options.method === 'POST') {
+            comments.push({ id: '501', user: actor, body: options.body.body }); return comments.at(-1);
+        }
         if (endpoint === `${prefix}/pulls/7/reviews` && options.method === 'POST') {
             reviews = [{ id: '100', user: actor, state: 'APPROVED', body: options.body.body, commit_id: options.body.commit_id,
                 submitted_at: '2026-01-02T00:00:00Z', pull_request_url: `https://api.github.com/${prefix}/pulls/7` }];

@@ -125,7 +125,7 @@ for (const sameRepository of [false, true]) test(`紧急请求${sameRepository ?
         assert.equal(result.projection.baseRef, policy.emergencyBranch);
         assert.equal(result.projection.head, f.generated);
         assert.equal(result.projection.merged, true);
-        for (const key of f.keys) assert(result.projection.requestInfo.includes(keyFingerprint(key)));
+        for (const body of Object.values(result.projection.requestInfo)) for (const key of f.keys) assert(body.includes(keyFingerprint(key)));
         assert.throws(() => emergencyState(sdk, call).requireKey(f.keys[0]), /KEY_DECLARED_COMPROMISED/);
         failRefresh = false;
         const resumed = await applyEmergency(context, sdk, 5, f.head, { call, token: 'test-only' });

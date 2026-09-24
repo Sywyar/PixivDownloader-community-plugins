@@ -3,7 +3,7 @@ export const visible = value => String(value).replace(/[\x00-\x1f\x7f-\x9f]/gu,
 
 export function optionText(value, text) {
     const key = 'option.' + value, label = text(key);
-    return label === key ? String(value) : `${label} (${value})`;
+    return label === key ? text(String(value)) : `${label} (${value})`;
 }
 
 const labels = {

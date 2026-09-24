@@ -481,8 +481,10 @@ test('版本审核绑定真实报告；误报、补扫、自审和撤销分别�
     assert.throws(() => result([values[0], manual, invalid]));
     const passed = await publish(7, context, prepared, call, call, readGit, async () => version);
     assert.equal(passed.error, undefined);
-    assert(passed.requestInfo.includes(submission.pluginId));
-    assert(passed.requestInfo.includes(submission.version));
+    for (const body of Object.values(passed.requestInfo)) {
+        assert(body.includes(submission.pluginId));
+        assert(body.includes(submission.version));
+    }
     assert(passed.labels.includes('scan:incomplete'));
     assert(passed.labels.includes('type:new-plugin'));
     report.runAttempt = 2;

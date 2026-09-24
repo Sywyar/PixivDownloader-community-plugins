@@ -21,7 +21,8 @@ jobs:
     if: >-
       github.repository_id == '1347624983' && github.repository_owner_id == '83223374' &&
       github.ref == 'refs/heads/master' &&
-      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+      (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' &&
+      (github.event.workflow_run.event != 'issue_comment' || startsWith(github.event.workflow_run.display_title, 'Review PR #'))))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: community-status

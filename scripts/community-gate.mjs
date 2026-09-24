@@ -199,6 +199,7 @@ export function gateRequests(payload, call = api) {
     };
     if (!patterns[run.path]) throw new Error('GATE_TRIGGER_INVALID');
     const named = patterns[run.path].exec(run.display_title ?? '');
+    if (run.path === '.github/workflows/community-review-event.yml' && run.event === 'issue_comment' && !named) return [];
     // 名称只是定位提示，准入仍独立复核当前 PR、执行来源及全部证据。
     const numbers = named ? [Number(id(named[1]))] : [...new Set((run.pull_requests ?? []).map(pr => Number(id(pr.number))))];
     try {

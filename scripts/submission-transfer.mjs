@@ -3,7 +3,7 @@ import { id, policy, prefix, API_BYTES } from './github.mjs';
 import { publisherPath } from './submission-check.mjs';
 import { github, paged, eligible, repositoryTree, readBlob, unchanged } from './submission-github.mjs';
 import { checkPull } from './submission-pr.mjs';
-import { rejectionBody, approvalBody } from './transfer-reviews.mjs';
+import { rejectionBody, approvalBody, transferReviewBody, reviewNotice } from './transfer-reviews.mjs';
 import { retryStep } from './submission-retry.mjs';
 import { currentProof } from './submission-operations.mjs';
 import { signOperationProof } from './submission-signing.mjs';
@@ -47,16 +47,16 @@ export function openTransfers(context, filters = transferFilters) {
     return requests;
 }
 
-export async function selectTransfer(context, legacy = []) {
+export async function selectTransfer(context) {
     const { ui } = context;
     let filters = [...transferFilters];
     ui.say('transferFilterHelp');
     for (;;) {
-        const requests = [...await ui.task('loadingTransfers', () => openTransfers(context, filters)), ...legacy];
+        const requests = await ui.task('loadingTransfers', () => openTransfers(context, filters));
         if (!requests.length) ui.say('noTransferFrom');
         const selected = await ui.select('proposal', [...requests, 'changeTransferFilters'], record =>
             typeof record === 'string' ? ui.text(record)
-                : `${record.openPr ? '#' + record.openPr.number : ui.text('legacyTransfer')} ${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
+                : `#${record.openPr.number} ${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
         if (selected !== 'changeTransferFilters') return selected;
         filters = await ui.multiselect('transferFilterScope', transferFilters, filters);
     }
@@ -98,12 +98,13 @@ export async function reviewTransfer(context, proposal, { check = checkPull, pro
     const recorded = () => {
         const latest = paged(`${prefix}/pulls/${selected.number}/reviews`, call)
             .filter(review => review.user?.type === 'User' && id(review.user.id) === snapshot.actor.id && review.state !== 'PENDING'
-                && (review.state !== 'COMMENTED' || review.body?.trim() === rejectionBody(proposal.sha256)))
+                && (review.state !== 'COMMENTED' || transferReviewBody(review.body) === transferReviewBody(rejectionBody(proposal.sha256))))
             .sort((a, b) => BigInt(a.id) > BigInt(b.id) ? -1 : 1)[0];
-        return latest?.state === expectedState && latest.commit_id === selected.head && latest.body === body
-            && latest.pull_request_url === `https://api.github.com/${prefix}/pulls/${selected.number}`;
+        return latest?.state === expectedState && latest.commit_id === selected.head
+            && transferReviewBody(latest.body) === transferReviewBody(body)
+            && latest.pull_request_url === `https://api.github.com/${prefix}/pulls/${selected.number}` ? latest : undefined;
     };
-    await ui.task('writing', () => retryStep('transferReview', async () => {
+    const review = await ui.task('writing', () => retryStep('transferReview', async () => {
         const pr = await read();
         if (ownerProof) {
             // 发布者发生换钥或紧急封禁时不再提交旧证明。
@@ -117,7 +118,23 @@ export async function reviewTransfer(context, proposal, { check = checkPull, pro
                 commit_id: selected.head, event: reject ? 'REQUEST_CHANGES' : 'APPROVE', body } }); }
             catch (error) { if (!error.github || !recorded()) throw error; }
         }
-        if (!recorded()) throw new Error('TRANSFER_REVIEW_NOT_CONFIRMED');
+        const result = recorded();
+        if (!result) throw new Error('TRANSFER_REVIEW_NOT_CONFIRMED');
+        return result;
+    }));
+    const notice = reviewNotice(selected.number, review.id);
+    const notified = () => paged(`${prefix}/issues/${selected.number}/comments`, call).some(comment =>
+        comment.user?.type === 'User' && id(comment.user.id) === snapshot.actor.id && comment.body === notice);
+    await ui.task('writing', () => retryStep('transferReview', async () => {
+        if (notified()) return;
+        const current = call(`${prefix}/pulls/${selected.number}`);
+        if (reject && current.state === 'closed' && !current.merged && current.head.sha === selected.head) return;
+        await read();
+        if (recorded()?.id !== review.id) throw new Error('TRANSFER_REVIEW_NOT_CONFIRMED');
+        // 普通 PR 评论从主线唤醒读取器；授权仍只取原生 Review。
+        try { call(`${prefix}/issues/${selected.number}/comments`, { method: 'POST', body: { body: notice } }); }
+        catch (error) { if (!error.github || !notified()) throw error; }
+        if (!notified()) throw new Error('TRANSFER_REVIEW_NOT_CONFIRMED');
     }));
     return { outcome: { transferReviewed: true, signed: Boolean(ownerProof), rejected: reject, number: selected.number, url: selected.url } };
 }

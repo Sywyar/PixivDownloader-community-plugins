@@ -61,6 +61,11 @@ test('原生错误按认证、权限、传输和本地执行分类，确定性�
         ['Permission denied (publickey)', 'GIT_AUTH_REQUIRED', false],
         ['The requested URL returned error: 407', 'GITHUB_PROXY_AUTH_REQUIRED', false],
         ['[rejected] non-fast-forward', 'GIT_REMOTE_REJECTED', false],
+        ['[remote rejected] topic (pre-receive hook declined)', 'GIT_REMOTE_REJECTED', false],
+        ['[remote rejected] topic (shallow update not allowed)', 'GIT_REMOTE_REJECTED', false],
+        ['[remote rejected] topic (refusing to allow an OAuth App to create or update workflow `.github/workflows/test.yml` without `workflow` scope)', 'GIT_WORKFLOW_SCOPE_REQUIRED', false],
+        ['[remote rejected] topic (refusing to allow a Personal Access Token to create or update workflow `.github/workflows/test.yml` without `workflow` scope)', 'GIT_WORKFLOW_SCOPE_REQUIRED', false],
+        ['[remote rejected] topic (refusing to allow a GitHub App to create or update workflow `.github/workflows/test.yml` without `workflows` permission)', 'GIT_WORKFLOW_SCOPE_REQUIRED', false],
         ['The requested URL returned error: 403', 'GIT_REMOTE_UNAVAILABLE', false],
         ['SSL certificate problem: unable to get local issuer certificate', 'GITHUB_TLS_FAILED', false],
         ['Failed to connect to github.com port 443: Connection refused', 'GITHUB_CONNECTION_FAILED', true],
@@ -68,6 +73,7 @@ test('原生错误按认证、权限、传输和本地执行分类，确定性�
     ]) {
         const error = gitFailure({ stderr: stderr + ' private output', status: 1 }, 'push');
         assert.equal(error.message, code); assert.equal(error.retryable, retryable);
+        if (code === 'GIT_WORKFLOW_SCOPE_REQUIRED') assert.equal(error.recoverable, true);
         assert(!JSON.stringify(error).includes('private output'));
         if (code === 'GIT_REMOTE_REJECTED' || code === 'GITHUB_TLS_FAILED') {
             await assert.rejects(retryStep('pushingBranch', () => { throw error; },
