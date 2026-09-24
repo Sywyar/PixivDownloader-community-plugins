@@ -155,7 +155,7 @@ test('目标事件要求受保护执行上下文，投稿 head 和关闭后的�
     const association = { base: structuredClone(state.pr.base),
         head: { ...structuredClone(state.pr.head), ref: 'test/candidate' } };
     Object.assign(state.run, { path: gatePath, event: 'pull_request_target', head_sha: head,
-        head_branch: association.head.ref, pull_requests: [association] });
+        head_branch: association.head.ref, head_repository: { id: 999, full_name: 'contributor/fork' }, pull_requests: [association] });
     const env = { GITHUB_REPOSITORY: policy.repository, GITHUB_REPOSITORY_ID: policy.repositoryId,
         GITHUB_REF: 'refs/heads/' + policy.defaultBranch, GITHUB_REF_PROTECTED: 'true',
         GITHUB_WORKFLOW_REF: policy.repository + '/' + gatePath + '@refs/heads/' + policy.defaultBranch,
@@ -175,7 +175,10 @@ test('目标事件要求受保护执行上下文，投稿 head 和关闭后的�
         assert.throws(() => execution(gatePath, { ...env, ...change }, call, readGit), /EXECUTION_INVALID/);
     }
     state.run.event = 'workflow_dispatch';
+    state.run.head_sha = current; state.run.head_branch = policy.defaultBranch;
     assert.throws(() => execution(gatePath, env, call, readGit), /SOURCE_INVALID/);
+    state.run.head_repository = state.repo;
+    assert.equal(execution(gatePath, env, call, readGit).run.sourceSha, current);
     assert.equal(state.writes.length, 0);
 });
 
