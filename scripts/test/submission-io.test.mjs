@@ -2,19 +2,38 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import { root, hash } from '../sdk.mjs';
 import { download, publicAddress, httpsUrl } from '../download.mjs';
 import { preflight, markerMissing, sourceFacts, git } from '../project.mjs';
 import { runBuild } from '../../tools/build-model.mjs';
-import { protectedSnapshot, unchanged, readBlob } from '../submission-github.mjs';
-import { policy } from '../github.mjs';
+import { protectedSnapshot, unchanged, repositoryTree, readBlob } from '../submission-github.mjs';
+import { api, policy } from '../github.mjs';
 
 const temporary = () => {
     fs.mkdirSync(path.join(root, 'target'), { recursive: true });
     return fs.mkdtempSync(path.join(root, 'target/submission-io-'));
 };
+
+test('受保护 API 只读取投稿 fork 的精确 Git 对象', () => {
+    const name = 'contributor/fork', head = 'a'.repeat(40), bytes = Buffer.from('verified request', 'utf8');
+    const blob = createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`, 'utf8')).update(bytes).digest('hex');
+    const treeRoute = `repos/${name}/git/trees/${head}?recursive=1`;
+    const blobRoute = `repos/${name}/git/blobs/${blob}`;
+    const routes = [];
+    const call = (endpoint, options) => api(endpoint, options, (_command, args) => {
+        routes.push(args.at(-1));
+        if (endpoint === treeRoute) return JSON.stringify({ tree: [{ path: 'request.json', sha: blob, size: bytes.length, mode: '100644', type: 'blob' }] });
+        if (endpoint === blobRoute) return JSON.stringify({ sha: blob, size: bytes.length, encoding: 'base64', content: bytes.toString('base64') });
+        assert.fail(endpoint);
+    });
+    const entry = repositoryTree(name, head, call).get('request.json');
+    assert.deepEqual(readBlob(name, entry, call), bytes);
+    assert.deepEqual(routes, [treeRoute, blobRoute]);
+    assert.throws(() => call(`repos/other/repo/git/trees/${head}`, { repositoryName: name }), /GITHUB_TARGET_MISMATCH/u);
+});
 
 test('下载逐跳固定公共 IP，无凭据且校验实际大小与摘要', async () => {
     for (const address of ['127.0.0.1', '10.1.2.3', '169.254.169.254', '::1', '::ffff:127.0.0.1', '2001:db8::1']) assert.equal(publicAddress(address), false);

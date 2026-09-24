@@ -116,7 +116,7 @@ export function unchanged(expected, call = github) {
 }
 
 export function repositoryTree(name, commit, call = github) {
-    const result = call(`repos/${name}/git/trees/${sha(commit)}?recursive=1`);
+    const result = call(`repos/${name}/git/trees/${sha(commit)}?recursive=1`, { repositoryName: name });
     if (result.truncated || !Array.isArray(result.tree)) throw new Error('GITHUB_TREE_INCOMPLETE');
     const entries = new Map();
     for (const entry of result.tree) {
@@ -129,7 +129,7 @@ export function repositoryTree(name, commit, call = github) {
 export function readBlob(name, entry, call = github) {
     if (!entry || !['100644', '100755'].includes(entry.mode) || entry.type !== 'blob'
         || !Number.isSafeInteger(entry.size) || entry.size > API_BYTES) throw new Error('GITHUB_FILE_INVALID');
-    const blob = call(`repos/${name}/git/blobs/${sha(entry.sha)}`);
+    const blob = call(`repos/${name}/git/blobs/${sha(entry.sha)}`, { repositoryName: name });
     if (blob.sha !== entry.sha || blob.encoding !== 'base64' || blob.size !== entry.size) throw new Error('GITHUB_BLOB_CHANGED');
     const bytes = Buffer.from(blob.content, 'base64');
     const objectId = createHash('sha1').update(Buffer.from(`blob ${bytes.length}\0`, 'utf8')).update(bytes).digest('hex');

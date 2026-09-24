@@ -158,7 +158,7 @@ test('清理执行器验证主线来源，不能把 PR head 当作可信代码',
     const current = 'b'.repeat(40), calls = [];
     const run = { id: 31, run_attempt: 1, workflow_id: 51, path: cleanupPath, event: 'pull_request_target',
         head_sha: 'a'.repeat(40), head_branch: 'community/first_release/example',
-        repository: { id: policy.repositoryId }, head_repository: { id: policy.repositoryId } };
+        repository: { id: policy.repositoryId }, head_repository: { id: 999 } };
     const call = endpoint => endpoint.includes('/workflows/') ? { id: 51, path: cleanupPath } : run;
     const readGit = args => { calls.push(args); return 'tree'; };
     assert.equal(trustedRun('31', 1, cleanupPath, current, call, readGit, current).sourceSha, current);

@@ -31,7 +31,8 @@ export function trustedRun(runId, attempt, workflowPath, current, call = api, re
     const run = call(prefix + '/actions/runs/' + id(runId) + '/attempts/' + id(attempt));
     const workflow = call(prefix + '/actions/workflows/' + id(run.workflow_id));
     if (id(run.id) !== id(runId) || run.run_attempt !== Number(attempt)
-        || id(run.repository.id) !== policy.repositoryId || id(run.head_repository.id) !== policy.repositoryId
+        || id(run.repository.id) !== policy.repositoryId
+        || (run.event !== 'pull_request_target' && id(run.head_repository.id) !== policy.repositoryId)
         || workflow.path !== workflowPath || id(workflow.id) !== id(run.workflow_id)
         || run.path !== workflowPath
         || (workflowPath === decisionPath && run.event !== 'workflow_dispatch')
