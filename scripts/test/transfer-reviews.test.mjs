@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { policy, prefix } from '../github.mjs';
 import { hash } from '../sdk.mjs';
-import { transferReview, requireTransferReview, closeRejectedTransfer, rejectionBody, approvalBody, transferProof } from '../transfer-reviews.mjs';
+import { transferReview, requireTransferReview, closeRejectedTransfer, rejectionBody, approvalBody, transferProof, transferReviewBody, reviewNotice } from '../transfer-reviews.mjs';
 import { reviewTransfer, openTransfers, selectTransfer } from '../submission-transfer.mjs';
 import { localizedText, locales } from '../submission-ui.mjs';
 import { withRepositoryFiles } from './local-sdk.mjs';
@@ -30,6 +30,7 @@ test('原所有者确认绑定原生账号和申请 head，撤回、异议、伪
         [[review({ state: 'CHANGES_REQUESTED' })], 'CHANGES_REQUESTED'],
         [[review(), review({ id: '92', state: 'DISMISSED' })], 'PENDING'],
         [[review(), review({ id: '92', state: 'COMMENTED' })], 'APPROVED'],
+        [[review({ state: 'CHANGES_REQUESTED', body: `PIXIVDOWNLOADER_TRANSFER_REJECT ${checked.requestSha256}` })], 'REJECTED'],
         [[review({ state: 'CHANGES_REQUESTED', body: rejectionBody(checked.requestSha256) })], 'REJECTED']]) {
         const call = () => [reviews];
         assert.equal(transferReview(checked, pr, call).status, status);
@@ -42,6 +43,25 @@ test('原所有者确认绑定原生账号和申请 head，撤回、异议、伪
     assert.equal(transferProof({ ...checked, requestSha256: '0'.repeat(64) }, { status: 'APPROVED', review: signed }), undefined);
     for (const extra of [{ singlePr: false }, { recoveryRequired: true }, { ownerConfirmationInRequest: true }]) {
         assert.equal(transferReview({ ...checked, ...extra }, pr, () => assert.fail('无需原生确认'), undefined), undefined);
+    }
+});
+
+test('英文 Review 隐藏机器标记，旧正文仍可识别，摘要不匹配或标记歧义不产生拒绝与证明', () => {
+    const digest = checked.requestSha256, proof = { keyId: 'key', value: 'signature' };
+    for (const [body, legacy] of [[rejectionBody(digest), `PIXIVDOWNLOADER_TRANSFER_REJECT ${digest}`],
+        [approvalBody(digest, proof), `PIXIVDOWNLOADER_TRANSFER_APPROVE ${digest}\n${JSON.stringify(proof)}`]]) {
+        assert.equal(transferReviewBody(body), legacy);
+        assert.equal(transferReviewBody(legacy), legacy);
+        const visible = body.replace(/<!--[\s\S]*?-->/gu, '').trim();
+        assert.match(visible, /^[\x20-\x7E]+$/u);
+        assert(!visible.includes(digest));
+    }
+    assert.equal(transferProof(checked, { status: 'APPROVED', review: review({
+        body: `PIXIVDOWNLOADER_TRANSFER_APPROVE ${digest}\n${JSON.stringify(proof)}` }) }), JSON.stringify(proof));
+    for (const body of [rejectionBody('0'.repeat(64)), rejectionBody(digest) + '\n' + rejectionBody(digest),
+        rejectionBody(digest).replace(' -->', ''), approvalBody(digest), `> PIXIVDOWNLOADER_TRANSFER_REJECT ${digest}`]) {
+        assert.equal(transferReview(checked, pr, () => [[review({ state: 'CHANGES_REQUESTED', body })]]).status, 'CHANGES_REQUESTED');
+        assert.equal(transferProof(checked, { status: 'APPROVED', review: review({ body }) }), undefined);
     }
 });
 
@@ -81,16 +101,32 @@ test('拒绝只关闭对应开放 PR，回读撤回、主线绑定变化或已�
     assert.equal(writes.length, 0);
 });
 
-test('向导确认与拒绝写入原 PR，丢失响应回读成功不重复创建 Review，也不创建分支', async () => {
-    for (const rejected of [false, true]) {
-        let rows = [], written = 0, sealed = false;
+test('向导回读原生 Review 和唤醒评论，丢失响应或补发通知不重建 Review，旧正文也可续接', async () => {
+    for (const rejected of [false, true]) for (const mode of ['lost-response', 'notice-failure', 'legacy', 'changed', 'dismissed']) {
+        const current = structuredClone(pr), comments = [{ id: '500', user: { ...owner, id: '909' }, body: reviewNotice(7, 91) }];
+        let rows = mode === 'legacy' ? [review({ state: rejected ? 'CHANGES_REQUESTED' : 'APPROVED',
+            body: `PIXIVDOWNLOADER_TRANSFER_${rejected ? 'REJECT' : 'APPROVE'} ${checked.requestSha256}` })] : [];
+        let written = 0, posted = 0, sealed = false;
         const notices = [];
         const call = (endpoint, options = {}) => {
             if (endpoint === 'user') return owner;
             if (endpoint === prefix) return { id: policy.repositoryId, full_name: policy.repository,
                 owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
             if (endpoint.endsWith('/git/ref/heads/master')) return { object: { sha: base } };
-            if (endpoint === `${prefix}/pulls/7`) return pr;
+            if (endpoint === `${prefix}/pulls/7`) return current;
+            if (endpoint.endsWith('/comments?per_page=100')) {
+                if (mode === 'changed') current.head.sha = base;
+                if (mode === 'dismissed') rows[0].state = 'DISMISSED';
+                return [comments];
+            }
+            if (options.method === 'POST' && endpoint.endsWith('/comments')) {
+                posted++;
+                assert.equal(options.body.body, reviewNotice(7, 91));
+                if (mode === 'notice-failure' && posted === 1) throw Object.assign(new Error('GITHUB_ACCESS_DENIED'),
+                    { github: true, retryable: false, recoverable: false });
+                comments.push({ id: '501', user: owner, body: options.body.body });
+                throw Object.assign(new Error('GITHUB_CONNECTION_RESET'), { github: true, retryable: true, method: 'POST' });
+            }
             if (endpoint.endsWith('/reviews?per_page=100')) return [rows];
             if (options.method === 'POST' && endpoint.endsWith('/reviews')) {
                 assert.equal(sealed, true); written++;
@@ -103,10 +139,18 @@ test('向导确认与拒绝写入原 PR，丢失响应回读成功不重复创�
         const context = { snapshot: { repositoryId: policy.repositoryId, base, actor: owner }, call, state: { read: () => ({ value: {} }) },
             seal() { sealed = true; }, ui: { say() {}, text: key => key, task: async (_key, work) => work(),
                 select: async () => rejected ? 'transferReject' : 'transferApprove', confirm: async (key, value) => { notices.push({ key, value }); return true; } } };
-        const result = await reviewTransfer(context, { value: request, sha256: hash(bytes), openPr: { number: 7, head, url: 'https://github.com/example/pr/7' } },
+        const run = () => reviewTransfer(context, { value: request, sha256: hash(bytes), openPr: { number: 7, head, url: 'https://github.com/example/pr/7' } },
             { check: async () => checked, proof: async () => null });
+        if (mode === 'changed' || mode === 'dismissed') {
+            await assert.rejects(run(), { message: mode === 'changed' ? 'TRANSFER_REQUEST_CHANGED' : 'TRANSFER_REVIEW_NOT_CONFIRMED' });
+            assert.equal(written, 1); assert.equal(posted, 0); continue;
+        }
+        if (mode === 'notice-failure') await assert.rejects(run(), /GITHUB_ACCESS_DENIED/);
+        const result = await run();
+        await run();
         assert.equal(result.outcome.rejected, rejected); assert.equal(result.outcome.number, 7);
-        assert.equal(written, 1); assert.equal(notices[0].key, 'transferReview');
+        assert.equal(written, mode === 'legacy' ? 0 : 1); assert.equal(notices[0].key, 'transferReview');
+        assert.equal(posted, mode === 'notice-failure' ? 2 : 1); assert.equal(comments.length, 2);
     }
 });
 
@@ -161,20 +205,20 @@ test('组织代表取消提及筛选后仍须通过当前成员身份核验', ()
 test('列表末尾始终提供筛选入口，默认勾选两项，清空和再次修改后按确认范围重查', async () => {
     const queries = [], notices = [], initial = [];
     let round = 0;
-    const legacy = { value: request, sha256: hash(bytes) };
     const context = { snapshot: { actor: owner }, call: endpoint => { queries.push(endpoint); return [[]]; },
         ui: { text: key => localizedText('en-US', key), say: key => notices.push(key), task: async (_key, work) => work(),
             select: async (key, options, label) => {
                 assert.equal(key, 'proposal'); assert.equal(options.at(-1), 'changeTransferFilters');
                 assert.equal(label(options.at(-1)), localizedText('en-US', 'changeTransferFilters'));
-                if (round === 3) { assert(label(options[0]).includes('original/demo')); return options[0]; }
+                assert.deepEqual(options, ['changeTransferFilters']);
+                if (round === 3) throw new Error('WIZARD_BACK');
                 return options.at(-1);
             }, multiselect: async (key, options, selected) => {
                 assert.equal(key, 'transferFilterScope'); assert.deepEqual(options, ['transferFilterLabel', 'transferFilterMention']);
                 initial.push([...selected]); round++;
                 return round === 1 ? [] : round === 2 ? ['transferFilterLabel'] : ['transferFilterMention'];
             } } };
-    assert.equal(await selectTransfer(context, [legacy]), legacy);
+    await assert.rejects(selectTransfer(context), /WIZARD_BACK/);
     assert.deepEqual(initial, [['transferFilterLabel', 'transferFilterMention'], [], ['transferFilterLabel']]);
     assert.deepEqual(queries.map(query => {
         const params = new URLSearchParams(query.split('?')[1]); return [params.has('labels'), params.has('mentioned')];
@@ -183,7 +227,7 @@ test('列表末尾始终提供筛选入口，默认勾选两项，清空和再�
     await assert.rejects(selectTransfer(context), /WIZARD_BACK/);
     assert(notices.includes('transferFilterHelp')); assert(notices.includes('noTransferFrom'));
     for (const locale of locales) for (const key of ['transferFilterHelp', 'changeTransferFilters', 'transferFilterScope',
-        'transferFilterLabel', 'transferFilterMention', 'loadingTransfers', 'legacyTransfer', 'noTransferFrom']) {
+        'transferFilterLabel', 'transferFilterMention', 'loadingTransfers', 'noTransferFrom']) {
         assert.notEqual(localizedText(locale, key), key);
         assert(localizedText(locale, key).trim());
     }

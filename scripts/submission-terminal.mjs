@@ -115,9 +115,12 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                         clear();
                         for (const task of tasks.values()) task.update.pause();
                         const authentication = authenticationRequired(args[0].code);
+                        const permission = args[0].code === 'GIT_WORKFLOW_SCOPE_REQUIRED';
                         ui.say(authentication ? 'readingActor' : 'requestFailed', args[0]);
-                        answer = await ui.select(authentication ? 'authenticationRecovery' : 'retryCurrentStep', ['retry', 'saveExit'],
-                            key => ui.text(authentication && key === 'retry' ? 'checkAuthentication' : key), undefined, { back: false }) === 'retry' ? 1 : 2;
+                        const question = authentication ? 'authenticationRecovery' : permission ? 'gitPermissionRecovery' : 'retryCurrentStep';
+                        const proceed = authentication ? 'checkAuthentication' : permission ? 'continueAfterAuthorization' : 'retry';
+                        answer = await ui.select(question, ['retry', 'saveExit'],
+                            key => ui.text(key === 'retry' ? proceed : key), undefined, { back: false }) === 'retry' ? 1 : 2;
                     } catch (error) {
                         if (error.message === 'WIZARD_SAVE') answer = 2;
                         else throw error;

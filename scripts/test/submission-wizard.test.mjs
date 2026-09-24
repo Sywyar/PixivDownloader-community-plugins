@@ -60,7 +60,7 @@ function consoleStreams() {
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
 
-for (const reason of ['network', 'login', 'credentials']) for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内处理${reason}故障并选择${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
+for (const reason of ['network', 'login', 'credentials', 'workflow']) for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内处理${reason}故障并选择${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
     const originalCI = process.env.CI; process.env.CI = 'false';
     t.after(() => { if (originalCI === undefined) delete process.env.CI; else process.env.CI = originalCI; });
     const tty = consoleStreams();
@@ -70,14 +70,19 @@ for (const reason of ['network', 'login', 'credentials']) for (const outcome of 
         import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
         import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
         import { githubRequest } from ${JSON.stringify(new URL('../submission-github.mjs', import.meta.url).href)};
-        import { requestRecovery } from ${JSON.stringify(new URL('../submission-retry.mjs', import.meta.url).href)};
+        import { requestRecovery, retryStep } from ${JSON.stringify(new URL('../submission-retry.mjs', import.meta.url).href)};
+        import { gitFailure } from ${JSON.stringify(new URL('../submission-errors.mjs', import.meta.url).href)};
         const ui = await workerTerminal(parentPort, workerData.cancelled);
         const close = requestRecovery(ui.retryRequest);
         let before = 0, attempts = 0, after = 0, error;
         try {
-            await ui.task('loading', () => {
+            await ui.task('loading', async () => {
                 before++;
-                githubRequest(() => observe('readingGitObjects', '', () => {
+                if (workerData.reason === 'workflow') await retryStep('git_push', () => {
+                    if (++attempts <= 2) throw gitFailure({ status: 1,
+                        stderr: 'refusing to allow an OAuth App to create or update workflow without workflow scope' }, 'push');
+                });
+                else githubRequest(() => observe('readingGitObjects', '', () => {
                     if (++attempts <= (workerData.reason === 'network' ? 6 : 2)) throw Object.assign(new Error('private output'),
                         workerData.reason === 'network' ? { stderr: 'unexpected EOF' }
                             : workerData.reason === 'login' ? { status: 4 } : { status: 1, stderr: 'private token (HTTP 401)' });
@@ -96,13 +101,16 @@ for (const reason of ['network', 'login', 'credentials']) for (const outcome of 
         assert(tty.rendered().includes(text), text + '\n' + tty.rendered());
     };
     await until(localizedText('en-US', 'language')); await tty.key('\x1b[B\r');
-    await until(localizedText('en-US', reason === 'network' ? 'retryCurrentStep' : 'authenticationRecovery'));
-    if (reason !== 'network') {
+    await until(localizedText('en-US', reason === 'network' ? 'retryCurrentStep' : reason === 'workflow' ? 'gitPermissionRecovery' : 'authenticationRecovery'));
+    if (reason === 'workflow') {
+        await until(localizedText('en-US', 'continueAfterAuthorization'));
+        await until('gh auth refresh --hostname github.com --scopes workflow');
+    } else if (reason !== 'network') {
         await until(localizedText('en-US', 'checkAuthentication'));
         await until(errors[reason === 'login' ? 'GITHUB_AUTH_REQUIRED' : 'GITHUB_AUTH_INVALID'][locales.indexOf('en-US')]);
     }
     await until(localizedText('en-US', 'retryRoundLabel') + ': 1');
-    assert(tty.rendered().includes(localizedText('en-US', 'readingGitObjects')));
+    assert(tty.rendered().includes(localizedText('en-US', reason === 'workflow' ? 'git_push' : 'readingGitObjects')));
     if (outcome === 'retry') {
         await tty.key('\r');
         await until(localizedText('en-US', 'retryRoundLabel') + ': 2');
@@ -412,6 +420,15 @@ test('所有语言的原因与转移选项显示名称并返回原协议值，�
             await tty.key(' \r');
             assert.deepEqual(await tags, ['download']);
             assert(tty.rendered().includes(optionText('download', ui.text)));
+            const filterValues = ['transferFilterLabel', 'transferFilterMention'];
+            const filters = ui.multiselect('transferFilterScope', filterValues, filterValues);
+            await tty.key(' \r');
+            assert.deepEqual(await filters, ['transferFilterMention']);
+            for (const value of filterValues) {
+                assert(tty.rendered().includes(ui.text(value)));
+                assert(!tty.rendered().includes(value));
+            }
+            assert.equal(optionText('unregistered-value', ui.text), 'unregistered-value');
             const output = formatMetadata({ role: 'FROM', protection: 'protectedKey', reasonCode: 'ROUTINE_ROTATION',
                 signals: ['FILE_READ'], keyId: 'FILE_READ', present: true }, ui.text);
             assert(output.includes(optionText('FROM', ui.text)));

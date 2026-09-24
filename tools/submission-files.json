@@ -353,13 +353,13 @@
     },
     {
       "path": "scripts/submission-error-messages.mjs",
-      "size": 41537,
-      "sha256": "0f65d593e146fc8058a6914abeaf875e45d232fa45656c4305011681a0926f8e"
+      "size": 43542,
+      "sha256": "e3bca5803386c9afa6e5f9d73ab1f988a6abd434edef73ca7336e7a311928dbe"
     },
     {
       "path": "scripts/submission-errors.mjs",
-      "size": 5906,
-      "sha256": "e5597d57fdc5690f213b6855e7bffd019c32a91b7e817b40084235f85c7ed675"
+      "size": 6100,
+      "sha256": "8ae17f3fb33a0fe256a267ce739230cb5865aecace411e8e1aed046337f8b8bf"
     },
     {
       "path": "scripts/submission-fields.mjs",
@@ -373,8 +373,8 @@
     },
     {
       "path": "scripts/submission-messages.mjs",
-      "size": 125343,
-      "sha256": "fee923e36c06986735c4ac1e65e6aee1b5866c4b0f92753b012ab96c677fb8ae"
+      "size": 123884,
+      "sha256": "c7e228aa67008c5e99bfca3ff48d48e1c9ffbd22ca30329c2d3410640ceb824a"
     },
     {
       "path": "scripts/submission-navigation.mjs",
@@ -383,8 +383,8 @@
     },
     {
       "path": "scripts/submission-operations.mjs",
-      "size": 19775,
-      "sha256": "3dac27f26fa973d8943f196d8631f92108d5866ed41dce448b58015ebb7d891b"
+      "size": 17720,
+      "sha256": "02244e62f53a8bc4b56c3a6cc93a1abe2027c460ff1b71da784dfdc72165a2aa"
     },
     {
       "path": "scripts/submission-pr.mjs",
@@ -393,8 +393,8 @@
     },
     {
       "path": "scripts/submission-presentation.mjs",
-      "size": 4551,
-      "sha256": "5acdbd774cc64b1b97a1e2bec06a368882fd3dad5298fb267abb66324ab34e77"
+      "size": 4557,
+      "sha256": "059b81fa5b73e23d41f3de2c85e0cbdb0f2419deb1a64f35687df243e824dbc0"
     },
     {
       "path": "scripts/submission-progress.mjs",
@@ -438,18 +438,18 @@
     },
     {
       "path": "scripts/submission-terminal.mjs",
-      "size": 9663,
-      "sha256": "2dcbd8471dd1e5de012c5c47d15438fdd924edca4eb7f7994e89b05d7f7be9d6"
+      "size": 9946,
+      "sha256": "27941048e98c99b04ff8ffc5cbab3311599c64662b9268bdedd23847eee65573"
     },
     {
       "path": "scripts/submission-transfer.mjs",
-      "size": 8441,
-      "sha256": "a1e3cfecb4fceafbb9c4f2059c6ab1bd7754c9f4d12c68a34e018b249b2e6d4c"
+      "size": 9610,
+      "sha256": "a3c9663222ec92700e99b56261b1551cd0f77da3adeaf694a89354c20bd2c8bc"
     },
     {
       "path": "scripts/submission-ui.mjs",
-      "size": 32885,
-      "sha256": "db9e20e6c4352e91e5782db06af8ba15ed65304b150eada34fb8e648f7eafd6a"
+      "size": 32617,
+      "sha256": "55b0d22c3e14c0e785bbfcdf38fabe54ad583be1855038bddea7fa98dc13292e"
     },
     {
       "path": "scripts/submission-version-state.mjs",
@@ -483,8 +483,8 @@
     },
     {
       "path": "scripts/transfer-reviews.mjs",
-      "size": 7150,
-      "sha256": "fdef32bfb208180b906f772202bbc90c83d3df7ecce52216a93c8c54e9cd18c5"
+      "size": 7952,
+      "sha256": "4dc40cf84375e4f687940de01fab51765ff7aba7b115bcad283d8080157673d4"
     },
     {
       "path": "scripts/vendor/clack-prompts.mjs",

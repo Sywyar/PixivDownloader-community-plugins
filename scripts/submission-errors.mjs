@@ -55,12 +55,13 @@ export function gitFailure(error, operation) {
         ?? (/Author identity unknown|Please tell me who you are|unable to auto-detect email address/iu.test(text) ? 'GIT_IDENTITY_REQUIRED'
             : /not a git repository/iu.test(text) ? 'GIT_REPOSITORY_REQUIRED'
                 : /Authentication failed|could not read Username|could not read Password|Permission denied \(publickey\)/iu.test(text) ? 'GIT_AUTH_REQUIRED'
-                    : /non-fast-forward|\[rejected\]|protected branch|GH006|GH013/iu.test(text) ? 'GIT_REMOTE_REJECTED'
+                    : /refusing to allow .*workflow.*without .*workflow.*(?:scope|permission)/iu.test(text) ? 'GIT_WORKFLOW_SCOPE_REQUIRED'
+                    : /non-fast-forward|\[(?:remote )?rejected\]|protected branch|GH006|GH013/iu.test(text) ? 'GIT_REMOTE_REJECTED'
                         : /repository .*not found|repository not found|requested URL returned error: (?:403|404)/iu.test(text) ? 'GIT_REMOTE_UNAVAILABLE'
                             : remote && connection ? `GITHUB_${connection}` : remote ? 'GIT_TRANSFER_FAILED' : 'TOOL_EXECUTION_FAILED');
     const retryable = remote && (['GITHUB_TIMEOUT', 'GITHUB_DNS_FAILED', 'GITHUB_CONNECTION_RESET', 'GITHUB_CONNECTION_FAILED'].includes(code)
         || code === 'GIT_TRANSFER_FAILED' && /(?:HTTP |requested URL returned error: )(?:408|500|502|503|504)/iu.test(text));
     return Object.assign(new Error(code), { tool: 'git', exitCode: error.status, github: remote, retryable,
-        recoverable: remote && (retryable || code === 'GIT_TRANSFER_FAILED' || code === 'GIT_AUTH_REQUIRED' || code === 'GIT_REMOTE_UNAVAILABLE' || code === 'GITHUB_PROXY_AUTH_REQUIRED'),
+        recoverable: remote && (retryable || code === 'GIT_TRANSFER_FAILED' || code === 'GIT_AUTH_REQUIRED' || code === 'GIT_WORKFLOW_SCOPE_REQUIRED' || code === 'GIT_REMOTE_UNAVAILABLE' || code === 'GITHUB_PROXY_AUTH_REQUIRED'),
         method: operation.toUpperCase(), failureStep: remote ? `git_${operation}` : 'checkingProject' });
 }

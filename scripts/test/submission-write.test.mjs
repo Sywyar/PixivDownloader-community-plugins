@@ -118,6 +118,10 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     commit(upstream, 'commit', '-m', 'test: initial fixture');
     const base = git(upstream, 'rev-parse', 'HEAD');
     if (!owner) git(directory, 'clone', '--bare', upstream, fork);
+    const scopeRequired = !owner && !lostResponse;
+    if (scopeRequired) fs.writeFileSync(path.join(fork, 'hooks/pre-receive'), '#!/bin/sh\n'
+        + 'test -f workflow-authorized && exit 0\n'
+        + 'echo "refusing to allow an OAuth App to create or update workflow without workflow scope" >&2\nexit 1\n', { mode: 0o755 });
     const actor = { id: owner ? policy.repositoryOwnerId : '101', type: 'User', login: owner ? policy.repository.split('/')[0] : 'actor' };
     const repositoryId = owner ? policy.repositoryId : '202';
     const forkName = actor.login + '/' + policy.repository.split('/')[1];
@@ -128,7 +132,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     let createdPr;
     const writes = [];
     let commits = 0;
-    let pushes = 0;
+    let pushes = 0, pushAttempts = 0, scopeRecoveries = 0;
     let confirmations = 0, rechecks = 0, preparations = 0, recoveredDownloads = 0;
     const interrupted = () => Object.assign(new Error('DOWNLOAD_CONNECTION_RESET'), { download: true, retryable: true, downloadStage: 'PROXY_CONNECT', attempts: 3 });
     const call = (endpoint, options = {}) => {
@@ -161,6 +165,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     const readGit = (cwd, ...args) => {
         if (args[0] === 'remote') args[3] = pathToFileURL(args[2] === 'upstream' ? upstream : fork).href;
         if (args[0] === 'commit') { commits++; return commit(cwd, ...args); }
+        if (args[0] === 'push') pushAttempts++;
         const result = git(cwd, ...args);
         if (args[0] === 'push') {
             assert.match(args[2], /^HEAD:refs\/heads\/community\/first_release\/[0-9a-f]{24}$/u);
@@ -178,7 +183,17 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
             return true;
         }, recheck: async () => { if (++rechecks === 1) throw interrupted(); },
         beforeWrite: async () => { if (++preparations === 1) throw interrupted(); },
-        retry: error => { if (!error.download) return false; recoveredDownloads++; return true; } };
+        retry: error => {
+            if (error.message === 'GIT_WORKFLOW_SCOPE_REQUIRED') {
+                assert.equal(error.retryable, false); assert.equal(error.attempts, 1);
+                assert.equal(pushAttempts, 1); assert.equal(pushes, 0); assert.equal(commits, 1);
+                scopeRecoveries++;
+                fs.writeFileSync(path.join(fork, 'workflow-authorized'), '');
+                return true;
+            }
+            if (!error.download) return false;
+            recoveredDownloads++; return true;
+        } };
     if (lostResponse) assert.equal((await submitPreview(input)).head, candidate);
     else {
         await assert.rejects(submitPreview(input), /SIMULATED_DISCONNECT/u);
@@ -188,6 +203,7 @@ for (const owner of [false, true]) for (const lostResponse of [false, true]) tes
     }
     const firstHead = candidate;
     assert.equal(commits, 1); assert.equal(pushes, 1); assert.equal(body.draft, false);
+    assert.equal(pushAttempts, scopeRequired ? 2 : 1); assert.equal(scopeRecoveries, scopeRequired ? 1 : 0);
     assert.equal(recoveredDownloads, 2);
     assert.equal(rechecks, lostResponse ? 2 : 3); assert.equal(preparations, lostResponse ? 2 : 3);
     assert.equal(confirmations, lostResponse ? 1 : 2);

@@ -6,7 +6,9 @@ import { runInNewContext } from 'node:vm';
 import { prepareSdk, root } from '../sdk.mjs';
 import { archivedCandidates } from '../archive-read.mjs';
 import { candidateSlot } from '../candidate.mjs';
-import { prefix } from '../github.mjs';
+import { prefix, policy } from '../github.mjs';
+import { reviewNotice } from '../transfer-reviews.mjs';
+import { gateRequests } from '../community-gate.mjs';
 
 test('真实 YAML 按社区操作核对全部作业权限、令牌来源和受保护执行边界', () => {
     // 使用固定 SDK 已包含的 YAML 解析器，断言实际配置而非匹配源码文本。
@@ -165,6 +167,31 @@ public class WorkflowJson {
     assert.deepEqual(automatic.on.workflow_run.types, ['completed']);
     assert.deepEqual(reviewEvent.permissions, {});
     assert.deepEqual(reviewEvent.on.pull_request_review.types, ['submitted', 'edited', 'dismissed']);
+    assert.deepEqual(reviewEvent.on.issue_comment.types, ['created']);
+    assert(!reviewEvent.jobs.event.steps.some(step => step.uses || step.env || step.run?.includes('${{')));
+    const startsWith = (text, start) => String(text ?? '').startsWith(start);
+    const format = (template, value) => template.replace('{0}', value);
+    for (const [name, isPr, type, body, expected] of [
+        ['pull_request_review', true, 'User', '', true],
+        ['issue_comment', true, 'User', reviewNotice(7, 91), true],
+        ['issue_comment', true, 'User', 'Please check this request.', false],
+        ['issue_comment', true, 'Bot', reviewNotice(7, 91), false],
+        ['issue_comment', true, 'Bot', '<!-- community-request-info -->\nRequest information', false],
+        ['issue_comment', false, 'User', reviewNotice(7, 91), false],
+    ]) {
+        const github = { repository_id: policy.repositoryId, repository_owner_id: policy.repositoryOwnerId,
+            ref: 'refs/heads/master', event_name: name, event: { pull_request: name === 'pull_request_review' ? { number: 7 } : {},
+                issue: { number: 7, pull_request: isPr ? {} : null }, comment: { user: { type }, body } } };
+        assert.equal(Boolean(runInNewContext(reviewEvent.jobs.event.if, { github, startsWith })), expected);
+        const title = runInNewContext(reviewEvent['run-name'].trim().slice(3, -2), { github, startsWith, format });
+        assert.equal(title, expected ? 'Review PR #7' : 'Unrelated comment');
+        // 跳过的作业也可能得到 success 汇总；路由必须按事件用途过滤。
+        const run = { repository: { id: policy.repositoryId }, event: name, path: '.github/workflows/community-review-event.yml',
+            status: 'completed', conclusion: 'success', display_title: title, pull_requests: [{ number: 7 }] };
+        assert.deepEqual(gateRequests({ workflow_run: { id: 91 } }, () => run), expected ? [7] : []);
+        github.event_name = 'workflow_run'; github.event = { workflow_run: run };
+        assert.equal(Boolean(runInNewContext(automatic.jobs.store.if, { github, startsWith })), expected);
+    }
     assert.deepEqual(emergency.on.pull_request_target.branches, ['emergency-state']);
     assert.equal(emergency.jobs.apply.environment, 'community-status');
     assert.equal(emergency.concurrency.group, read('community-gate').jobs.gate.concurrency.group);

@@ -1,11 +1,21 @@
 name: Community review event
-run-name: 'Review PR #${{ github.event.pull_request.number }}'
+run-name: >-
+  ${{ (github.event_name == 'pull_request_review' ||
+  (github.event.issue.pull_request && github.event.comment.user.type == 'User' &&
+  startsWith(github.event.comment.body, '<!-- community-transfer-review:'))) &&
+  format('Review PR #{0}', github.event.pull_request.number || github.event.issue.number) || 'Unrelated comment' }}
 on:
   pull_request_review:
     types: [submitted, edited, dismissed]
+  issue_comment:
+    types: [created]
 permissions: {}
 jobs:
   event:
+    if: >-
+      github.event_name == 'pull_request_review' ||
+      (github.event.issue.pull_request && github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '<!-- community-transfer-review:'))
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:

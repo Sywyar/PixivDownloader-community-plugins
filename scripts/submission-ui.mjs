@@ -90,7 +90,6 @@ const messages = {
     transferAction: ['选择所有权转移操作', 'Choose an ownership transfer action', '選擇所有權移轉操作', '所有権の移管操作を選択', '소유권 이전 작업 선택'],
     proposal: ['选择待您确认的转移申请', 'Select a transfer request awaiting your confirmation', '選擇待您確認的移轉申請', '確認待ちの移管申請を選択', '내 확인을 기다리는 이전 요청 선택'],
     transferConfirmFrom: ["我是原所有者：同意或拒绝申请","I am the current owner: approve or reject a request","我是原擁有者：同意或拒絕申請","現在の所有者として申請を承認・拒否","현재 소유자: 요청 승인 또는 거절"],
-    transferConfirmTo: ["我是接收方：补齐旧流程的确认","I am the recipient: complete a legacy confirmation","我是接收方：補齊舊流程的確認","受取側として旧フローの確認を完了","받는 사람: 이전 절차의 확인 완료"],
     transferDecision: ["如何处理这份申请？","How should this request be handled?","如何處理這份申請？","この申請をどう扱いますか？","이 요청을 어떻게 처리할까요?"],
     transferApprove: ['同意转出', 'Approve the transfer', '同意轉出', '移管に同意', '이전에 동의'],
     transferReject: ["拒绝并请求关闭申请","Reject and request closure","拒絕並請求關閉申請","拒否して申請の終了を依頼","거절하고 요청 닫기 신청"],
