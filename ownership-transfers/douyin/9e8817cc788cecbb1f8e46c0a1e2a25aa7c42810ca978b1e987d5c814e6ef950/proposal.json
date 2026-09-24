@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "pluginId": "douyin",
+    "pluginBindingSha256": "cb46ca4f9c23ede7eded5275bbc915af10332885f154c8281e34ad76bf237699",
+    "from": {
+      "accountId": "83223374",
+      "accountType": "User",
+      "publisherId": "sywyar"
+    },
+    "to": {
+      "accountId": "333155951",
+      "accountType": "User",
+      "publisherId": "tyvyl"
+    },
+    "targetPublisherRecordSha256": null,
+    "targetKey": {
+      "keyId": "af01892e-e0a5-45cb-93f4-4868ee7b6969",
+      "algorithm": "Ed25519",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAYcENvdKEK/0dWVX7OmyarbGD4FxrTxVLjn3BUst5j5Q="
+    },
+    "targetPublisherDisplayName": "tyvyl",
+    "mode": "REGULAR",
+    "explanation": "2轮所有权转移测试"
+  },
+  "requestId": "9e8817cc788cecbb1f8e46c0a1e2a25aa7c42810ca978b1e987d5c814e6ef950",
+  "proofs": {
+    "targetKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "af01892e-e0a5-45cb-93f4-4868ee7b6969",
+      "value": "ejWFM/cl2aKCh4iuqk7zsidNKaCHMWPWUkfdbQ1uwbqiL+PdkJm70opffL/ynr3/FvQF7qbUtUzKYH8oUFwlCg=="
+    }
+  }
+}
