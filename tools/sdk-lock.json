@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "a6e94ad3545c038e654cd00479b17c4505fde4cc",
+  "sourceCommit": "037b716b25b22eab3f1d8f6dd72b3a055d50124c",
   "archive": {
-    "file": "PixivDownloader-Plugin-SDK-1.0.0-rc.14.zip",
-    "size": 34622290,
-    "sha256": "ab71d21743d5c51f8f4b23f4cc8f2d02c5dc57edf64b38b7fc36e98eb6e30996"
+    "file": "PixivDownloader-Plugin-SDK-1.0.0-rc.15.zip",
+    "size": 34627397,
+    "sha256": "55816d235a85972bb3a9136cf2d9ecf03c34bf190bdbcae6384ae5b30659d802"
   },
-  "metadataSha256": "f848b359ac9861d42d5d4bc1fda3aac4d6dbf6d110f6b5a4981d82910081ef9e"
+  "metadataSha256": "460612ca4b593f41c49451a0a55b3cb64119e9be8b3a95659e02ef9e20b9f62b"
 }

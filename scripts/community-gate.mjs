@@ -6,7 +6,7 @@ import { api, id, list, policy, prefix, main, API_BYTES } from './github.mjs';
 import { evaluate, hash } from './sdk.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { versionContext } from './version-review.mjs';
-import { gatePath, execution, notificationExecution, facts, fingerprint, event, pull, prValue, classify } from './platform.mjs';
+import { gatePath, execution, notificationExecution, facts, fingerprint, event, pull, prValue, classify, protectedSource } from './platform.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 import { authorizeStatus } from './status-authorization.mjs';
@@ -232,11 +232,15 @@ export function freezeVersions(context, rows, sdk) {
     return bytes;
 }
 
-export function restoreVersions(bytes, context, sdk) {
+export function restoreVersions(bytes, context, sdk, readGit) {
     if (bytes.length > API_BYTES) throw new Error('GATE_TRANSFER_LIMIT');
     const value = JSON.parse(bytes.toString('utf8'));
-    if (value.source !== context.current || value.runId !== id(context.run.id) || value.attempt !== context.run.run_attempt
+    if (value.runId !== id(context.run.id) || value.attempt !== context.run.run_attempt
         || !Array.isArray(value.rows) || !Array.isArray(value.evidence)) throw new Error('GATE_TRANSFER_CHANGED');
+    if (value.source !== context.current) {
+        protectedSource(value.source, context.current, readGit);
+        return null;
+    }
     for (const ref of value.evidence) {
         const raw = Buffer.from(ref.bytes, 'base64');
         if (raw.toString('base64') !== ref.bytes || raw.length !== ref.size || hash(raw) !== ref.sha256) throw new Error('GATE_EVIDENCE_CHANGED');
@@ -266,7 +270,7 @@ export async function gate(mode) {
             const pr = pull(number);
             try {
                 const version = pr.state === 'open' ? await versionContext(number, prepared, context.current) : null;
-                const reviewed = pull(number, version?.completion?.reviewCall ?? api);
+                const reviewed = pull(number, version?.completion?.reviewCall ?? api, context.current);
                 authorizeStatus({ after: { pr: prValue(reviewed) }, evidence: [] }, prepared, context, version, reviewed);
                 rows.push({ number, head: pr.head.sha, base: pr.base.sha, state: pr.state, merged: pr.merged, version });
             }
@@ -283,12 +287,13 @@ export async function gate(mode) {
         const file = process.env.COMMUNITY_GATE_INPUT;
         if (!file || !fs.existsSync(file) || !fs.lstatSync(file).isFile() || fs.statSync(file).size > API_BYTES) throw new Error('GATE_TRANSFER_LIMIT');
         rows = restoreVersions(fs.readFileSync(file), context, prepared);
-        if (rows.length !== numbers.length || numbers.some(number => rows.filter(row => row.number === number).length !== 1)) throw new Error('GATE_TRANSFER_CHANGED');
+        if (rows && (rows.length !== numbers.length || numbers.some(number => rows.filter(row => row.number === number).length !== 1))) throw new Error('GATE_TRANSFER_CHANGED');
     } catch (error) {
         // 准备或交接失败也必须撤回同 head 的旧成功，不能只让 job 失败而保留准入。
         prepared = error;
     }
     const resolve = async number => {
+        if (rows === null) return versionContext(number, prepared, context.current);
         const row = rows.find(row => row.number === number), pr = pull(number);
         if (row.head !== pr.head.sha || row.base !== pr.base.sha || row.state !== pr.state || row.merged !== pr.merged) throw new Error('PR_OR_BASE_CHANGED');
         if (row.error) throw new Error(row.error);

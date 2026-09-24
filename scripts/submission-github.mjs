@@ -137,11 +137,35 @@ export function readBlob(name, entry, call = github) {
     return bytes;
 }
 
-export function stateReader(sdk, base, call = github, repositoryName = policy.repository) {
+// 生成和验证共用同一输入树；管理状态只来自受保护主线。
+export function requestTree(baseTree, headTree, files) {
+    const tree = new Map(baseTree);
+    for (const file of files) {
+        const entry = headTree.get(file.filename);
+        if (file.status !== 'added' || file.previous_filename || tree.has(file.filename)
+            || !/^(?:submissions|publishers|assets|key-rotations|version-status-requests|ownership-transfers|ownership-transfer-evidence)\//u.test(file.filename)
+            || entry?.type !== 'blob' || entry.mode !== '100644' || entry.sha !== file.sha) throw new Error('APPLY_INPUT_CHANGED');
+        tree.set(file.filename, entry);
+    }
+    return tree;
+}
+
+export function stateReader(sdk, base, call = github, repositoryName = policy.repository, request) {
     const tree = repositoryTree(repositoryName, base, call);
     const cached = new Map();
     const documents = new Map();
     let total = 0;
+    if (request) {
+        const headTree = repositoryTree(request.pr.head.repo.full_name, request.pr.head.sha, call);
+        const combined = requestTree(tree, headTree, request.files);
+        for (const file of request.files) {
+            const entry = combined.get(file.filename), bytes = readBlob(request.pr.head.repo.full_name, entry, call);
+            total += bytes.length;
+            if (total > API_BYTES) throw new Error('STATE_SIZE_EXCEEDED');
+            tree.set(file.filename, entry);
+            cached.set(file.filename, bytes);
+        }
+    }
     const raw = file => {
         if (!tree.has(file)) return null;
         if (!cached.has(file)) {

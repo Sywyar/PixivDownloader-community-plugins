@@ -108,6 +108,8 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
         current: source, inputFiles, run: { id: 7, run_attempt: 1 }, writes: new Map(records), state: { raw: () => null }, appliedAt: '2026-01-01T00:00:00Z',
         releases: [{ id: 801, tag: formal.tag_name, targetCommit: current, originalAssets }] });
     made.value.schemaVersion = 2;
+    delete made.value.integratedBase;
+    delete made.value.sourceSha;
     made.value.files = made.value.files.map(({ blob, ...file }) => file);
     made.bytes = Buffer.from(JSON.stringify(made.value) + '\n');
     const parentRecords = new Map([[inputFiles[0].filename, encoded({ request: true })]]);
@@ -197,6 +199,8 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
         state: { raw: () => null }, inputFiles: [], releases: [], appliedAt: '2026-01-01T00:00:00Z', reviewContext: { checked: { operation: 'YANK' } } });
     // 已发布的旧格式仍按原签名字节读取。
     result.value.schemaVersion = 2;
+    delete result.value.integratedBase;
+    delete result.value.sourceSha;
     result.value.files = result.value.files.map(({ blob, ...file }) => file);
     result.bytes = Buffer.from(JSON.stringify(result.value) + '\n');
     f.release.tag_name = `operation/${result.value.requestId}/7-1`;

@@ -60,11 +60,12 @@ function fixture(t, workflow, event) {
     return f;
 }
 
-test('四个通知入口接受真实主线祖先，旧执行器仍不能进行授权和状态写入', t => {
+test('通知及串行集成允许未改变保护面的主线推进，其余执行器保持精确主线绑定', t => {
     for (const [workflow, event, check] of notifications) {
         const f = fixture(t, workflow, event);
         assert.equal(check(f.env, f.call, f.git).current, f.current);
-        assert.throws(() => execution(f.workflowPath, f.env, f.call, f.git), /WORKFLOW_EXECUTION_INVALID/);
+        if (workflow === 'community-publication') assert.throws(() => execution(f.workflowPath, f.env, f.call, f.git), /WORKFLOW_EXECUTION_INVALID/);
+        else assert.equal(execution(f.workflowPath, f.env, f.call, f.git).current, f.current);
         const projection = { number: 7, head: f.current, state: 'closed', merged: true, labels: ['state:completed'], summary: 'Applied.' };
         notify([projection], f.call);
         assert.equal(f.writes.length, 2);
@@ -73,7 +74,7 @@ test('四个通知入口接受真实主线祖先，旧执行器仍不能进行�
         notify([{ ...projection, head: f.source }], f.call);
         assert.equal(f.writes.length, 0, '旧 PR 状态或 head 不能覆盖当前通知');
         if (workflow === 'community-status') for (const mode of ['preflight', 'prepare', 'store', 'merge']) {
-            assert.throws(() => statusExecution(mode, f.env, f.call, f.git), /WORKFLOW_EXECUTION_INVALID/);
+            assert.equal(statusExecution(mode, f.env, f.call, f.git).current, f.current);
         }
         if (workflow === 'community-publication') {
             assert.throws(() => publicationExecution('finalize', f.env, f.call, f.git), /WORKFLOW_EXECUTION_INVALID/);

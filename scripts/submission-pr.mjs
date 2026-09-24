@@ -24,18 +24,19 @@ export async function checkPull(number, sdk, call = readOnly, fetch, { appliedBa
     const snapshot = pr => ({ number: pr.number, state: pr.state, user: { id: id(pr.user.id), type: pr.user.type },
         baseId: id(pr.base.repo.id), baseRef: pr.base.ref, base: sha(pr.base.sha), headId: id(pr.head.repo.id), head: sha(pr.head.sha) });
     const before = snapshot(pull);
+    const current = appliedBase ?? sha(call(`repos/${policy.repository}/git/ref/heads/${policy.defaultBranch}`).object.sha);
     if (before.baseId !== policy.repositoryId || before.baseRef !== policy.defaultBranch || before.user.type !== 'User' && !renewalAuthor(pull)
         || before.number !== Number(number) || (appliedBase ? before.state !== 'closed' || !pull.merged : before.state !== 'open')) throw new Error('PR_TARGET_INVALID');
     const files = paged(`${endpoint}/files`, call);
     if (files.length !== pull.changed_files || !files.length) throw new Error('PR_FILES_INCOMPLETE');
     if (files.some(file => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(file.filename))) {
-        await checkResult(number, sdk, before.base, { call });
+        await checkResult(number, sdk, current, { call });
         return { validation: 'PUBLICATION_RESULT_VALIDATED' };
     }
-    if (files.some(file => file.filename === renewalFile)) return checkRenewal(pull, files, before.base, call);
+    if (files.some(file => file.filename === renewalFile)) return checkRenewal(pull, files, current, call);
     const submissionPaths = /^(?:submissions|publishers|assets|key-rotations|version-status-requests|ownership-transfers|ownership-transfer-evidence)\//u;
     if (!files.some(file => submissionPaths.test(file.filename))) return { validation: 'NOT_A_SUBMISSION' };
-    const state = stateReader(sdk, appliedBase ?? before.base, call);
+    const state = stateReader(sdk, current, call);
     const tree = repositoryTree(pull.head.repo.full_name, before.head, call);
     const changes = new Map();
     let total = 0;
@@ -67,8 +68,8 @@ export async function checkPull(number, sdk, call = readOnly, fetch, { appliedBa
     const result = await validateChanges({ sdk, state, changes, user: before.user, authorize, call, ...(fetch ? { fetch } : {}) });
     const after = snapshot(call(endpoint));
     const currentBase = sha(call(`repos/${policy.repository}/git/ref/heads/${policy.defaultBranch}`).object.sha);
-    if (!isDeepStrictEqual(before, after) || currentBase !== (appliedBase ?? before.base)) throw new Error('PR_OR_BASE_CHANGED');
-    return { ...result, pr: before, organizationRepresentationRequired: [...organizations] };
+    if (!isDeepStrictEqual(before, after) || currentBase !== current) throw new Error('PR_OR_BASE_CHANGED');
+    return { ...result, pr: { ...before, base: current }, organizationRepresentationRequired: [...organizations] };
 }
 
 main(import.meta.url, async () => {

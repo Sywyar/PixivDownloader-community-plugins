@@ -7,7 +7,7 @@ import { hash } from './sdk.mjs';
 import { git, pull, protectedSource } from './platform.mjs';
 import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
 import { verifyPublicationProof } from './archive-proof.mjs';
-import { readBlob, repositoryTree, stateReader } from './submission-github.mjs';
+import { readBlob, repositoryTree, stateReader, requestTree } from './submission-github.mjs';
 import { signedOwnerOperations } from './status-authorization.mjs';
 import { reference, hydrateReceipt, originalReceipt, readReferencedBlob, receiptProofs, legacyPath, verifyBytes } from './receipt-storage.mjs';
 
@@ -33,8 +33,9 @@ export function resultPath(file) {
         || /^(?:generated\/(?:catalog\.json(?:\.sig)?|repository\.json)|revocations\.json\.sig)$/u.test(file);
 }
 
-export function makeReceipt({ requestId, operation, pr, current, run, writes, state, releases, appliedAt, reviewContext, inputFiles, recordOnly = false, authorization }) {
+export function makeReceipt({ requestId, operation, pr, current, run, writes, state, releases, appliedAt, reviewContext, inputFiles, recordOnly = false, authorization, previousHead }) {
     if (authorization !== undefined && (authorization !== 'SIGNED_OWNER' || !signedOwnerOperations.includes(operation) || recordOnly)) throw new Error('APPLY_RECEIPT_INVALID');
+    if (previousHead && (operation === 'RENEWAL' || [pr.head.sha, current].includes(previousHead))) throw new Error('APPLY_RECEIPT_INVALID');
     const files = [...writes].filter(([file, bytes]) => !state.raw(file)?.equals(bytes)).sort(([a], [b]) => a.localeCompare(b)).map(([file, bytes]) => {
         if (!resultPath(file) || file === receiptPath(requestId)) throw new Error('APPLY_WRITE_FORBIDDEN');
         const before = state.raw(file);
@@ -44,6 +45,8 @@ export function makeReceipt({ requestId, operation, pr, current, run, writes, st
     if (!pr || pr.state !== 'open' || pr.merged || pr.draft || pr.base.sha !== current) throw new Error('REVIEW_OPEN_REQUEST_REQUIRED');
     const value = { schemaVersion: 3, repositoryId: policy.repositoryId, requestId, operation, prNumber: pr.number,
         headSha: sha(pr.head.sha), baseSha: sha(current), runId: id(run.id), ...(authorization === undefined ? {} : { authorization }),
+        sourceSha: sha(run.sourceSha ?? current), integratedBase: operation !== 'RENEWAL',
+        ...(previousHead ? { previousHead: sha(previousHead) } : {}),
         runAttempt: run.run_attempt, appliedAt, files, releases, reviewContext, originalPr: pr, inputFiles, recordOnly,
         expiresAt: new Date(Date.parse(appliedAt) + 30 * 24 * 60 * 60 * 1000).toISOString() };
     const bytes = originalReceipt(value);
@@ -82,9 +85,10 @@ export async function readReceipt(sdk, pointer, current, { call = api, readGit =
         });
         const certificate = verify(manifest, bundle, current, readGit);
         const value = JSON.parse(fs.readFileSync(manifest, 'utf8'));
-        if (value.schemaVersion !== 3 || value.repositoryId !== policy.repositoryId || value.baseSha !== certificate.sourceRepositoryDigest
+        if (value.schemaVersion !== 3 || value.repositoryId !== policy.repositoryId || (value.sourceSha ?? value.baseSha) !== certificate.sourceRepositoryDigest
             || !Array.isArray(value.files) || value.files.some(file => file.bytes !== undefined)) throw new Error('APPLY_RECEIPT_INVALID');
         receiptPath(value.requestId);
+        if (value.sourceSha) protectedSource(sha(value.sourceSha), sha(value.baseSha), readGit);
         return hydrateReceipt(value, ref => readReferencedBlob(ref, call, repositoryName));
     }
     if (pointer.schemaVersion !== 1 || !Number.isSafeInteger(pointer.size) || pointer.size < 1 || pointer.size > API_BYTES
@@ -137,7 +141,7 @@ export function reviewedRequestCall(receipt, call = api) {
 }
 
 export function reviewPrerequisite(pr, expectedHead, current) {
-    if (pr.head.sha !== expectedHead || pr.base.sha !== current) throw new Error('PUBLICATION_HEAD_CHANGED');
+    if (pr.head.sha !== expectedHead) throw new Error('PUBLICATION_HEAD_CHANGED');
     if (pr.state !== 'open' || pr.merged || pr.draft) return 'REVIEW_OPEN_READY_PR_REQUIRED';
     if (id(pr.head.repo.id) !== policy.repositoryId && pr.maintainer_can_modify !== true) return 'MAINTAINER_EDITS_REQUIRED';
     return null;
@@ -195,9 +199,9 @@ export function verifyGeneratedTree(receipt, pointer, parentTree, generatedTree,
 }
 
 export async function checkResult(number, sdk, current, options = {}) {
-    const { call = api, readGit = git, merged = false } = options;
+    const { call = api, readGit = git, merged = false, refresh = false } = options;
     const pr = pull(number, call), files = list(`${prefix}/pulls/${number}/files`, null, call);
-    if (files.length !== pr.changed_files || (merged ? !pr.merged || pr.state !== 'closed' : pr.state !== 'open' || pr.merged || pr.base.sha !== current)) throw new Error('APPLY_RESULT_PR_INVALID');
+    if (files.length !== pr.changed_files || (merged ? !pr.merged || pr.state !== 'closed' : pr.state !== 'open' || pr.merged)) throw new Error('APPLY_RESULT_PR_INVALID');
     const pointers = files.filter(file => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(file.filename));
     if (pointers.length !== 1 || pointers[0].status !== 'added') throw new Error('APPLY_WRITE_FORBIDDEN');
     // 合并后的树从社区 Git 历史读取，不依赖投稿分支仍然存在。
@@ -206,17 +210,18 @@ export async function checkResult(number, sdk, current, options = {}) {
     const pointer = JSON.parse(readBlob(name, tree.get(pointers[0].filename), scoped).toString('utf8'));
     const receipt = await readReceipt(sdk, pointer, current, { ...options, call: scoped, repositoryName: name });
     if (!merged) protectedSource(receipt.baseSha, current, readGit);
-    if (!merged && receiptExpired(receipt)) throw new Error('APPLY_RESULT_EXPIRED');
+    if (!merged && !refresh && receiptExpired(receipt)) throw new Error('APPLY_RESULT_EXPIRED');
     const original = receipt.originalPr;
     if (!original || receipt.prNumber !== number || original.number !== number || original.state !== 'open' || original.merged || original.draft
         || original.head.sha !== receipt.headSha || original.base.sha !== receipt.baseSha
         || id(original.head.repo.id) !== id(pr.head.repo.id) || id(original.user.id) !== id(pr.user.id)
         || original.head.ref !== pr.head.ref || original.base.ref !== policy.defaultBranch
         || id(original.base.repo.id) !== policy.repositoryId || original.changed_files !== receipt.inputFiles?.length
-        || receiptPath(receipt.requestId) !== pointers[0].filename || !merged && receipt.baseSha !== current) throw new Error('APPLY_BASE_CHANGED');
+        || receiptPath(receipt.requestId) !== pointers[0].filename || !merged && !refresh && receipt.baseSha !== current) throw new Error('APPLY_BASE_CHANGED');
     const commit = scoped(`repos/${name}/git/commits/${sha(pr.head.sha)}`);
-    if (commit.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), [receipt.headSha])) throw new Error('REVIEW_PARENT_CHANGED');
-    const parentTree = repositoryTree(name, receipt.headSha, scoped);
+    if (commit.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), generatedParents(receipt))) throw new Error('REVIEW_PARENT_CHANGED');
+    const headTree = repositoryTree(name, receipt.headSha, scoped);
+    const parentTree = receipt.integratedBase ? requestTree(repositoryTree(name, receipt.baseSha, scoped), headTree, receipt.inputFiles) : headTree;
     verifyGeneratedTree(receipt, pointer, parentTree, tree, entry => readBlob(name, entry, scoped));
     let merge;
     if (merged) {
@@ -231,6 +236,8 @@ export async function checkResult(number, sdk, current, options = {}) {
 }
 
 export const REVIEW_READBACK_ATTEMPTS = 5;
+export const generatedParents = receipt => receipt.integratedBase
+    ? [sha(receipt.headSha), sha(receipt.baseSha), ...(receipt.previousHead ? [sha(receipt.previousHead)] : [])] : [sha(receipt.headSha)];
 
 export function requestSubject(receipt) {
     const checked = receipt.reviewContext?.checked;
@@ -246,7 +253,8 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
     const current = () => sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha);
     if (current() !== receipt.baseSha) throw new Error('APPLY_BASE_CHANGED');
     const pr = pull(receipt.prNumber, call);
-    const prerequisite = reviewPrerequisite(pr, receipt.headSha, receipt.baseSha);
+    const expectedHead = receipt.previousHead ?? receipt.headSha;
+    const prerequisite = reviewPrerequisite(pr, expectedHead, receipt.baseSha);
     if (prerequisite) return { pending: prerequisite, pr };
     const scoped = forkApi(pr, call), target = `repos/${pr.head.repo.full_name}`;
     const writes = new Map(receipt.files.map(file => [file.path, Buffer.from(file.bytes, 'base64')]));
@@ -258,14 +266,19 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
         const blob = scoped(`${target}/git/blobs`, { method: 'POST', body: { content: bytes.toString('base64'), encoding: 'base64' } });
         tree.push({ path: file, mode: '100644', type: 'blob', sha: sha(blob.sha) });
     }
-    const parent = scoped(`${target}/git/commits/${receipt.headSha}`);
+    if (receipt.integratedBase) {
+        const baseTree = repositoryTree(pr.head.repo.full_name, receipt.baseSha, scoped);
+        const inputs = requestTree(baseTree, repositoryTree(pr.head.repo.full_name, receipt.headSha, scoped), receipt.inputFiles);
+        for (const file of receipt.inputFiles) tree.push({ path: file.filename, mode: '100644', type: 'blob', sha: inputs.get(file.filename).sha });
+    }
+    const parent = scoped(`${target}/git/commits/${receipt.integratedBase ? receipt.baseSha : receipt.headSha}`);
     const created = scoped(`${target}/git/trees`, { method: 'POST', body: { base_tree: sha(parent.tree.sha), tree } });
     const subject = requestSubject(receipt);
     const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}：${subject}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
     const identity = { name: 'Community review', email: `${policy.repositoryOwnerId}+${policy.repository.split('/')[0]}@users.noreply.github.com`, date: receipt.appliedAt };
-    const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { message, tree: sha(created.sha), parents: [receipt.headSha], author: identity, committer: identity } });
+    const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { message, tree: sha(created.sha), parents: generatedParents(receipt), author: identity, committer: identity } });
     const before = pull(receipt.prNumber, call);
-    if (current() !== receipt.baseSha || before.head.sha !== receipt.headSha || reviewPrerequisite(before, receipt.headSha, receipt.baseSha)) throw new Error('PUBLICATION_HEAD_CHANGED');
+    if (current() !== receipt.baseSha || reviewPrerequisite(before, expectedHead, receipt.baseSha)) throw new Error('PUBLICATION_HEAD_CHANGED');
     // 普通快进更新：作者同时追加提交时 GitHub 拒绝，绝不强制覆盖投稿分支。
     const branch = () => sha(scoped(`${target}/git/ref/heads/${pr.head.ref}`).object.sha);
     try { scoped(`${target}/git/refs/heads/${pr.head.ref}`, { method: 'PATCH', body: { sha: sha(commit.sha), force: false } }); }
@@ -276,8 +289,8 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
         const details = JSON.stringify({ phase: 'review-commit-readback', expectedHead: commit.sha,
             actualHead: actual.head.sha, branchHead: ref, expectedBase: receipt.baseSha, actualBase: base, attempt });
         if (ref !== commit.sha || actual.state !== 'open' || actual.merged || actual.draft
-            || actual.base.sha !== receipt.baseSha || base !== receipt.baseSha
-            || ![receipt.headSha, commit.sha].includes(actual.head.sha)) throw new Error('PUBLICATION_HEAD_CHANGED: ' + details);
+            || ![pr.base.sha, receipt.baseSha].includes(actual.base.sha) || base !== receipt.baseSha
+            || ![expectedHead, commit.sha].includes(actual.head.sha)) throw new Error('PUBLICATION_HEAD_CHANGED: ' + details);
         if (actual.head.sha === commit.sha) return { pr: actual, head: commit.sha };
         if (attempt === REVIEW_READBACK_ATTEMPTS) throw new Error('PUBLICATION_HEAD_NOT_VISIBLE: ' + details);
         await wait(1000);

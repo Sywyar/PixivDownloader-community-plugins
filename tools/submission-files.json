@@ -4,7 +4,7 @@
     {
       "path": "schemas/community/v1/bundle-manifest.json",
       "size": 7679,
-      "sha256": "f32c6066d8161bc572e98691e86fe5bd540ea607fa8fe3d75d20519824fcb728"
+      "sha256": "0dcd51c2c4c5af0981a230560c9fc4e4e254bebde803d762c144d058ab5d50ab"
     },
     {
       "path": "schemas/community/v1/catalogs.json",
@@ -238,8 +238,8 @@
     },
     {
       "path": "scripts/apply-result.mjs",
-      "size": 21599,
-      "sha256": "2c6071199cc6f30a1ef2923ab4ad914aba749e047030c33c0d6de5838141cd64"
+      "size": 22895,
+      "sha256": "196e4200ca484f0747086e608344fa9355008e240e86a0c083bf93c9cf0b9ef3"
     },
     {
       "path": "scripts/apply-sdk.mjs",
@@ -303,8 +303,8 @@
     },
     {
       "path": "scripts/platform.mjs",
-      "size": 12886,
-      "sha256": "e29ccd0c9869c60e88fa4d6d28a48fa4dd63c14d0b974397d5c413b3fbef684d"
+      "size": 13194,
+      "sha256": "19271f851d91b2415dadcc5877e08596b3207265ab29c6f12b3ae8e174f981c8"
     },
     {
       "path": "scripts/project.mjs",
@@ -368,8 +368,8 @@
     },
     {
       "path": "scripts/submission-github.mjs",
-      "size": 13447,
-      "sha256": "9368f3a5e169fc42172f715c15d832251f35e5d2fa5bf97dc20d85c63ee0dc3b"
+      "size": 14781,
+      "sha256": "c774195c1d44b796e6b4594ddc509e7b90cdf5180d7c48ee726b1da00bed8620"
     },
     {
       "path": "scripts/submission-messages.mjs",
@@ -388,8 +388,8 @@
     },
     {
       "path": "scripts/submission-pr.mjs",
-      "size": 5905,
-      "sha256": "8ed52ef956c0ed58406d83a3e2b790fedc86fed15523f586c8ae86e5d08cd259"
+      "size": 6004,
+      "sha256": "6fd047cc3238f5cd1cace78c2e34505f957d6a5410e4e79fa47b79c818a70703"
     },
     {
       "path": "scripts/submission-presentation.mjs",
@@ -509,17 +509,17 @@
     {
       "path": "tools/community-contract.json",
       "size": 385,
-      "sha256": "f848b359ac9861d42d5d4bc1fda3aac4d6dbf6d110f6b5a4981d82910081ef9e"
+      "sha256": "460612ca4b593f41c49451a0a55b3cb64119e9be8b3a95659e02ef9e20b9f62b"
     },
     {
       "path": "tools/sdk-lock.json",
       "size": 356,
-      "sha256": "9beef883c2c68c0c5354ec095f2dee1631f0263bb8bfcddfee98f5669b0e567b"
+      "sha256": "1ebc55913614b8bc7632a3846164ee4f79593231ef84f0d7da12b12b815a7e3a"
     },
     {
       "path": "tools/sdk-tools.jar",
-      "size": 15464368,
-      "sha256": "d49ae1bc5ad384c10e3fff10271fcc5d2b7ab60e80b06221ca08c364868c557c"
+      "size": 15466209,
+      "sha256": "56483e11e6ac8f978a3c6db82cc498cda8561ed935850d87031e8368462c6a1f"
     },
     {
       "path": "tools/signing-tool.jar",

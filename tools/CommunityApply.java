@@ -258,6 +258,8 @@ public final class CommunityApply {
             case "publication" -> tool.publication();
             case "confirm-publication" -> tool.confirmPublication();
             case "confirm-operation" -> tool.confirmOperation();
+            case "generated-parents" -> Map.of("verified", JSON.treeToValue(tool.input.get("pr"), CommunityPr.class)
+                    .hasGeneratedParents(JSON.convertValue(tool.input.get("parents"), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() { })));
             case "sign" -> tool.sign();
             case "directory" -> tool.directory();
             case "revocations" -> tool.revocations();

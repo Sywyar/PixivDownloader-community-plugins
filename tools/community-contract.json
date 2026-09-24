@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "sourceCommit": "a6e94ad3545c038e654cd00479b17c4505fde4cc",
-  "sdkVersion": "1.0.0-rc.14",
+  "sourceCommit": "037b716b25b22eab3f1d8f6dd72b3a055d50124c",
+  "sdkVersion": "1.0.0-rc.15",
   "contractVersion": 1,
-  "manifestSha256": "f32c6066d8161bc572e98691e86fe5bd540ea607fa8fe3d75d20519824fcb728",
+  "manifestSha256": "0dcd51c2c4c5af0981a230560c9fc4e4e254bebde803d762c144d058ab5d50ab",
   "tool": {
     "path": "tools/sdk-tools.jar",
-    "size": 15464368,
-    "sha256": "d49ae1bc5ad384c10e3fff10271fcc5d2b7ab60e80b06221ca08c364868c557c"
+    "size": 15466209,
+    "sha256": "56483e11e6ac8f978a3c6db82cc498cda8561ed935850d87031e8368462c6a1f"
   }
 }
