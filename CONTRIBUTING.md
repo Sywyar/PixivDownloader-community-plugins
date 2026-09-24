@@ -73,14 +73,20 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 | Environment | 限制与凭据 |
 |---|---|
 | `community-gate` | 仅 `master` 分支；保存现有 Gate App 的 `GATE_APP_PRIVATE_KEY`。官方 App action 只申请本社区仓库的短期 `checks:write` token，并在 job 结束撤销 |
-| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、维护者分支令牌和现有 Gate App 私钥。用于签名管理请求、紧急声明，以及已获人工批准请求的生成与合并 |
+| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、维护者 SSH 私钥、所有者合并 PAT 和现有 Gate App 私钥。用于签名管理请求、紧急声明，以及已获人工批准请求的生成与合并 |
 | `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。工具清单签发使用独立的 `COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64`；完成审核通过此环境取得人工批准，插件签名在后续的 `community-status` 作业执行 |
 
 Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单公钥固定在启动器中，不用于插件包签名。两类私钥都保存 PKCS#8 PEM 文件的 Base64 编码，密钥默认不设置到期时间。
 
 插件签名需在 `community-status` 配置 `COMMUNITY_RELEASE_KEY_ID` 和 `COMMUNITY_RELEASE_PUBLIC_KEY_BASE64` 变量，后者为 Ed25519 SPKI DER 的 Base64。人工完成审核仍须先通过 `release` 批准，再进入签名与合并作业。社区密钥不能使用官方应用、插件或 FFmpeg 根公钥；已发布社区根不能通过改变量直接替换。
 
-同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `community-status` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。人工与自动流程均用该令牌以仓库所有者身份合并原 PR；令牌须能读当前用户、写入目标 fork 分支及合并社区 PR。合并前核对所有者数字 ID，仍遵守全部保护规则。此凭据不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留请求。
+同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**；自动申请、人工审核完成与紧急声明均使用 SSH 快进写回原 fork 分支。维护者生成专用 Ed25519 密钥，把公钥登记到自己的 GitHub 账户 **Settings → SSH and GPG keys → New SSH key → Authentication Key**，把完整的无口令 OpenSSH 私钥保存到 `community-status` 的 `COMMUNITY_REVIEW_BRANCH_SSH_KEY` Secret。这里使用有权编辑该 PR 的维护者账户密钥，投稿者无需安装 App 或提供私钥。
+
+`COMMUNITY_REVIEW_BRANCH_TOKEN` 保存社区仓库所有者的合并 PAT。细粒度 PAT 只需选择本社区仓库，授予 **Contents: Read and write**，并保留必需的 **Metadata: Read-only**。它用于读取当前用户身份及合并社区 PR；合并前核对所有者数字 ID 和精确 head，仍遵守全部保护规则。
+
+SSH 私钥最多 16 KiB，只传给受保护的分支写入步骤。执行器使用独立临时目录，匿名拉取固定父提交，用 Git 对象命令构造结果；不检出或执行投稿代码。SSH 固定 GitHub 主机公钥，仅使用指定密钥，不继承 SSH agent、用户 SSH 配置或 Git 凭据。每条 Git 命令最多六十秒，输出最多 32 MiB；结束时删除临时私钥和仓库。SSH 认证与社区内容签名使用不同密钥。
+
+请求执行使用独立的 **Request execution** 评论，显示对应 head、运行链接及受控错误原因；Gate 更新审核摘要时保留此评论。写入或合并被阻断时，执行步骤返回失败，通知仍可写出诊断。修复凭据、网络或分支权限后，按当前 head 重试对应工作流；已经写入的结果先回读验证，不重复推送。
 
 ## 完成审核与发布
 

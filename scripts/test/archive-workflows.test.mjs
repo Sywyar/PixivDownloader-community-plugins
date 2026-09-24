@@ -109,6 +109,14 @@ public class WorkflowJson {
                 if (step.env?.COMMUNITY_REVIEW_BRANCH_TOKEN) {
                     assert(['release', 'community-status'].includes(job.environment));
                     assert.equal(step.env.COMMUNITY_REVIEW_BRANCH_TOKEN, '${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}');
+                    assert(['community-emergency.mjs', 'community-status.mjs merge', 'community-publication.mjs merge'].includes(step.run.slice('node scripts/'.length)));
+                }
+                if (step.env?.COMMUNITY_REVIEW_BRANCH_SSH_KEY) {
+                    assert.equal(job.environment, 'community-status');
+                    assert.equal(checkout.with.ref, '${{ github.workflow_sha }}');
+                    assert.equal(step.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY, '${{ secrets.COMMUNITY_REVIEW_BRANCH_SSH_KEY }}');
+                    assert(['community-emergency.mjs', 'community-status.mjs store', 'community-publication.mjs store'].includes(step.run.slice('node scripts/'.length)));
+                    assert(protectedJob(jobName));
                 }
             }
         }

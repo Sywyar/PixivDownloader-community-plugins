@@ -12,6 +12,7 @@ import { publisherPath } from './submission-check.mjs';
 import { automaticEnvironment } from './status-execution.mjs';
 import { hash } from './sdk.mjs';
 import { formatRequestInfo, notifyRequestInfo } from './community-comments.mjs';
+import { writeReviewBranch } from './review-branch.mjs';
 
 function requestProjection(pr, request, requestPath, bytes) {
     return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged, baseRef: policy.emergencyBranch,
@@ -34,24 +35,14 @@ export function emergencyCheck(context, pr, conclusion, summary, call = api, tok
     return result;
 }
 
-export async function appendEmergency(checked, call = api, wait = delay) {
+export async function appendEmergency(checked, call = api, wait = delay, writeBranch = writeReviewBranch, branchKey) {
     const { pr, writes } = checked;
     if (checked.ready) return pr.head.sha;
     if (id(pr.head.repo.id) !== policy.repositoryId && !pr.maintainer_can_modify) throw new Error('MAINTAINER_EDITS_REQUIRED');
     const scoped = forkApi(pr, call), target = `repos/${pr.head.repo.full_name}`;
-    const entries = [];
-    for (const [file, bytes] of writes) {
-        const blob = scoped(`${target}/git/blobs`, { method: 'POST', body: { encoding: 'base64', content: bytes.toString('base64') } });
-        entries.push({ path: file, mode: '100644', type: 'blob', sha: sha(blob.sha) });
-    }
-    const parent = scoped(`${target}/git/commits/${sha(pr.head.sha)}`);
-    const tree = scoped(`${target}/git/trees`, { method: 'POST', body: { base_tree: sha(parent.tree.sha), tree: entries } });
-    const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { parents: [pr.head.sha], tree: sha(tree.sha),
-        message: `chore(community): 登记 ${checked.request.value.payload.owner.publisherId} 泄露密钥\n\n- 绑定原生投稿身份与不可变声明\n- 仅停止后续社区操作授权` } });
-    checked.unchanged();
+    const commit = { sha: writeBranch(pr, { base: pr.head.sha, parents: [pr.head.sha], writes, unchanged: checked.unchanged,
+        message: `chore(community): 登记 ${checked.request.value.payload.owner.publisherId} 泄露密钥\n\n- 绑定原生投稿身份与不可变声明\n- 仅停止后续社区操作授权` }, scoped, { privateKey: branchKey }) };
     const branch = () => sha(scoped(`${target}/git/ref/heads/${pr.head.ref}`).object.sha);
-    try { scoped(`${target}/git/refs/heads/${pr.head.ref}`, { method: 'PATCH', body: { sha: sha(commit.sha), force: false } }); }
-    catch (error) { if (branch() !== commit.sha) throw error; }
     for (let attempt = 1; attempt <= REVIEW_READBACK_ATTEMPTS; attempt++) {
         const actual = emergencyPull(pr.number, call);
         if (branch() !== commit.sha || actual.state !== 'open' || actual.draft || actual.merged
@@ -116,7 +107,7 @@ export function invalidatePending(context, fingerprints, sdk, call = api, token 
 }
 
 export async function applyEmergency(context, sdk, number, head, { call = api, wait = delay,
-    token = process.env.COMMUNITY_REVIEW_BRANCH_TOKEN } = {}) {
+    token = process.env.COMMUNITY_REVIEW_BRANCH_TOKEN, writeBranch = writeReviewBranch, branchKey } = {}) {
     const initial = emergencyPull(number, call);
     const refresh = affected => {
         const pendingRefresh = [];
@@ -146,11 +137,11 @@ export async function applyEmergency(context, sdk, number, head, { call = api, w
     emergencyCheck(context, initial, 'pending', 'Verifying native identity, registered keys and exact request bytes.', call);
     let checked;
     try {
-        if (!token) throw new Error('REVIEW_BRANCH_CREDENTIAL_REQUIRED');
+        if (!token) throw new Error('STATUS_MERGE_CREDENTIAL_REQUIRED');
         const actor = call('user', { token });
         if (actor.type !== 'User' || id(actor.id) !== policy.repositoryOwnerId) throw new Error('STATUS_MERGE_IDENTITY_INVALID');
         checked = checkEmergency(number, head, sdk, context.current, call);
-        const preparedHead = await appendEmergency(checked, call, wait);
+        const preparedHead = await appendEmergency(checked, call, wait, writeBranch, branchKey);
         checked = checkEmergency(number, preparedHead, sdk, context.current, call);
         if (!checked.ready) throw new Error('EMERGENCY_RECORDS_MISSING');
         // 即使本次重复声明没有新增封禁记录，也不改写旧记录或解除已生效的限制。
@@ -174,12 +165,15 @@ export async function applyEmergency(context, sdk, number, head, { call = api, w
     } catch (error) {
         const latest = emergencyPull(number, call);
         if (!latest.merged && latest.state === 'open') emergencyCheck(context, latest, 'failure',
-            'Emergency declaration could not be verified or merged. Inspect the trusted workflow log; no restriction has been undone.', call);
+            'Emergency declaration could not be verified or merged. Inspect the trusted workflow log; no restriction has been undone.'
+                + (error.diagnostic ? '\n\nDiagnostic: `' + JSON.stringify(error.diagnostic) + '`' : ''), call);
         throw error;
     }
 }
 
 main(import.meta.url, async () => {
+    const branchKey = process.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY;
+    delete process.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY;
     if (process.argv.length === 3 && process.argv[2] === 'notify') {
         notificationExecution(emergencyPath);
         notifyRequestInfo(JSON.parse(process.env.COMMUNITY_REQUEST_INFO));
@@ -192,7 +186,7 @@ main(import.meta.url, async () => {
     const payload = event(), pr = payload.pull_request;
     const number = Number(id(pr?.number ?? payload.inputs?.prNumber));
     const head = sha(pr?.head.sha ?? payload.inputs?.expectedHeadSha);
-    const { projection, ...result } = await applyEmergency(context, prepareSubmission(), number, head);
+    const { projection, ...result } = await applyEmergency(context, prepareSubmission(), number, head, { branchKey });
     if (projection) fs.appendFileSync(process.env.GITHUB_OUTPUT, 'requestInfo=' + JSON.stringify(projection) + '\n', 'utf8');
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, JSON.stringify(result) + '\n', 'utf8');
 });
