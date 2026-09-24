@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { api, id, sha, list, prefix, policy } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { downloadCandidate } from './candidate-transfer.mjs';
-import { immutableAsset, readReceipt, checkResult } from './apply-result.mjs';
+import { immutableAsset, readReceipt, checkResult, generatedParents } from './apply-result.mjs';
 import { mergedRequest } from './apply-context.mjs';
 import { applySdk } from './apply-sdk.mjs';
 import { catalogId, prValue } from './platform.mjs';
@@ -27,7 +27,7 @@ const assetIdentity = ({ id, name, size, digest, state }) => ({ id, name, size, 
 export async function promoteReleases(completion, workspace, { call = api, download = downloadCandidate, fetch = publicDownload, confirm, authorize, ...transport } = {}) {
     const { receipt, pr, commit, merge } = completion;
     if (!pr?.merged || pr.state !== 'closed' || !merge || merge.sha !== pr.merge_commit_sha
-        || commit?.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), [receipt.headSha])
+        || commit?.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), generatedParents(receipt))
         || !isDeepStrictEqual(merge.parents.map(parent => parent.sha), [receipt.baseSha, pr.head.sha])) throw new Error('REVIEW_MERGE_CHANGED');
     const targetCommit = sha(merge.sha);
     for (const expected of receipt.releases) {

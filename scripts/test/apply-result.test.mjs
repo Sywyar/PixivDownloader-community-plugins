@@ -61,25 +61,29 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     const requestPath = `version-status-requests/101/demo/2.3.4/${'a'.repeat(64)}.json`;
     add(requestPath, encoded({ requestId: 'a'.repeat(64) }));
     const requested = git(['commit-tree', git(['write-tree']), '-p', source], 'Request\n');
+    git(['read-tree', source]);
+    add('plugin-bindings/another.json', encoded({ owner: 'another' }));
+    const latest = git(['commit-tree', git(['write-tree']), '-p', source], 'Independent request merged\n');
+    git(['update-ref', 'refs/heads/master', latest]);
     const repo = { id: policy.repositoryId, full_name: policy.repository, owner: { id: policy.repositoryOwnerId, type: 'User' },
         default_branch: policy.defaultBranch, archived: false, private: false };
     const pr = { number: 7, user: { id: 101, type: 'User' }, head: { sha: requested, repo, ref: 'community/request' },
         base: { sha: source, ref: 'master', repo }, changed_files: 1, merged: false, state: 'open', draft: false };
     git(['update-ref', 'refs/heads/' + pr.head.ref, requested]);
-    const inputFiles = [{ filename: requestPath, status: 'added' }];
-    const made = makeReceipt({ requestId: 'a'.repeat(64), operation: 'YANK', pr: structuredClone(pr), current: source,
-        run: { id: 11, run_attempt: 1 }, appliedAt: '2026-01-02T00:00:00Z', inputFiles,
+    const inputFiles = [{ filename: requestPath, status: 'added', sha: git(['rev-parse', requested + ':' + requestPath]) }];
+    let made = makeReceipt({ requestId: 'a'.repeat(64), operation: 'YANK', pr: { ...structuredClone(pr), base: { ...pr.base, sha: latest } }, current: latest,
+        run: { id: 11, run_attempt: 1, sourceSha: source }, appliedAt: '2026-01-02T00:00:00Z', inputFiles,
         writes: new Map([['generated/current.json', encoded({ sequence: 2 })],
             ['revocations.json', encoded({ nextUpdate: new Date(Date.now() + 86400000).toISOString() })]]),
         state: { raw: file => file === 'generated/current.json' ? baseline : null }, releases: [],
         reviewContext: { checked: { owner: { publisherId: 'example' }, pluginId: 'demo', version: '2.3.4' } } });
     const proof = Buffer.from('{}'), blobs = new Map([['601', made.bytes], ['602', proof]]);
-    const pointer = { schemaVersion: 2, manifest: reference(made.bytes), attestation: reference(proof) };
-    const proofs = new Map([[proofPath(pointer.manifest.sha256), made.bytes], [proofPath(pointer.attestation.sha256), proof]]);
+    let pointer = { schemaVersion: 2, manifest: reference(made.bytes), attestation: reference(proof) };
+    let proofs = new Map([[proofPath(pointer.manifest.sha256), made.bytes], [proofPath(pointer.attestation.sha256), proof]]);
     assert(JSON.parse(made.bytes).files.every(file => file.bytes === undefined));
     const assets = [...blobs].map(([id, bytes], i) => ({ id, name: i ? 'publication-attestation.json' : 'publication.json',
         state: 'uploaded', size: bytes.length, digest: 'sha256:' + hash(bytes) }));
-    let current = source, lostResponse = true, extraTreeFile = false, staleReads = 2, waits = 0;
+    let current = latest, lostResponse = true, extraTreeFile = false, staleReads = 2, waits = 0;
     const mutations = [];
     const call = (endpoint, options = {}) => {
         const route = endpoint.split('?')[0], body = options.body;
@@ -98,7 +102,7 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
                 assert.equal(body.force, false);
                 git(['merge-base', '--is-ancestor', pr.head.sha, body.sha]);
                 git(['update-ref', 'refs/heads/' + pr.head.ref, body.sha]);
-                pr.head.sha = body.sha; pr.changed_files = 1 + made.value.files.length + 1 + proofs.size;
+                pr.head.sha = body.sha; pr.base.sha = current; pr.changed_files = 1 + made.value.files.length + 1 + proofs.size;
                 if (lostResponse) { lostResponse = false; throw new Error('RESPONSE_LOST'); }
                 return {};
             }
@@ -141,7 +145,10 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     assert.equal(mutations.filter(route => route === prefix + '/git/refs/heads/' + pr.head.ref).length, 1);
     assert.equal(result.pr.number, 7); assert.notEqual(result.head, requested);
     assert.match(git(['show', '-s', '--format=%s', result.head]), /YANK 请求审核：example \/ demo-v2\.3\.4$/u);
-    assert.equal(git(['rev-parse', 'master']), source);
+    assert.equal(git(['rev-parse', 'master']), latest);
+    assert.deepEqual(git(['rev-list', '--parents', '-n', '1', result.head]).split(' ').slice(1), [requested, latest]);
+    assert.equal(git(['show', result.head + ':plugin-bindings/another.json']), '{"owner":"another"}');
+    git(['merge-base', '--is-ancestor', latest, result.head]);
     assert.ok(!mutations.some(route => route === prefix + '/pulls' || route === prefix + '/git/refs'));
     assert.equal((await checkResult(7, { workspace }, current, options)).receipt.headSha, requested);
     assert.equal(receiptExpired(made.value), false);
@@ -153,11 +160,33 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     await appendReviewCommit(made.value, pointer, call, { proofs });
     await assert.rejects(checkResult(7, { workspace }, current, options), /APPLY_WRITE_FORBIDDEN/);
     pr.head.sha = generated;
-    pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', source, '-p', generated], 'Merge\n');
+    pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', latest, '-p', generated], 'Merge\n');
     pr.state = 'closed'; pr.merged = true; current = pr.merge_commit_sha;
     assert.equal((await checkResult(7, { workspace }, current, { ...options, merged: true })).merge.sha, current);
     pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', generated, '-p', source], 'Wrong merge\n');
     await assert.rejects(checkResult(7, { workspace }, current, { ...options, merged: true }), /REVIEW_MERGE_CHANGED/);
+
+    // 写入后中断，另一请求先合并：验证旧证明，再追加新生成提交；无需作者更新或强推。
+    git(['read-tree', latest]);
+    add('plugin-bindings/third.json', encoded({ owner: 'third' }));
+    current = git(['commit-tree', git(['write-tree']), '-p', latest], 'Another request merged\n');
+    git(['update-ref', 'refs/heads/master', current]);
+    git(['update-ref', 'refs/heads/' + pr.head.ref, generated]);
+    pr.head.sha = generated; pr.state = 'open'; pr.merged = false; extraTreeFile = false;
+    await assert.rejects(checkResult(7, { workspace }, current, options), /APPLY_BASE_CHANGED/);
+    const prior = (await checkResult(7, { workspace }, current, { ...options, refresh: true })).receipt;
+    made = makeReceipt({ ...prior, pr: { ...prior.originalPr, base: { ...prior.originalPr.base, sha: current } },
+        current, previousHead: generated, run: { id: 12, run_attempt: 1, sourceSha: source },
+        writes: new Map(prior.files.map(file => [file.path, Buffer.from(file.bytes, 'base64')])),
+        state: { raw: file => file === 'generated/current.json' ? baseline : null } });
+    pointer = { schemaVersion: 2, manifest: reference(made.bytes), attestation: reference(proof) };
+    proofs = new Map([[proofPath(pointer.manifest.sha256), made.bytes], [proofPath(pointer.attestation.sha256), proof]]);
+    const refreshed = await appendReviewCommit(made.value, pointer, call, { proofs });
+    git(['merge-base', '--is-ancestor', generated, refreshed.head]);
+    git(['merge-base', '--is-ancestor', current, refreshed.head]);
+    assert.equal((await checkResult(7, { workspace }, current, options)).receipt.previousHead, generated);
+    assert.equal(git(['show', refreshed.head + ':plugin-bindings/third.json']), '{"owner":"third"}');
+    assert.deepEqual(git(['rev-list', '--parents', '-n', '1', refreshed.head]).split(' ').slice(1), [requested, current, generated]);
 });
 
 test('审核提交回读只等待旧 PR 视图，拒绝分支、主线及请求状态变化', async () => {

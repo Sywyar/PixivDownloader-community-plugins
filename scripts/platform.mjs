@@ -62,10 +62,11 @@ function workflowExecution(workflowPath, env, call, readGit, notification) {
     repository(call, { publicOnly: true });
     const current = sha(call(prefix + '/branches/' + policy.defaultBranch).commit.sha);
     const source = sha(env.GITHUB_WORKFLOW_SHA);
+    const queued = [gatePath, '.github/workflows/community-review-complete.yml', '.github/workflows/community-status.yml'].includes(workflowPath);
     if (env.GITHUB_REPOSITORY !== policy.repository || env.GITHUB_REPOSITORY_ID !== policy.repositoryId
         || env.GITHUB_REF !== 'refs/heads/' + policy.defaultBranch || env.GITHUB_REF_PROTECTED !== 'true'
         || env.GITHUB_WORKFLOW_REF !== policy.repository + '/' + workflowPath + '@refs/heads/' + policy.defaultBranch
-        || readGit(['rev-parse', 'HEAD']) !== source || !notification && source !== current) {
+        || readGit(['rev-parse', 'HEAD']) !== source || !notification && !queued && source !== current) {
         throw new Error('WORKFLOW_EXECUTION_INVALID');
     }
     const run = trustedRun(env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, workflowPath, current, call, readGit,
@@ -75,13 +76,13 @@ function workflowExecution(workflowPath, env, call, readGit, notification) {
     return { current, run };
 }
 
-export function pull(number, call = api) {
+export function pull(number, call = api, current) {
     const value = call(prefix + '/pulls/' + id(number));
     if (value.number !== Number(number) || id(value.base.repo.id) !== policy.repositoryId
         || value.base.ref !== policy.defaultBranch || !value.head.repo || value.user.type !== 'User' && !renewalAuthor(value)) {
         throw new Error('PR_TARGET_INVALID');
     }
-    return value;
+    return current === undefined ? value : { ...value, base: { ...value.base, sha: sha(current) } };
 }
 
 export function prValue(pr) {
@@ -132,7 +133,7 @@ export function classify(pr, files) {
 }
 
 export function facts(number, prepared, current, call = api, versionContext = null) {
-    const pr = pull(number, call);
+    const pr = pull(number, call, current);
     const files = list(prefix + '/pulls/' + pr.number + '/files', null, call);
     const operation = classify(pr, files);
     if (operation !== 'maintenance' && (!versionContext || versionContext.checked.pr.head !== pr.head.sha

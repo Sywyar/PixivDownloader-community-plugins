@@ -104,6 +104,32 @@ test('自动合并复用所有者凭据、等待绑定 App 检查并恢复合并
     }
 });
 
+test('人工审核合并核验本次 release 批准；主线推进不改原审核 head，拒绝仍阻断', async () => {
+    for (const approved of [true, false]) {
+        const f = fixture();
+        const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };
+        f.context.automatic = false;
+        Object.assign(f.context.run, { event: 'workflow_dispatch', triggering_actor: reviewer });
+        f.pr.base.sha = 'f'.repeat(40);
+        f.completion.receipt.authorization = undefined;
+        f.completion.receipt.operation = 'FIRST_RELEASE';
+        f.completion.receipt.headSha = 'e'.repeat(40);
+        const call = (endpoint, options) => {
+            if (endpoint.includes('/collaborators?')) return [[reviewer]];
+            if (endpoint === `${prefix}/environments/release`) return { id: 5, can_admins_bypass: false,
+                deployment_branch_policy: { custom_branch_policies: true },
+                protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer }] }] };
+            if (endpoint.includes('/deployment-branch-policies?')) return [{ total_count: 1, branch_policies: [{ name: 'master', type: 'branch' }] }];
+            if (endpoint.endsWith('/approvals')) return [{ state: approved ? 'approved' : 'rejected', user: reviewer, environments: [{ id: 5, name: 'release' }] }];
+            return f.call(endpoint, options);
+        };
+        const result = mergeStatus(f.context, {}, 7, head, { ...f.options, call,
+            inputs: { prNumber: 7, expectedHeadSha: f.completion.receipt.headSha } });
+        if (approved) assert.equal((await result).merged, true);
+        else { await assert.rejects(result, /PUBLICATION_APPROVAL_REQUIRED/); assert.equal(f.writes.length, 0); }
+    }
+});
+
 test('缺少凭据、错误身份、人工拒绝、head 改变和失败检查均不合并', async () => {
     const missing = fixture();
     assert.equal((await mergeStatus(missing.context, {}, 7, head, { ...missing.options, token: '' })).pending, 'STATUS_MERGE_CREDENTIAL_REQUIRED');

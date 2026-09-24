@@ -22,8 +22,8 @@ public class WorkflowJson {
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath, '-d', path.join(sdk.workspace, 'runtime'), source]);
     const read = file => JSON.parse(sdk.run('java', ['-cp', sdk.classpath, 'WorkflowJson', path.join(root, '.github/workflows', file + '.yml')]));
     // 实际条件和输出选择共同决定是否通知；空数组不能因为字符串非空而启动作业。
-    for (const [name, stages] of [['community-gate', ['gate']], ['community-status', ['apply', 'store']],
-        ['community-review-complete', ['preflight', 'apply', 'store']], ['community-publication', ['finalize']]]) {
+    for (const [name, stages] of [['community-gate', ['gate']], ['community-status', ['store']],
+        ['community-review-complete', ['preflight', 'store']], ['community-publication', ['finalize']]]) {
         const workflow = read(name), final = name === 'community-publication';
         const job = workflow.jobs[final ? 'finalize' : 'notify'];
         const step = job.steps.find(step => step.env?.COMMUNITY_PROJECTIONS);
@@ -49,6 +49,7 @@ public class WorkflowJson {
         'community-publication.mjs preflight': inspect,
         'community-publication.mjs prepare': inspect,
         'community-publication.mjs store': inspect,
+        'community-publication.mjs merge': { contents: 'write', actions: 'write', 'pull-requests': 'read' },
         'community-publication.mjs finalize': inspect,
         'community-publication.mjs finalize-notify': notify,
         'community-publication.mjs notify': notify,
@@ -181,20 +182,28 @@ public class WorkflowJson {
     assert(!read('community-gate').on.pull_request_target.types.includes('unlabeled'));
     assert.equal(finalGate.steps.find(step => step.uses?.startsWith('actions/download-artifact@'))['continue-on-error'], true);
     assert.equal(finalGate.steps.find(step => step.id === 'gate')['continue-on-error'], undefined);
-    // 等待人工批准、长校验和签名不占用最终授权队列。
-    for (const name of ['community-review-complete', 'community-status', 'community-gate']) {
+    // 人工批准在队列外，最新主线准备、签名、检查和合并持有同一把锁。
+    for (const name of ['community-review-complete', 'community-status']) {
         const workflow = read(name);
         assert.equal(workflow.concurrency, undefined);
-        const prepare = workflow.jobs[name === 'community-gate' ? 'prepare' : 'apply'];
-        assert.equal(prepare.concurrency, undefined);
-        assert(prepare.steps.some(step => step.uses?.startsWith('actions/upload-artifact@')));
-        const final = workflow.jobs[name === 'community-gate' ? 'gate' : 'store'];
-        assert.notEqual(final.environment, 'release');
-        const download = final.steps.find(step => step.uses?.startsWith('actions/download-artifact@'));
-        assert.match(download.with['artifact-ids'], /needs\.(prepare|apply)\.outputs\.artifact/u);
-        assert.equal(download.with['run-id'], undefined);
-        assert.equal(download.with['repository'], undefined);
+        const final = workflow.jobs.store;
+        assert.equal(final.environment, 'community-status');
+        assert.deepEqual(final.concurrency, { group: 'community-publication', queue: 'max' });
+        const ids = final.steps.map(step => step.id).filter(Boolean);
+        for (const [first, second] of [['prepare', 'proof'], ['proof', 'store'], ['store', 'app'], ['app', 'merge']]) {
+            assert(ids.indexOf(first) < ids.indexOf(second));
+        }
+        assert(!final.steps.some(step => step.uses?.startsWith('actions/download-artifact@')));
+        if (name === 'community-review-complete') {
+            assert.equal(workflow.jobs.apply.environment, 'release');
+            assert.equal(workflow.jobs.apply.concurrency, undefined);
+            assert.deepEqual(workflow.jobs.apply.permissions, {});
+            assert.equal(final.needs, 'apply');
+        }
     }
+    const gate = read('community-gate');
+    assert.equal(gate.jobs.prepare.concurrency, undefined);
+    assert.equal(gate.jobs.gate.steps.find(step => step.uses?.startsWith('actions/download-artifact@')).with['artifact-ids'], '${{ needs.prepare.outputs.artifact }}');
     assert.equal(emergency.concurrency.group, read('community-publication').concurrency.group);
     assert.equal(cleanup.concurrency.group, archive.jobs.archive.concurrency.group);
     assert.equal(cleanup.concurrency.queue, 'max');

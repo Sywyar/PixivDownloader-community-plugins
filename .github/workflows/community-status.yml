@@ -17,7 +17,7 @@ on:
 permissions:
   contents: read
 jobs:
-  apply:
+  store:
     if: >-
       github.repository_id == '1347624983' && github.repository_owner_id == '83223374' &&
       github.ref == 'refs/heads/master' &&
@@ -25,11 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: community-status
+    concurrency:
+      group: community-publication
+      queue: max
     outputs:
-      artifact: ${{ steps.upload.outputs.artifact-id }}
-      inputs: ${{ steps.preflight.outputs.inputs }}
-      head: ${{ steps.prepare.outputs.head }}
-      projections: ${{ steps.prepare.outputs.projections || steps.preflight.outputs.projections }}
+      projections: ${{ steps.merge.outputs.projections || steps.store.outputs.projections || steps.prepare.outputs.projections || steps.preflight.outputs.projections }}
     permissions:
       contents: write
       actions: write
@@ -71,68 +71,17 @@ jobs:
         with:
           subject-path: ${{ steps.prepare.outputs.manifest }}
           create-storage-record: false
-      - if: steps.prepare.outputs.manifest != ''
-        run: |
-          install -D -- "$MANIFEST" target/review-handoff/publication.json
-          cp -R -- "$(dirname "$MANIFEST")/publication-files" target/review-handoff/publication-files
-          install -D -- "$BUNDLE" target/review-handoff/publication-attestation.json
-        env:
-          MANIFEST: ${{ steps.prepare.outputs.manifest }}
-          BUNDLE: ${{ steps.proof.outputs.bundle-path }}
-      - id: upload
-        if: steps.prepare.outputs.manifest != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: review-handoff-${{ github.run_attempt }}
-          path: target/review-handoff
-          if-no-files-found: error
-          retention-days: 1
-  store:
-    needs: apply
-    if: needs.apply.outputs.artifact != '' || needs.apply.outputs.head != ''
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    environment: community-status
-    concurrency:
-      group: community-publication
-      queue: max
-    outputs:
-      projections: ${{ steps.merge.outputs.projections || steps.store.outputs.projections }}
-    permissions:
-      contents: write
-      actions: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: '24'
-      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
-        with:
-          distribution: temurin
-          java-version: '17'
-          verify-signature: true
-      - if: needs.apply.outputs.artifact != ''
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          artifact-ids: ${{ needs.apply.outputs.artifact }}
-          path: target/review-handoff
-          merge-multiple: true
       - id: store
-        if: needs.apply.outputs.artifact != ''
+        if: steps.prepare.outputs.manifest != ''
         run: node scripts/community-status.mjs store
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMUNITY_STATUS_INPUTS: ${{ needs.apply.outputs.inputs }}
+          COMMUNITY_STATUS_INPUTS: ${{ steps.preflight.outputs.inputs }}
           COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
-          COMMUNITY_PUBLICATION_FILE: target/review-handoff/publication.json
-          COMMUNITY_ATTESTATION_BUNDLE: target/review-handoff/publication-attestation.json
+          COMMUNITY_PUBLICATION_FILE: ${{ steps.prepare.outputs.manifest }}
+          COMMUNITY_ATTESTATION_BUNDLE: ${{ steps.proof.outputs.bundle-path }}
       - id: app
-        if: steps.store.outputs.head != '' || needs.apply.outputs.head != ''
+        if: steps.store.outputs.head != '' || steps.prepare.outputs.head != ''
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           client-id: Iv23lixorUs94dx1xEvB
@@ -141,17 +90,17 @@ jobs:
           repositories: PixivDownloader-community-plugins
           permission-checks: write
       - id: merge
-        if: steps.store.outputs.head != '' || needs.apply.outputs.head != ''
+        if: steps.store.outputs.head != '' || steps.prepare.outputs.head != ''
         run: node scripts/community-status.mjs merge
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMUNITY_STATUS_INPUTS: ${{ needs.apply.outputs.inputs }}
-          COMMUNITY_STATUS_HEAD: ${{ steps.store.outputs.head || needs.apply.outputs.head }}
+          COMMUNITY_STATUS_INPUTS: ${{ steps.preflight.outputs.inputs }}
+          COMMUNITY_STATUS_HEAD: ${{ steps.store.outputs.head || steps.prepare.outputs.head }}
           COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
           GATE_TOKEN: ${{ steps.app.outputs.token }}
   notify:
-    needs: [apply, store]
-    if: always() && (needs.store.outputs.projections || needs.apply.outputs.projections || '[]') != '[]'
+    needs: store
+    if: always() && (needs.store.outputs.projections || '[]') != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -170,4 +119,4 @@ jobs:
       - run: node scripts/community-status.mjs notify
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMUNITY_PROJECTIONS: ${{ needs.store.outputs.projections || needs.apply.outputs.projections }}
+          COMMUNITY_PROJECTIONS: ${{ needs.store.outputs.projections }}

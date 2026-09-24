@@ -141,7 +141,16 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
     await assert.rejects(checkPull(17, sdk, native, input.fetch), /UNEXPECTED_SUBMISSION_FILE/u);
     files.pop(); pull.changed_files--;
     base = 'e'.repeat(40);
-    await assert.rejects(checkPull(17, sdk, native, input.fetch), /PR_OR_BASE_CHANGED/u);
+    const advanced = await checkPull(17, sdk, native, input.fetch);
+    assert.equal(advanced.validation, 'STATIC_VALIDATED');
+    assert.equal(advanced.pr.base, base);
+    assert.equal(advanced.pr.head, pull.head.sha);
+    let reads = 0;
+    await assert.rejects(checkPull(17, sdk, (endpoint, options) => {
+        const result = native(endpoint, options);
+        if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch) && ++reads === 2) return { object: { sha: 'f'.repeat(40) } };
+        return result;
+    }, input.fetch), /PR_OR_BASE_CHANGED/u);
 });
 
 test('轮换、状态请求及双方转移批准独立校验签名与受保护身份', async () => {

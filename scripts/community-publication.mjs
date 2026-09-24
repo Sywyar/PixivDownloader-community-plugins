@@ -12,12 +12,13 @@ import { applyOperation } from './apply-operations.mjs';
 import { publishVersion } from './apply-version.mjs';
 import { generateState, encoded } from './apply-generation.mjs';
 import { publicationExecution, publicationEnvironment, introducedBy, operationAuthority, currentAdmission, archiveAdmission, restoreReview } from './apply-context.mjs';
-import { makeReceipt, receiptPath, receiptExpired, appendReviewCommit, reviewPrerequisite, checkResult } from './apply-result.mjs';
+import { makeReceipt, receiptPath, receiptExpired, appendReviewCommit, reviewPrerequisite, checkResult, reviewedRequestCall, generatedParents } from './apply-result.mjs';
 import { reference, proofPath, saveReceiptFiles, readReceiptFiles } from './receipt-storage.mjs';
 import { verifyPublicationProof } from './archive-proof.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
 import { notify, appliedProjection } from './community-gate.mjs';
-import { signedStatusEligible, statusState } from './status-authorization.mjs';
+import { signedStatusEligible } from './status-authorization.mjs';
+import { mergeStatus } from './status-merge.mjs';
 
 const output = value => {
     for (const [key, item] of Object.entries(value)) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${item}\n`, 'utf8');
@@ -34,15 +35,23 @@ export const inputsFrom = payload => {
 export async function preparePublication(context, inputs, sdk, { call = api, checkCall = github, readGit } = {}) {
     if (!context.automatic && context.run.event !== 'workflow_dispatch') throw new Error('PUBLICATION_DISPATCH_REQUIRED');
     if (!context.automatic && !reviewers(call).includes(id(context.run.triggering_actor.id))) throw new Error('PUBLICATION_REVIEWER_REQUIRED');
-    const pr = pull(inputs.prNumber, call);
+    const pr = pull(inputs.prNumber, call, context.current);
     if (context.automatic && (pr.state !== 'open' || pr.merged || pr.draft)) return { selected: { pr }, pending: 'REVIEW_OPEN_READY_PR_REQUIRED' };
     const pending = reviewPrerequisite(pr, inputs.expectedHeadSha, context.current);
     if (pending) return { selected: { pr }, pending };
     const files = list(`${prefix}/pulls/${pr.number}/files`, null, call);
     if (files.some(file => /^generated\/receipts\//u.test(file.filename))) {
-        const completion = await checkResult(pr.number, sdk, context.current, { call, readGit });
+        const completion = await checkResult(pr.number, sdk, context.current, { call, readGit, refresh: true });
         if (context.automatic && completion.receipt.authorization !== 'SIGNED_OWNER') {
             return { selected: { pr }, pending: 'STATUS_MANUAL_REVIEW_REQUIRED' };
+        }
+        if (completion.receipt.baseSha !== context.current || receiptExpired(completion.receipt)) {
+            if (completion.receipt.operation === 'RENEWAL') throw new Error('RENEWAL_BASE_CHANGED');
+            const receipt = { ...completion.receipt, originalPr: { ...completion.receipt.originalPr,
+                base: { ...completion.receipt.originalPr.base, sha: context.current } } };
+            const refreshed = await preparePublication(context, { ...inputs, expectedHeadSha: receipt.headSha }, sdk,
+                { call: reviewedRequestCall(receipt, call), checkCall: reviewedRequestCall(receipt, checkCall), readGit });
+            return { ...refreshed, previousHead: pr.head.sha };
         }
         const frozen = { ...restoreReview(sdk, stateReader(sdk, context.current, checkCall), completion.receipt), completion };
         currentAdmission(pr.number, sdk, context, frozen, call, readGit);
@@ -51,8 +60,8 @@ export async function preparePublication(context, inputs, sdk, { call = api, che
     const version = await versionContext(pr.number, sdk, context.current, call, readGit, { checkCall });
     if (!version) return { selected: { pr }, pending: 'REVIEW_OPERATION_REQUIRED' };
     if (context.automatic && !signedStatusEligible(version.checked)) return { selected: { pr }, pending: 'STATUS_MANUAL_REVIEW_REQUIRED' };
-    const state = signedStatusEligible(version.checked) ? statusState(sdk, context.current, version.checked, pr, checkCall)
-        : stateReader(sdk, pr.head.sha, checkCall, pr.head.repo.full_name);
+    const state = version.checked.operation === 'RENEWAL' ? stateReader(sdk, pr.head.sha, checkCall, pr.head.repo.full_name)
+        : stateReader(sdk, context.current, checkCall, policy.repository, { pr, files });
     const appliedAt = new Date().toISOString().replace(/\.\d{3}Z$/u, 'Z');
     const identity = version.checked.submissionSha256 ?? (version.checked.operation === 'OWNERSHIP_TRANSFER'
         ? hash(encoded({ requestId: version.checked.requestId, prNumber: pr.number })) : version.checked.requestSha256);
@@ -77,6 +86,11 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
         throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     }
     const adapter = applySdk(sdk);
+    if (!adapter.invoke({ command: 'generated-parents', pr: prValue(selected.pr),
+        parents: generatedParents({ headSha: selected.pr.head.sha, baseSha: context.current,
+            integratedBase: version.checked.operation !== 'RENEWAL', previousHead: prepared.previousHead }) }).verified) {
+        throw new Error('REVIEW_PARENT_CHANGED');
+    }
     if (admission) archiveAdmission(adapter, sdk, admission.input);
     const communityKey = credentials.communityKey;
     const nextUpdate = new Date(Date.parse(appliedAt) + 30 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/u, 'Z');
@@ -122,6 +136,7 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
     if (!applied.recordOnly) generateState({ sdk, adapter, state, writes: applied.writes, communityKey, privateBytes: credentials.privateBytes,
         appliedAt, nextUpdate, decision: applied.decision });
     const result = makeReceipt({ requestId, operation: version.checked.operation, pr: selected?.pr, current: context.current, run: context.run,
+        previousHead: prepared.previousHead,
         writes: applied.writes, state, appliedAt, authorization: context.automatic ? 'SIGNED_OWNER' : undefined,
         recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
         reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'pluginId', 'version', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
@@ -138,18 +153,20 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
 export async function storeResult(context, file, bundle, sdk, inputs, { call = api, checkCall = github, readGit, verify = verifyPublicationProof } = {}) {
     publicationEnvironment(context, inputs, call);
     if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > API_BYTES) throw new Error('APPLY_RECEIPT_BUDGET');
-    verify(file, bundle, context.current, readGit);
+    const certificate = verify(file, bundle, context.current, readGit);
     const bytes = fs.readFileSync(file), document = JSON.parse(bytes.toString('utf8'));
     if (document.schemaVersion !== 3) throw new Error('APPLY_RECEIPT_INVALID');
     const receipt = readReceiptFiles(document, path.join(path.dirname(file), 'publication-files'));
+    if (receipt.sourceSha !== certificate.sourceRepositoryDigest || receipt.sourceSha !== context.run.sourceSha) throw new Error('APPLY_EXECUTION_CHANGED');
     if (receiptExpired(receipt)) throw new Error('APPLY_RESULT_EXPIRED');
     if (receipt.baseSha !== context.current || receipt.runId !== id(context.run.id) || receipt.runAttempt !== context.run.run_attempt
-        || inputs.prNumber !== receipt.prNumber || inputs.expectedHeadSha !== receipt.headSha) throw new Error('APPLY_EXECUTION_CHANGED');
+        || inputs.prNumber !== receipt.prNumber || inputs.expectedHeadSha !== (receipt.previousHead ?? receipt.headSha)) throw new Error('APPLY_EXECUTION_CHANGED');
     const pr = pull(receipt.prNumber, call);
-    const pending = reviewPrerequisite(pr, receipt.headSha, context.current);
+    const pending = reviewPrerequisite(pr, receipt.previousHead ?? receipt.headSha, context.current);
     if (pending) return { pending, pr };
-    const state = stateReader(sdk, pr.head.sha, checkCall, pr.head.repo.full_name);
-    currentAdmission(pr.number, sdk, context, restoreReview(sdk, state, receipt), call, readGit);
+    const state = stateReader(sdk, context.current, checkCall);
+    const reviewCall = reviewedRequestCall(receipt, call);
+    currentAdmission(pr.number, sdk, context, { ...restoreReview(sdk, state, receipt), completion: { receipt, reviewCall } }, call, readGit);
     const bundleBytes = fs.readFileSync(bundle);
     const pointer = { schemaVersion: 2, manifest: reference(bytes), attestation: reference(bundleBytes) };
     const proofs = new Map([[proofPath(pointer.manifest.sha256), bytes], [proofPath(pointer.attestation.sha256), bundleBytes]]);
@@ -168,12 +185,12 @@ export function waitingProjection(pr, code) {
         MAINTAINER_EDITS_REQUIRED: 'Please enable **Allow edits from maintainers** on this pull request, then retry Apply signed version status for an eligible signed status request, or Complete community review for a human-reviewed request. No files or releases were published.',
         REVIEW_OPEN_READY_PR_REQUIRED: 'Mark this pull request ready for review before completing the review.',
         REVIEW_OPERATION_REQUIRED: 'This form completes community submissions and management requests. Maintenance PRs use the existing review checks.',
-        REVIEW_BRANCH_CREDENTIAL_REQUIRED: 'The protected workflow needs a credential that can update this exact fork branch. Allow edits from maintainers alone does not grant the workflow token access. Configure COMMUNITY_REVIEW_BRANCH_TOKEN in the workflow environment (release for human review, community-status for automatic status), then retry.',
+        REVIEW_BRANCH_CREDENTIAL_REQUIRED: 'The protected workflow needs a credential that can update this exact fork branch. Allow edits from maintainers alone does not grant the workflow token access. Configure COMMUNITY_REVIEW_BRANCH_TOKEN in community-status, then retry the selected workflow.',
         REVIEW_BRANCH_WRITE_DENIED: 'GitHub denied the update to this fork branch. Check COMMUNITY_REVIEW_BRANCH_TOKEN access, Allow edits from maintainers, branch protection and API limits, then retry. The prepared archive is retained; the request has not been approved for merge.',
         PUBLICATION_REVIEW_REQUIRED: 'Resolve validation, scan findings and review objections for this exact head, then retry the selected workflow. Requests requiring human approval must complete that review first.',
         STATUS_MANUAL_REVIEW_REQUIRED: 'This request requires human review: provide a valid active-key proof as the current personal owner, or use Complete community review for recovery, organization authority or community restrictions.',
-        STATUS_CHECKS_PENDING: 'The signed request is prepared. Exact-head checks have not all passed; no merge was attempted. Resolve the checks, then retry Apply signed version status with the current head.',
-        STATUS_MERGE_BLOCKED: 'GitHub branch protection prevented the merge. The prepared request is retained. Resolve the blocking rule, then retry Apply signed version status with the current head.',
+        STATUS_CHECKS_PENDING: 'The request is prepared. Checks for the generated head have not all passed; no merge was attempted. Resolve the checks, then retry the selected workflow with the current head.',
+        STATUS_MERGE_BLOCKED: 'GitHub branch protection prevented the merge. The prepared request is retained. Resolve the blocking rule, then retry the selected workflow with the current head.',
         STATUS_MERGE_CREDENTIAL_REQUIRED: 'Automatic merging requires COMMUNITY_REVIEW_BRANCH_TOKEN in the community-status environment to represent the repository owner. The existing owner-only merge rule remains enforced.',
         CANDIDATE_ARCHIVE_PENDING: 'No complete verified candidate is visible. Check that candidate archival has finished and the trusted workflow token can read Draft Releases before completing the review.',
     };
@@ -184,7 +201,7 @@ export function waitingProjection(pr, code) {
 
 main(import.meta.url, async () => {
     const mode = process.argv[2];
-    if (!['preflight', 'prepare', 'store', 'finalize', 'finalize-notify', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
+    if (!['preflight', 'prepare', 'store', 'merge', 'finalize', 'finalize-notify', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
     const privateValue = process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     delete process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     if (privateValue && (mode !== 'prepare' || privateValue.length > 21848)) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
@@ -202,6 +219,13 @@ main(import.meta.url, async () => {
             return;
         }
         const inputs = inputsFrom(event());
+        if (mode === 'merge') {
+            const result = await mergeStatus(context, sdk, inputs.prNumber, process.env.COMMUNITY_STATUS_HEAD, { inputs });
+            output({ projections: JSON.stringify(result.pending
+                ? [{ ...result.projection, ...waitingProjection(result.pr, result.pending) }]
+                : result.projection ? [result.projection] : []) });
+            return;
+        }
         if (mode === 'store') {
             const result = await storeResult(context, process.env.COMMUNITY_PUBLICATION_FILE, process.env.COMMUNITY_ATTESTATION_BUNDLE, sdk, inputs);
             output({ projections: JSON.stringify(result.pending ? [waitingProjection(result.pr, result.pending)] : []), head: result.head ?? '' });
@@ -218,8 +242,8 @@ main(import.meta.url, async () => {
         if (prepared.pending) {
             output({ ready: 'false', projections: JSON.stringify([waitingProjection(prepared.selected.pr, prepared.pending)]) }); return;
         }
-        if (mode === 'preflight') { output({ ready: prepared.replayed ? 'false' : 'true', projections: '[]' }); return; }
-        if (prepared.replayed) { output({ replayed: 'true' }); return; }
+        if (mode === 'preflight') { output({ ready: 'true', projections: '[]' }); return; }
+        if (prepared.replayed) { output({ head: prepared.selected.pr.head.sha }); return; }
         if (!privateBytes.length || privateBytes.length > 16384 || privateBytes.toString('base64') !== privateValue) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
         const communityKey = { keyId: process.env.COMMUNITY_RELEASE_KEY_ID, algorithm: 'Ed25519', publicKeySpkiBase64: process.env.COMMUNITY_RELEASE_PUBLIC_KEY_BASE64,
             state: 'ACTIVE', publisher: 'PixivDownloader Community', trustLabel: 'Community source review', official: false };

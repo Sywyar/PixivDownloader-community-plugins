@@ -65,6 +65,8 @@ The license step accepts existing files or creates a new file from a bundled tem
 
 Follow check results and review comments in the PR. The community validates the submission, rebuilds the package, scans its declarations and performs human review. Waiting for review does not require another build. Changes to source, packages or build inputs require rebuilding and renewed review.
 
+Requests are prepared and merged through a shared queue. Unrelated mainline data updates do not require contributors to sync their branches: the workflow keeps the reviewed head, includes the latest mainline in the generated commit, and verifies all four admission checks. Changes to the request, ownership, keys or review rules stop processing for renewed validation.
+
 For an update, change the version, push and wait for CI, then use the same entry point. The wizard restores license and marketplace details, preserves existing languages and images, and checks for duplicate IDs and versions early. Key rotation, yanking, unyanking, revocation and ownership transfer have separate management options.
 
 - To withdraw a request, confirm closing your unmerged PR, then separately choose whether to delete its request branch. Every deletion requires fresh confirmation. Branches with new commits, protection rules or another open PR are kept. Authors clean up branches in their own fork; the community owner cleans up submission branches in this repository. The fork, default branch, Releases, keys and saved answers are retained. For a merged request that has not been applied, ask a maintainer to pause execution.

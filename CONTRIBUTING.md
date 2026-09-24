@@ -28,7 +28,7 @@
 
 目标配置开启 GitHub 的 **Automatically delete head branches**，在 PR 合并后清理本仓库的来源分支，包括所有者的投稿分支、工具维护分支及紧急请求分支。`master` 和 `emergency-state` 的禁止删除规则保持有效。投稿者 fork 的分支由其仓库设置和权限控制；向导关闭未合并请求时，仍须另行确认删除。
 
-自动合并与审核提交的标题均标明请求对象：版本操作显示 `发布者 / 插件-v版本`，密钥轮换显示 `发布者 publisherId`，所有权转移显示 `原发布者 / 插件 → 新发布者`。发布结果与通知分别核验；主线正常前进后，通知仍校验原运行、源码祖先关系及受保护代码未变，并重新核对 PR head 和状态。空通知不会启动作业，签名和状态写入仍要求执行来源与当前主线一致。
+自动合并与审核提交的标题均标明请求对象：版本操作显示 `发布者 / 插件-v版本`，密钥轮换显示 `发布者 publisherId`，所有权转移显示 `原发布者 / 插件 → 新发布者`。发布结果与通知分别核验。排队期间主线仅追加数据时，执行来源须仍为主线祖先且检查器、工作流、工具与合同资源未变；最终结果绑定出队后读取的主线。空通知不会启动作业，通知仍重新核对 PR head 和状态。
 
 `npm run labels:plan` 预览受管标签差异；`npm run labels:apply` 应用名称、颜色和说明。未列入目录的标签保留。
 
@@ -42,7 +42,7 @@
 
 `FALSE_POSITIVE` 只豁免列出的 finding ID；填写实际扫描 run ID、attempt 和理由。`MANUAL_SCAN_ACCEPTED` 只确认当前未完成扫描已经人工补充复核，同样绑定扫描 run/attempt，不豁免已知发现。两者都不能代替原生 Review 或自审。组织投稿须核对申请者的代表权，静态账号存在性检查不证明代表权。
 
-`REVOKE_DECISION` 追加撤销记录，填写目标裁决的 SHA-256，保留原证据。每次运行摘要展示裁决摘要，原始 JSON 保存在同一次运行的不可变 artifact 中。同一表单重跑保留原决定身份、对象和时间；原 artifact 缺失时须重新提交表单。作者修改 head 后须重新审核，新扫描不能继承旧扫描的误报或补扫裁决。完成审核工作流追加的提交按下节规则复核直接父提交；撤销该父提交的裁决时，表单仍填写原审核 head，执行器同时核对当前生成提交未变化。
+`REVOKE_DECISION` 追加撤销记录，填写目标裁决的 SHA-256，保留原证据。每次运行摘要展示裁决摘要，原始 JSON 保存在同一次运行的不可变 artifact 中。同一表单重跑保留原决定身份、对象和时间；原 artifact 缺失时须重新提交表单。作者修改 head 后须重新审核，新扫描不能继承旧扫描的误报或补扫裁决。完成审核工作流追加的提交以原审核 head 为第一父节点，并按下节规则复核完整父链；撤销原审核 head 的裁决时，表单仍填写该 head，执行器同时核对当前生成提交未变化。
 
 检查详情与 PR 上的状态评论显示当前摘要；另一条请求信息评论展示操作、分类、理由和验签情况，更新时复用原评论。完整源码、依赖、许可证、SBOM、扫描差异与重建证据保存在待审核 Draft 的 `review-evidence.zip`。GitHub artifact attestation 只证明受保护归档流程保存过这些字节，不代表人工批准。不能手动改写候选资产或将待审核 Draft 公开。
 
@@ -73,14 +73,14 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 | Environment | 限制与凭据 |
 |---|---|
 | `community-gate` | 仅 `master` 分支；保存现有 Gate App 的 `GATE_APP_PRIVATE_KEY`。官方 App action 只申请本社区仓库的短期 `checks:write` token，并在 job 结束撤销 |
-| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、维护者分支令牌和现有 Gate App 私钥。用于签名管理请求、紧急声明，以及已获人工批准的结果追加 |
-| `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。工具清单私钥 `COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64` 与插件签名私钥 `COMMUNITY_RELEASE_PRIVATE_KEY_BASE64` 分开保存，各自仅传给对应签名步骤 |
+| `community-status` | 仅 `master` 分支，禁止管理员绕过，无人工审批。保存社区插件签名私钥及配套公钥变量、维护者分支令牌和现有 Gate App 私钥。用于签名管理请求、紧急声明，以及已获人工批准请求的生成与合并 |
+| `release` | 仅 `master` 分支；要求人工批准，允许同一维护者批准自己发起的运行，禁止管理员跳过批准。工具清单签发使用独立的 `COMMUNITY_TOOL_CHANNEL_PRIVATE_KEY_BASE64`；完成审核通过此环境取得人工批准，插件签名在后续的 `community-status` 作业执行 |
 
 Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签名私钥写入 Git、评论或 artifact。工具清单公钥固定在启动器中，不用于插件包签名。两类私钥都保存 PKCS#8 PEM 文件的 Base64 编码，密钥默认不设置到期时间。
 
-插件签名还需在 `release` 配置 `COMMUNITY_RELEASE_KEY_ID` 和 `COMMUNITY_RELEASE_PUBLIC_KEY_BASE64` 变量，后者为 Ed25519 SPKI DER 的 Base64。社区密钥不能使用官方应用、插件或 FFmpeg 根公钥；已发布社区根不能通过改变量直接替换。
+插件签名需在 `community-status` 配置 `COMMUNITY_RELEASE_KEY_ID` 和 `COMMUNITY_RELEASE_PUBLIC_KEY_BASE64` 变量，后者为 Ed25519 SPKI DER 的 Base64。人工完成审核仍须先通过 `release` 批准，再进入签名与合并作业。社区密钥不能使用官方应用、插件或 FFmpeg 根公钥；已发布社区根不能通过改变量直接替换。
 
-同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `community-status` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。签名前的凭据存在性检查仍读取 `release` 中的同名 Secret，两个环境应配置同一用途的令牌。自动操作还用它以仓库所有者身份合并原 PR；令牌须能读当前用户、写入目标 fork 分支及合并社区 PR。合并前核对所有者数字 ID，仍遵守全部保护规则。此凭据不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留请求。
+同仓库投稿分支使用工作流的仓库 token。fork 投稿须开启 **Allow edits from maintainers**，并由维护者在 `community-status` 配置确实能写入该 fork 分支的 `COMMUNITY_REVIEW_BRANCH_TOKEN`；复选框本身不会赋予 `GITHUB_TOKEN` 跨仓库写权限。人工与自动流程均用该令牌以仓库所有者身份合并原 PR；令牌须能读当前用户、写入目标 fork 分支及合并社区 PR。合并前核对所有者数字 ID，仍遵守全部保护规则。此凭据不用于签名。缺少编辑许可或凭据时，工作流给出提示并保留请求。
 
 ## 完成审核与发布
 
@@ -96,17 +96,19 @@ Gate App 必须安装并获准访问本社区仓库。不要把 App 私钥或签
 
 1. 等待请求 PR 的技术检查和候选归档完成，复核原包、源码及审核证据。原生 Review 或显式自审必须针对当前完整 head SHA。
 2. 在 `master` 手动运行 **Complete community review**，填写 `prNumber`、`expectedHeadSha` 和审核理由。恢复操作须勾选 `recoveryApproved`；组织代表权经人工核对后填写 `organizationId:personId`，多项以逗号分隔。
-3. 批准 `release` Environment。执行器再次核对事实，调用固定 SDK 生成清单、签名和审计，在原 PR 分支追加一个提交。此时正式 Release 仍未公开。
-4. 等待四项 App 检查通过，再使用 Merge commit 合并原 PR。Gate 核对生成工作流的归档证明、唯一直接父提交、完整树差异及每份生成文件的原始字节，并重新读取人工拒绝、撤销和当前权限；只核对父 SHA 或复制旧成功检查均不足以放行。
+3. 批准 `release` Environment。批准在队列外等待；随后 `community-status` 作业取得共享队列，读取最新主线，重新核验请求，调用固定 SDK 生成清单、签名和审计，并向原 PR 追加提交。此时正式 Release 仍未公开。
+4. 同一作业重新签发并回读四项 App 检查，全部通过后以精确 head 请求 Merge commit。Gate 核对生成工作流证明、有序父链、完整树及每份文件的原始字节，并重读人工拒绝、撤销、当前权限和紧急状态。生成、检查与合并共用一个串行区间，严格的主线同步规则保持开启。
 5. **Publish merged community state** 响应 `master` 合并，验证真实 merge 的父提交、准入检查及候选签名，再公开原社区候选并匿名下载核对。它还更新已发布版本的状态和当前维护者。REVOKED 包先按 SHA-256 保存到共享技术 Draft，再核对下载字节，最后移除正式 Release 的安装包附件；版本说明、签名和历史作者保留。归档或回读失败不删除公开包；GitHub 不允许修改的不可变 Release 保持失败，不能报告清理成功。
 
 新转移申请由接收方创建，原所有者在同一 PR 的原生 Review 中确认；不同账号必须由不同自然人确认，同一账号下的发布者转移仍须两个明确角色。缺少确认时保持原 PR 开放，不能先合并申请。普通网页 Approve 不含密钥证明，须完成上述人工流程；组织代表权须单独核实，维护者批准不能代替原所有者确认。明确拒绝后，通知作业复核并关闭原 PR，不留下待完成的主线申请。旧流程已合并的申请仍可补齐其余批准。恢复转移要求接收方批准、请求引用的恢复证据及明确的 Environment 恢复批准。
 
-正式 tag 为 `<原发布者>/<pluginId>-v<version>`，安装包名称也包含原发布者。新审核结果及 GitHub 证明随原申请 PR 存入 Git，不再创建 `operation/` Draft。回执仅引用结果文件的 Git 对象、大小和 SHA-256；正文不再重复内嵌 Base64。证明按内容摘要保存，相同字节复用。跨作业交接 artifact 保留一天；合并后的验证依赖 Git 历史，不依赖 artifact 留存。整个审核和发布过程复用已验证候选，不重新构建。
+正式 tag 为 `<原发布者>/<pluginId>-v<version>`，安装包名称也包含原发布者。新审核结果及 GitHub 证明随原申请 PR 存入 Git，不再创建 `operation/` Draft。回执引用结果文件的 Git 对象、大小和 SHA-256，并分别记录工作流源码、应用主线和原审核 head。证明按内容摘要保存，相同字节复用。生成与追加在同一作业中交接；合并后的验证依赖 Git 历史。整个审核和发布过程复用已验证候选，不重新构建。
 
 历史归档迁移在已同步主线的维护分支运行 `node scripts/migrate-receipts.mjs`。工具验证原证明、合并父链和生成文件，只生成待评审的 Git 文件；不改旧回执、签名或远端 Release。历史正文引用现有 Git blob，验证时重建原始字节并核对原 SHA-256。迁移文件与适配器通过维护 PR 合并后，旧 Draft 才有资格进入上述保留期清理。
 
-追加提交前中断，可针对未变化的原 head 再次完成审核；若生成提交已经追加，重复运行只验证已有结果。作者、源码、包、base、规则或生成字节变化后，旧结果不再放行。作者需先移除未合并的生成改动，使 PR 只保留请求数据，再重新审核。已合并请求的 Release 收尾失败，可在 `master` 手动运行 **Publish merged community state**；同名异字节资产拒绝覆盖，重跑不执行旧状态写入。
+追加提交前中断，可针对未变化的原 head 重试；已经追加时，填写当前生成 head。若只有主线数据推进或准备结果过期，流程先验证旧回执与完整树，再从原请求和最新主线重新生成。生成提交保留原审核 head 和应用主线为父节点；恢复时还保留上一生成提交，始终快进，不强推。原请求、归属、密钥、规则、父链或生成字节变化仍会阻断。续签请求绑定整代摘要，过期后须重新创建续签请求。已合并请求的 Release 收尾失败，可在 `master` 手动运行 **Publish merged community state**；同名异字节资产拒绝覆盖，重跑不执行旧状态写入。
+
+维护 SDK 时，须先发行包含 `CommunityPr.hasGeneratedParents` 的不可变工具包，再更新本仓库的 SDK 锁与原始分发文件。旧工具会在编译执行适配器时停止，不能在不支持合并父链验证的工具上生成或合并新结果。本地回归可通过测试专用 `COMMUNITY_TEST_SDK_CLASSES` 指定候选 classes；生产入口不接受此覆盖。
 
 YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引用的管理者下架；社区独立限制继续保留。REVOKE 没有恢复操作。换钥把旧密钥标记为 RETIRED，保留历史包验证；泄露密钥须先完成紧急声明，不能通过换钥解除封禁。确需撤销历史包时另行提出版本撤销请求。
 

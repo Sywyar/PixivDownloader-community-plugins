@@ -92,7 +92,8 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
         if (endpoint.endsWith('/actions/runs/17/approvals')) return [{ state: 'approved', user: reviewer, environments: [{ id: 5, name: 'release' }] }];
         throw new Error('Unexpected request ' + endpoint);
     };
-    const pr = { number: 9, state: 'open', merged: false, draft: false, head: { sha: 'b'.repeat(40) }, base: { sha: context.current } };
+    const pr = { number: 9, state: 'open', merged: false, draft: false, user: { id: 41898282, type: 'Bot' },
+        head: { sha: 'b'.repeat(40), repo: { id: policy.repositoryId } }, base: { sha: context.current } };
     const prepared = await prepareResult(context, { reason: 'Renew unchanged state' }, sdk, { selected: { pr }, state,
         requestId: 'c'.repeat(64), version: { checked: { operation: 'RENEWAL', requestSha256: 'c'.repeat(64) } },
         appliedAt: '2026-01-06T00:00:00Z', inputFiles: [{ filename: 'renewals/revocations.json', status: 'added' }] },
