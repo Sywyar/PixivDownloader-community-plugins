@@ -6,7 +6,7 @@ export function runTool(command, args, { cwd, input, timeout = API_TIMEOUT, maxB
     const result = spawnSync(command, args, {
         cwd, input, encoding: 'utf8', windowsHide: true, timeout, maxBuffer,
         env: Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-            !/TOKEN|SECRET|PRIVATE_KEY|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|CLASSPATH/iu.test(key))),
+            !/TOKEN|SECRET|PRIVATE_KEY|SSH_KEY|JAVA_TOOL_OPTIONS|JDK_JAVA_OPTIONS|_JAVA_OPTIONS|CLASSPATH/iu.test(key))),
         stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
     if (!result.error && result.status === 0) return result;

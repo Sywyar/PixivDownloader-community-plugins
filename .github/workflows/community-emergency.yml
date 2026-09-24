@@ -60,6 +60,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GATE_TOKEN: ${{ steps.app.outputs.token }}
           COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
+          COMMUNITY_REVIEW_BRANCH_SSH_KEY: ${{ secrets.COMMUNITY_REVIEW_BRANCH_SSH_KEY }}
       - if: steps.apply.outputs.requestInfo != ''
         run: node scripts/community-emergency.mjs notify
         env:

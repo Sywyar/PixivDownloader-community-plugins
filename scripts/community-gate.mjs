@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { transferReview, closeRejectedTransfer } from './transfer-reviews.mjs';
 import { updateRequestLabels } from './sync-labels.mjs';
 import path from 'node:path';
-import { api, id, list, policy, prefix, main, API_BYTES } from './github.mjs';
+import { api, id, sha, list, policy, prefix, main, API_BYTES } from './github.mjs';
 import { evaluate, hash } from './sdk.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { versionContext } from './version-review.mjs';
@@ -167,6 +167,15 @@ export function notify(projections, call = api) {
             return pr.head.sha === projection.head && (projection.state === undefined || pr.state === projection.state && pr.merged === projection.merged);
         };
         if (!matches()) continue;
+        if (projection.execution) {
+            if (typeof projection.summary !== 'string') throw new Error('SUMMARY_PROJECTION_INVALID');
+            const marker = '<!-- community-request-execution -->';
+            const run = id(projection.execution.runId), attempt = id(projection.execution.attempt);
+            const body = `${marker}\nHead: ${sha(projection.head)}\n\n### Request execution\n\n[Workflow run ${run}, attempt ${attempt}](https://github.com/${policy.repository}/actions/runs/${run}/attempts/${attempt})\n\n${projection.summary}`;
+            updateComment(number, marker, body, matches, call);
+            notifyRequestInfo(projection, call);
+            continue;
+        }
         if (!Array.isArray(projection.labels) || projection.labels.some(name => typeof name !== 'string')) throw new Error('LABEL_PROJECTION_INVALID');
         updateRequestLabels(number, { operations: projection.labels.filter(name => name.startsWith('type:')),
             states: projection.labels.filter(name => !name.startsWith('type:')) }, call);

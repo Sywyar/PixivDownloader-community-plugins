@@ -1,8 +1,8 @@
 import fs from 'node:fs';
-import { list, prefix, main } from './github.mjs';
+import { list, prefix, main, id, policy } from './github.mjs';
 import { event, pull, classify } from './platform.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
-import { preparePublication, prepareResult, storeResult, waitingProjection, inputsFrom } from './community-publication.mjs';
+import { preparePublication, prepareResult, storeResult, waitingProjection, reportExecution, executionFailure, inputsFrom } from './community-publication.mjs';
 import { statusExecution, statusInputs } from './status-execution.mjs';
 import { mergeStatus } from './status-merge.mjs';
 import { notify } from './community-gate.mjs';
@@ -15,16 +15,19 @@ main(import.meta.url, async () => {
     const mode = process.argv[2];
     if (!['preflight', 'prepare', 'store', 'merge', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('STATUS_COMMAND_INVALID');
     const privateValue = process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
+    const branchKey = process.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY;
+    delete process.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY;
     delete process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     if (privateValue && (mode !== 'prepare' || privateValue.length > 21848)) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
     const privateBytes = Buffer.from(privateValue ?? '', 'base64');
+    let context, pr;
     try {
-        const context = statusExecution(mode);
+        context = statusExecution(mode);
         if (mode === 'notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
         const inputs = mode === 'preflight' ? statusInputs(context, event())
             : inputsFrom({ inputs: JSON.parse(process.env.COMMUNITY_STATUS_INPUTS) });
         // 后续 job/step 使用预检冻结的 head，不能随投稿者更新偷偷改处理目标。
-        const pr = pull(inputs.prNumber);
+        pr = pull(inputs.prNumber);
         if (mode === 'preflight') {
             if (pr.state !== 'open' || pr.merged || pr.draft) { output({ ready: 'false', projections: '[]' }); return; }
             const files = list(`${prefix}/pulls/${pr.number}/files`, null);
@@ -37,27 +40,35 @@ main(import.meta.url, async () => {
         const sdk = prepareSubmission();
         if (mode === 'merge') {
             const result = await mergeStatus(context, sdk, inputs.prNumber, process.env.COMMUNITY_STATUS_HEAD);
-            output({ merged: String(result.merged === true), projections: JSON.stringify(result.pending
-                ? [{ ...result.projection, ...waitingProjection(result.pr, result.pending) }]
-                : result.projection ? [result.projection] : []) });
+            reportExecution(result, context);
             return;
         }
         if (mode === 'store') {
-            const result = await storeResult(context, process.env.COMMUNITY_PUBLICATION_FILE, process.env.COMMUNITY_ATTESTATION_BUNDLE, sdk, inputs);
-            output({ projections: JSON.stringify(result.pending ? [waitingProjection(result.pr, result.pending)] : []), head: result.head ?? '' });
+            const result = await storeResult(context, process.env.COMMUNITY_PUBLICATION_FILE, process.env.COMMUNITY_ATTESTATION_BUNDLE, sdk, inputs, { branchKey });
+            reportExecution(result, context);
             return;
         }
         const prepared = await preparePublication(context, inputs, sdk);
-        if (prepared.pending) { output({ ready: 'false', projections: JSON.stringify([waitingProjection(prepared.selected.pr, prepared.pending)]) }); return; }
+        if (prepared.pending) { output({ ready: 'false', projections: JSON.stringify([waitingProjection(prepared.selected.pr, prepared.pending, context)]) }); return; }
         if (mode === 'preflight') { output({ ready: 'true', inputs: JSON.stringify(inputs), projections: '[]' }); return; }
         if (prepared.replayed) { output({ head: prepared.selected.pr.head.sha }); return; }
         if (process.env.HAS_REVIEW_BRANCH_TOKEN !== 'true') {
-            output({ projections: JSON.stringify([waitingProjection(prepared.selected.pr, 'STATUS_MERGE_CREDENTIAL_REQUIRED')]) }); return;
+            output({ projections: JSON.stringify([waitingProjection(prepared.selected.pr, 'STATUS_MERGE_CREDENTIAL_REQUIRED', context)]) }); process.exitCode = 1; return;
+        }
+        if (id(prepared.selected.pr.head.repo.id) !== policy.repositoryId && process.env.HAS_REVIEW_BRANCH_SSH_KEY !== 'true') {
+            output({ projections: JSON.stringify([waitingProjection(prepared.selected.pr, 'REVIEW_BRANCH_SSH_KEY_REQUIRED', context)]) }); process.exitCode = 1; return;
         }
         if (!privateBytes.length || privateBytes.length > 16384 || privateBytes.toString('base64') !== privateValue) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
         const communityKey = { keyId: process.env.COMMUNITY_RELEASE_KEY_ID, algorithm: 'Ed25519',
             publicKeySpkiBase64: process.env.COMMUNITY_RELEASE_PUBLIC_KEY_BASE64, state: 'ACTIVE',
             publisher: 'PixivDownloader Community', trustLabel: 'Community source review', official: false };
         output({ manifest: (await prepareResult(context, inputs, sdk, prepared, { privateBytes, communityKey })).file });
+    } catch (error) {
+        if (context && pr) {
+            const projection = executionFailure(pr, context, error);
+            output({ projections: JSON.stringify([projection]) });
+            throw new Error(projection.summary.split('\n')[0]);
+        }
+        throw error;
     } finally { privateBytes.fill(0); }
 });

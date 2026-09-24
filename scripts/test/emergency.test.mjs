@@ -120,7 +120,15 @@ for (const sameRepository of [false, true]) test(`紧急请求${sameRepository ?
     const previous = process.env.COMMUNITY_REVIEW_BRANCH_TOKEN;
     process.env.COMMUNITY_REVIEW_BRANCH_TOKEN = 'test-only';
     try {
-        const result = await applyEmergency(context, sdk, 5, f.head, { call, token: 'test-only', wait: async () => {} });
+        const writeBranch = sameRepository ? undefined : (pr, options) => {
+            assert.equal(pr.head.repo.full_name, 'example/fork');
+            assert.equal(options.base, f.head); assert.deepEqual(options.parents, [f.head]);
+            options.unchanged();
+            generatedTree = new Map([...f.records.get(f.head), ...options.writes]);
+            f.setTree(f.generated, generatedTree); f.pr.head.sha = f.generated; patched++;
+            return f.generated;
+        };
+        const result = await applyEmergency(context, sdk, 5, f.head, { call, token: 'test-only', wait: async () => {}, writeBranch });
         assert.equal(result.merged, true); assert.deepEqual(result.pendingRefresh, [19]);
         assert.equal(result.projection.baseRef, policy.emergencyBranch);
         assert.equal(result.projection.head, f.generated);

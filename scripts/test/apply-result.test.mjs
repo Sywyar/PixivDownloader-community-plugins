@@ -9,41 +9,19 @@ import { hash, root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 import { reference, proofPath } from '../receipt-storage.mjs';
 
-test('fork 读取核对数字归属，写入必须使用专用分支凭据', () => {
+test('fork API 只读并核对数字归属，禁止借用合并令牌写 fork', () => {
     const pr = { head: { repo: { id: 201, full_name: 'author/community' } } };
     const repository = { id: 201, full_name: 'author/community', fork: true, parent: { id: policy.repositoryId }, private: false, archived: false };
-    const original = process.env.COMMUNITY_REVIEW_BRANCH_TOKEN;
-    let writes = 0, failure;
-    try {
-        delete process.env.COMMUNITY_REVIEW_BRANCH_TOKEN;
-        const call = (endpoint, options) => {
-            assert.equal(options.repositoryName, repository.full_name);
-            if (options.method === 'PATCH') {
-                writes++; assert.equal(options.token, 'fixture-branch-credential');
-                if (failure) throw failure;
-            }
-            return repository;
-        };
-        const scoped = forkApi(pr, call);
-        assert.throws(() => scoped('repos/author/community/git/refs/heads/request', { method: 'PATCH' }), /REVIEW_BRANCH_CREDENTIAL_REQUIRED/);
-        assert.equal(writes, 0);
-        process.env.COMMUNITY_REVIEW_BRANCH_TOKEN = 'fixture-branch-credential';
-        scoped('repos/author/community/git/refs/heads/request', { method: 'PATCH' });
-        assert.equal(writes, 1);
-        for (const status of [401, 403, 404]) {
-            failure = Object.assign(new Error('Do not expose transport detail'), { stderr: 'gh: denied (HTTP ' + status + ')' });
-            assert.throws(() => scoped('repos/author/community/git/refs/heads/request', { method: 'PATCH' }), /^Error: REVIEW_BRANCH_WRITE_DENIED$/u);
-        }
-        failure = new Error('RESPONSE_LOST');
-        assert.throws(() => scoped('repos/author/community/git/refs/heads/request', { method: 'PATCH' }), /RESPONSE_LOST/);
-        repository.parent.id = '999';
-        assert.throws(() => forkApi(pr, call), /FORK_IDENTITY_CONFLICT/);
-    } finally {
-        if (original === undefined) delete process.env.COMMUNITY_REVIEW_BRANCH_TOKEN;
-        else process.env.COMMUNITY_REVIEW_BRANCH_TOKEN = original;
-    }
+    let calls = 0;
+    const scoped = forkApi(pr, (endpoint, options) => {
+        calls++; assert.equal(options.repositoryName, repository.full_name);
+        assert.equal(options.token, undefined); return repository;
+    });
+    for (const method of ['PATCH', 'POST', 'DELETE']) assert.throws(() => scoped('repos/author/community/git/refs/heads/request', { method }), /FORK_API_WRITE_FORBIDDEN/);
+    assert.equal(calls, 1);
+    repository.parent.id = '999';
+    assert.throws(() => forkApi(pr, () => repository), /FORK_IDENTITY_CONFLICT/);
 });
-
 test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并发改写', async t => {
     fs.mkdirSync(path.join(root, 'target'), { recursive: true });
     const workspace = fs.mkdtempSync(path.join(root, 'target/review-commit-'));
@@ -217,7 +195,7 @@ test('审核提交回读只等待旧 PR 视图，拒绝分支、主线及请求�
             throw new Error('Unexpected request ' + endpoint);
         };
         await assert.rejects(appendReviewCommit(receipt, {}, call, { wait: async () => { waits++; } }), error => {
-            if (scenario === 'denied') return error === failure;
+            if (scenario === 'denied') return error.message === 'REVIEW_BRANCH_WRITE_FAILED' && error.diagnostic.phase === 'push';
             assert.match(error.message, new RegExp('^' + (scenario === 'stale' ? 'PUBLICATION_HEAD_NOT_VISIBLE' : 'PUBLICATION_HEAD_CHANGED') + ': '));
             const details = JSON.parse(error.message.slice(error.message.indexOf(': ') + 2));
             assert.equal(details.expectedHead, generated); assert.equal(details.expectedBase, base);
