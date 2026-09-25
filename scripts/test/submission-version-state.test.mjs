@@ -5,11 +5,16 @@ import { versionAvailable } from '../submission-check.mjs';
 import { confirmRevocation } from '../submission-operations.mjs';
 
 function context(current = 'ACTIVE', restrictions = []) {
-    const record = { value: { pluginId: 'example', version: '2.3.4', package: { sha256: 'a'.repeat(64) } } };
+    const owner = { accountId: '101', accountType: 'User', publisherId: 'author' };
+    const record = { value: { pluginId: 'example', version: '2.3.4', owner, package: { sha256: 'a'.repeat(64) } } };
     const notices = [];
     const state = { tree: new Map([['revocations.json', {}]]), published: () => [record],
+        read: file => file.startsWith('plugin-bindings/') ? { value: { owner }, sha256: 'binding' }
+            : { value: { signingKeys: [{ keyId: 'key', state: 'ACTIVE' }] } },
         currentStatus: () => ({ state: current }), raw: () => Buffer.from(JSON.stringify({ entries: restrictions })) };
-    return { record, notices, state, ui: { say: (key, details) => notices.push({ key, details }) } };
+    return { record, notices, state, snapshot: { actor: { id: '101' } },
+        call: () => { throw Object.assign(new Error('GITHUB_NOT_FOUND'), { github: true }); },
+        ui: { say: (key, details) => notices.push({ key, details }) } };
 }
 
 test('已发布版本按当前状态提示，重复投稿不会覆盖或恢复历史版本', () => {
@@ -42,14 +47,16 @@ test('待审核请求与已执行请求分开提示，旧管理请求显示最�
     const pending = { url: 'https://example.invalid/pull/1', reused: true };
     presentOriginal(f, pending);
     assert.equal(f.notices.at(-1).key, 'requestPending');
-    assert.equal(f.notices.at(-1).details, pending);
-    const request = { payload: { pluginId: 'example', version: '2.3.4', packageSha256: 'a'.repeat(64), action: 'UNYANK' } };
+    assert.equal(f.notices.at(-1).details.url, pending.url);
+    const request = { payload: { pluginId: 'example', version: '2.3.4', packageSha256: 'a'.repeat(64), action: 'UNYANK',
+        owner: f.record.value.owner, pluginBindingSha256: 'binding' }, proofs: {} };
     f.state.reference = () => Buffer.from(JSON.stringify(request));
     f.sdk = { document: () => ({ value: request }) };
     presentOriginal(f, pending, new Map([['version-status-requests/request.json', Buffer.from(JSON.stringify(request))]]));
-    assert.equal(f.notices.at(-3).details.currentState, 'REVOKED');
-    assert.equal(f.notices.at(-2).key, 'revokedRequestState');
-    assert.equal(f.notices.at(-1).key, 'requestPending');
+    assert(f.notices.some(row => row.key === 'selectedVersionState' && row.details.currentState === 'REVOKED'));
+    assert(f.notices.some(row => row.key === 'revokedRequestState'));
+    assert.equal(f.notices.at(-1).key, 'requestStale');
+    assert.equal(f.notices.at(-1).details.code, 'INVALID_STATE_TRANSITION');
     presentOriginal(f, { value: { action: 'UNYANK', requestId: 'b'.repeat(64), requestRef: {} } });
     assert.equal(f.notices.at(-2).key, 'statusRequestApplied');
     assert.equal(f.notices.at(-1).key, 'versionREVOKED');

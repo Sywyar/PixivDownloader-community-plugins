@@ -34,7 +34,8 @@ test('主线前进后按原始请求找回所有者或 fork 的 PR，冲突和�
             if (endpoint.includes('/git/blobs/')) return { sha: blob, size: content.length, encoding: 'base64', content: content.toString('base64') };
             assert.fail(endpoint);
         };
-        assert.deepEqual(pendingPrepared(snapshot, changes, call), { url: pull.html_url, head: pull.head.sha, reused: true });
+        assert.deepEqual(pendingPrepared(snapshot, changes, call), { url: pull.html_url, head: pull.head.sha, reused: true, draft: false });
+        pull.draft = true; assert.equal(pendingPrepared(snapshot, changes, call).draft, true); pull.draft = false;
         count = 0; assert.equal(pendingPrepared(snapshot, changes, call), null);
         count = 2; assert.throws(() => pendingPrepared(snapshot, changes, call), /EXISTING_PR_CONFLICT/u);
         count = 1; content = Buffer.from('{"different":true}');

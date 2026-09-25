@@ -186,24 +186,29 @@ export function pendingVersion(context, facts, source, binding) {
     const { call = github, sdk, snapshot } = context;
     const matches = [];
     for (const pull of paged(`repos/${policy.repository}/pulls?state=open`, call)) {
-        const files = paged(`repos/${policy.repository}/pulls/${id(pull.number)}/files`, call)
+        const files = paged(`repos/${policy.repository}/pulls/${id(pull.number)}/files`, call);
+        const submissions = files
             .filter(file => file.filename.startsWith('submissions/') && file.filename.split('/')[2] === facts.pluginId);
-        if (!files.length) continue;
+        if (!submissions.length) continue;
         if (!pull.head?.repo || id(pull.base.repo.id) !== policy.repositoryId) throw new Error('PENDING_SUBMISSION_CONFLICT');
         const tree = repositoryTree(pull.head.repo.full_name, pull.head.sha, call);
-        for (const file of files) {
-            const value = sdk.document('SUBMISSION', readBlob(pull.head.repo.full_name, tree.get(file.filename), call), file.filename).value;
+        for (const file of submissions) {
+            const bytes = readBlob(pull.head.repo.full_name, tree.get(file.filename), call);
+            const value = sdk.document('SUBMISSION', bytes, file.filename).value;
+            const changes = new Map([[file.filename, bytes]]);
+            const publisherFile = `publishers/${file.filename.split('/')[1]}/${value.publisherId}.json`;
+            if (files.some(item => item.filename === publisherFile)) changes.set(publisherFile, readBlob(pull.head.repo.full_name, tree.get(publisherFile), call));
             if (!binding) {
                 const accountId = file.filename.split('/')[1];
-                const publisherFile = `publishers/${accountId}/${value.publisherId}.json`;
                 const publisher = context.state.read(publisherFile, 'PUBLISHER')
-                    ?? sdk.document('PUBLISHER', readBlob(pull.head.repo.full_name, tree.get(publisherFile), call), publisherFile);
+                    ?? sdk.document('PUBLISHER', changes.get(publisherFile) ?? readBlob(pull.head.repo.full_name, tree.get(publisherFile), call), publisherFile);
                 if (publisher.value.githubAccount.id !== accountId || !eligible({ accountId,
                     accountType: publisher.value.githubAccount.type }, snapshot.actor, call)) throw new Error('PLUGIN_ID_SUBMISSION_CONFLICT');
             }
             if (value.version !== facts.version) continue;
             if (id(pull.user.id) !== snapshot.actor.id || value.package.sha256 !== facts.sha256 || value.source.commit !== source.commit) throw new Error('VERSION_SUBMISSION_CONFLICT');
-            matches.push({ url: pull.html_url, pluginId: facts.pluginId, version: facts.version, reused: true });
+            matches.push({ url: pull.html_url, head: pull.head.sha, pluginId: facts.pluginId, version: facts.version,
+                reused: true, draft: Boolean(pull.draft), changes });
         }
     }
     if (matches.length > 1) throw new Error('VERSION_SUBMISSION_CONFLICT');

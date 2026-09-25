@@ -18,7 +18,7 @@ import { publisherKeys } from './submission-publisher-state.mjs';
 import { metadataChanges } from './submission-presentation.mjs';
 import { sessionLocator, saveSession, savePrepared, restorePrepared } from './submission-session.mjs';
 import { prepareEmergency, validateEmergencySubmission, appliedEmergency } from './submission-emergency.mjs';
-import { presentOriginal, requestVersionNotice, versionState } from './submission-version-state.mjs';
+import { presentOriginal, requestVersionNotice, versionState, requestedVersionState } from './submission-version-state.mjs';
 import { requestRecovery } from './submission-retry.mjs';
 
 function appliedRequest(sdk, state, changes) {
@@ -150,8 +150,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
                 if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
-            if (!prepared.original && prepared.snapshot.base !== snapshot.base) {
-                ui.say('sessionBaseUpdated');
+            if (!prepared.original) {
+                if (prepared.snapshot.base !== snapshot.base) ui.say('sessionBaseUpdated');
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
                 if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
@@ -192,7 +192,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         if (['YANK', 'UNYANK', 'REVOKE'].includes(result.operation)) {
             const record = state.published(result.pluginId).find(row => row.value.version === result.version);
             result.currentState = versionState(state, record).currentState;
-            result.requestedState = { YANK: 'YANKED', UNYANK: 'ACTIVE', REVOKE: 'REVOKED' }[result.operation];
+            const request = sdk.document('STATUS_REQUEST', prepared.changes.get(result.requestPath), result.requestPath).value;
+            Object.assign(result, requestedVersionState(state, record, request));
         }
         if (context.resumePrepared) savePrepared(context, prepared);
         return submitPreview({ sdk, snapshot, changes: prepared.changes, title: prepared.title, result, call,

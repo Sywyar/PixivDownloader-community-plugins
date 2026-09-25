@@ -2,6 +2,7 @@ import { policy, prefix, sha, API_BYTES } from './github.mjs';
 import { github, repositoryTree, readBlob } from './submission-github.mjs';
 import { hash } from './sdk.mjs';
 import { isDeepStrictEqual } from 'node:util';
+import { versionState } from './submission-version-state.mjs';
 
 export const keyFingerprint = key => hash(Buffer.from(key.publicKeySpkiBase64, 'base64'));
 
@@ -60,16 +61,26 @@ export function emergencyState(sdk, call = github) {
 
 // 项目关联只是展示信息，不授予密钥或插件管理权限。
 export function keyProjects(state, owner, key) {
-    const plugins = new Set();
+    const plugins = new Map();
     const owns = value => value?.accountId === owner.accountId && value?.accountType === owner.accountType && value?.publisherId === owner.publisherId;
+    const project = pluginId => {
+        if (!plugins.has(pluginId)) {
+            const currentOwner = state.read(`plugin-bindings/${pluginId}.json`, 'BINDING')?.value.owner ?? null;
+            plugins.set(pluginId, { pluginId, currentOwner, relationship: owns(currentOwner) ? 'CURRENT_OWNER'
+                : currentOwner ? 'OWNERSHIP_TRANSFERRED' : 'BINDING_MISSING', versions: [] });
+        }
+        return plugins.get(pluginId);
+    };
     for (const file of state.tree.keys()) {
         if (file.startsWith('published/') && file.endsWith('.json')) {
             const record = state.read(file, 'PUBLISHED')?.value;
-            if (owns(record?.owner) && record.package.signature.keyId === key.keyId) plugins.add(record.pluginId);
+            if (owns(record?.owner) && record.package.signature.keyId === key.keyId) {
+                project(record.pluginId).versions.push(versionState(state, { value: record }));
+            }
         } else if (key.state === 'ACTIVE' && file.startsWith('plugin-bindings/') && file.endsWith('.json')) {
             const binding = state.read(file, 'BINDING')?.value;
-            if (owns(binding?.owner)) plugins.add(binding.pluginId);
+            if (owns(binding?.owner)) project(binding.pluginId);
         }
     }
-    return [...plugins].sort();
+    return [...plugins.values()].sort((a, b) => a.pluginId.localeCompare(b.pluginId));
 }

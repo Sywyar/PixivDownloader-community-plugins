@@ -34,7 +34,7 @@ export function pendingPrepared(snapshot, changes, call = github, sdk) {
             throw new Error('EXISTING_PR_CONFLICT');
         }
         verifyPreparedFiles(snapshot, pull, files, changes, call, sdk);
-        matches.push({ url: pull.html_url, head: pull.head.sha, reused: true });
+        matches.push({ url: pull.html_url, head: pull.head.sha, reused: true, draft: Boolean(pull.draft) });
     }
     if (matches.length > 1) throw new Error('EXISTING_PR_CONFLICT');
     return matches[0] ?? null;

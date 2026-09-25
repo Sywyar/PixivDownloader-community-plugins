@@ -34,7 +34,9 @@ test('开放投稿按全局 ID 查重，组织成员可恢复自己的原 PR，�
     };
     const context = { call, snapshot: { actor: { id: '101' } }, state: { read: () => null },
         sdk: { document: (_kind, bytes) => ({ value: JSON.parse(bytes.toString('utf8')) }) } };
-    assert.equal(pendingVersion(context, facts, source, null).reused, true);
+    const pending = pendingVersion(context, facts, source, null);
+    assert.equal(pending.reused, true);
+    assert.deepEqual([...pending.changes.keys()], [`submissions/${accountId}/example/4.5.6.json`]);
     digest = 'c'.repeat(64); assert.throws(() => pendingVersion(context, facts, source, null), /VERSION_SUBMISSION_CONFLICT/u);
     digest = facts.sha256; count = 2; assert.throws(() => pendingVersion(context, facts, source, null), /VERSION_SUBMISSION_CONFLICT/u);
     count = 1; actor = '202'; assert.throws(() => pendingVersion(context, facts, source, null), /VERSION_SUBMISSION_CONFLICT/u);

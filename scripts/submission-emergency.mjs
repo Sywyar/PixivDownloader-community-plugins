@@ -17,8 +17,12 @@ export function keyLabel(context, owner, key) {
     const projects = context.state ? keyProjects(context.state, owner, key) : [];
     const fingerprint = keyFingerprint(key);
     const emergency = context.emergency ??= emergencyState(context.sdk, context.call ?? github);
-    const state = emergency.readBlock(fingerprint) ? 'DECLARED_COMPROMISED' : key.state ?? 'NEW';
-    return `${key.keyId} · ${context.ui.text('option.' + state)} · ${context.ui.text('keyProjects')}: ${projects.join(', ') || context.ui.text('noKeyProjects')} · ${fingerprint}`;
+    const text = context.ui.text;
+    const states = [key.state ?? 'NEW', ...(emergency.readBlock(fingerprint) ? ['DECLARED_COMPROMISED'] : [])];
+    const associations = projects.map(project => `${project.pluginId} (${text('option.' + project.relationship)}`
+        + `${project.currentOwner ? `; ${text('currentOwner')}: ${project.currentOwner.publisherId} (#${project.currentOwner.accountId})` : ''}`
+        + `${project.versions.length ? `; ${text('signedVersions')}: ${project.versions.map(version => `${version.version} ${text('option.' + version.currentState)}`).join(', ')}` : ''})`);
+    return `${key.keyId} · ${states.map(state => text('option.' + state)).join(' · ')} · ${text('keyProjects')}: ${associations.join('; ') || text('noKeyProjects')} · ${fingerprint}`;
 }
 
 export async function prepareEmergency(context) {
@@ -80,5 +84,5 @@ export function appliedEmergency(sdk, changes, call = github) {
     const blocks = request.payload.keys.map(key => state.readBlock(key.fingerprint));
     if (blocks.some(block => !block)) throw new Error('EMERGENCY_RECORDS_MISSING');
     state.unchanged();
-    return { requestId: request.requestId, keys: request.payload.keys, applied: true };
+    return { requestId: request.requestId, owner: request.payload.owner, keys: request.payload.keys, applied: true };
 }

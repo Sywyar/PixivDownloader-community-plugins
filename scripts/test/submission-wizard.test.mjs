@@ -201,8 +201,8 @@ test('五种语言在终端展示版本状态、操作影响和下一步，错�
         const ui = await terminal(tty.input, tty.output, { resumeLocale: locale });
         try {
             for (const currentState of ['ACTIVE', 'YANKED', 'REVOKED']) {
-                const record = { value: { pluginId: 'example', version: '2.3.4', package: { sha256: 'a'.repeat(64) } } };
-                presentOriginal({ ui, state: { tree: new Map(), currentStatus: () => ({ state: currentState }) } }, record);
+                const record = { value: { pluginId: 'example', version: '2.3.4', owner: { publisherId: 'author' }, package: { sha256: 'a'.repeat(64) } } };
+                presentOriginal({ ui, call: () => { throw Object.assign(new Error('GITHUB_NOT_FOUND'), { github: true }); }, state: { tree: new Map(), read: () => null, currentStatus: () => ({ state: currentState }) } }, record);
                 assert.notEqual(ui.text('version' + currentState), 'version' + currentState);
                 assert(tty.rendered().includes(ui.text('version' + currentState)));
                 assert(tty.rendered().includes(optionText(currentState, ui.text)));

@@ -29,7 +29,7 @@ const labels = {
 export function formatMetadata(value, text, depth = 0, field = '') {
     if (value === null || value === undefined) return text('none');
     if (typeof value === 'boolean') return text(value ? 'yes' : 'no');
-    if (typeof value !== 'object') return visible(['reasonCode', 'mode', 'role', 'accountType', 'executionMode', 'category', 'tags', 'signals', 'status', 'currentState', 'requestedState'].includes(field)
+    if (typeof value !== 'object') return visible(['reasonCode', 'mode', 'role', 'accountType', 'executionMode', 'category', 'tags', 'signals', 'status', 'currentState', 'requestedState', 'publicationState', 'relationship', 'action'].includes(field)
         ? optionText(value, text) : ['protection', 'branchCleanup', 'failureStep'].includes(field) ? text(value) : value);
     if (depth > 12) return text('details');
     return Object.entries(value).flatMap(([key, item]) => {

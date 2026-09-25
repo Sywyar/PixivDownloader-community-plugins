@@ -175,7 +175,8 @@ test('恢复旧发布投稿先识别已发布版本，不访问过期候选且�
     git(project, 'init'); git(project, 'add', '.pixivdownloader-plugin-project');
     git(project, '-c', 'user.name=Submission Test', '-c', 'user.email=submission@example.invalid', 'commit', '-m', 'test: source fixture');
     git(project, 'remote', 'add', 'origin', 'https://github.com/example/plugin.git');
-    const value = { pluginId: 'example', version: '2.3.4', package: { sha256: 'a'.repeat(64) } };
+    const value = { pluginId: 'example', version: '2.3.4', owner: { accountId: '201', accountType: 'User', publisherId: 'author' },
+        package: { sha256: 'a'.repeat(64) } };
     const published = { value };
     const context = { store, projectRoot: project, ui: { locale: 'en-US' },
         snapshot: { repositoryId: policy.repositoryId, base: 'a'.repeat(40), actor: { id: '201', type: 'User', login: 'author' } },
@@ -201,6 +202,7 @@ test('恢复旧发布投稿先识别已发布版本，不访问过期候选且�
         if (endpoint.endsWith('/git/ref/heads/master')) return { object: { sha: 'b'.repeat(40) } };
         if (endpoint === 'user') return context.snapshot.actor;
         if (endpoint === 'repos/example/plugin') return { id: '101', full_name: 'example/plugin', owner: { id: '201' } };
+        if (endpoint === `${prefix}/releases/tags/author%2Fexample-v2.3.4`) throw Object.assign(new Error('GITHUB_NOT_FOUND'), { github: true, status: 404 });
         assert.fail('不应获取失效候选或重复提交: ' + endpoint);
     }, policy.repository, new Map([['b'.repeat(40), files]]));
     for (const candidate of [true, false]) {
@@ -220,6 +222,7 @@ test('恢复旧发布投稿先识别已发布版本，不访问过期候选且�
                 password: () => assert.fail('不应重新签名已发布投稿') } });
         assert.deepEqual(result.original, value, JSON.stringify({ candidate, result, notices }));
         assert.equal(notices.at(-1).key, 'versionREVOKED');
+        assert.equal(notices.at(-1).details.publicationState, 'PUBLICATION_UNCONFIRMED');
         const completed = openProject(store.identity, '201', { home });
         assert.equal(completed.record.session, null); completed.close();
     }
