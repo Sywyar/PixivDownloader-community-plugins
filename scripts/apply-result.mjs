@@ -10,6 +10,7 @@ import { verifyPublicationProof } from './archive-proof.mjs';
 import { readBlob, repositoryTree, stateReader, requestTree } from './submission-github.mjs';
 import { signedOwnerOperations } from './status-authorization.mjs';
 import { reference, hydrateReceipt, originalReceipt, readReferencedBlob, receiptProofs, legacyPath, verifyBytes } from './receipt-storage.mjs';
+import { writeReviewBranch } from './review-branch.mjs';
 
 export const receiptPath = requestId => {
     if (!/^[a-f0-9]{64}$/u.test(requestId)) throw new Error('APPLY_REQUEST_ID_INVALID');
@@ -152,15 +153,8 @@ export function forkApi(pr, call = api) {
     if (!/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(name)) throw new Error('GITHUB_TARGET_MISMATCH');
     const scoped = (endpoint, options = {}) => {
         const forkWrite = id(pr.head.repo.id) !== policy.repositoryId && options.method && options.method !== 'GET';
-        if (forkWrite && !process.env.COMMUNITY_REVIEW_BRANCH_TOKEN) throw new Error('REVIEW_BRANCH_CREDENTIAL_REQUIRED');
-        try {
-            return call(endpoint, { ...options, repositoryName: name,
-                ...(forkWrite ? { token: process.env.COMMUNITY_REVIEW_BRANCH_TOKEN } : {}) });
-        } catch (error) {
-            const status = Number(/\(HTTP ([1-5][0-9]{2})\)/u.exec(String(error.stderr ?? ''))?.[1]);
-            if (forkWrite && [401, 403, 404].includes(status)) throw new Error('REVIEW_BRANCH_WRITE_DENIED');
-            throw error;
-        }
+        if (forkWrite) throw new Error('FORK_API_WRITE_FORBIDDEN');
+        return call(endpoint, { ...options, repositoryName: name });
     };
     const repo = scoped(`repos/${name}`);
     if (id(repo.id) !== id(pr.head.repo.id) || repo.full_name !== name || repo.private || repo.archived
@@ -248,7 +242,7 @@ export function requestSubject(receipt) {
         : publisher ? `发布者 ${publisher}` : receipt.operation === 'RENEWAL' ? '社区撤销清单' : `PR #${receipt.prNumber}`;
 }
 
-export async function appendReviewCommit(receipt, pointer, call = api, { wait = delay, proofs = new Map() } = {}) {
+export async function appendReviewCommit(receipt, pointer, call = api, { wait = delay, proofs = new Map(), writeBranch = writeReviewBranch, branchKey } = {}) {
     repository(call, { publicOnly: true });
     const current = () => sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha);
     if (current() !== receipt.baseSha) throw new Error('APPLY_BASE_CHANGED');
@@ -261,28 +255,21 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
     for (const [file, ref] of receiptProofs(pointer)) writes.set(file, verifyBytes(proofs.get(file), ref));
     writes.set(receiptPath(receipt.requestId), Buffer.from(JSON.stringify(pointer) + '\n'));
     const tree = [];
-    for (const [file, bytes] of writes) {
-        if (!resultPath(file)) throw new Error('APPLY_WRITE_FORBIDDEN');
-        const blob = scoped(`${target}/git/blobs`, { method: 'POST', body: { content: bytes.toString('base64'), encoding: 'base64' } });
-        tree.push({ path: file, mode: '100644', type: 'blob', sha: sha(blob.sha) });
-    }
+    for (const file of writes.keys()) if (!resultPath(file)) throw new Error('APPLY_WRITE_FORBIDDEN');
     if (receipt.integratedBase) {
         const baseTree = repositoryTree(pr.head.repo.full_name, receipt.baseSha, scoped);
         const inputs = requestTree(baseTree, repositoryTree(pr.head.repo.full_name, receipt.headSha, scoped), receipt.inputFiles);
         for (const file of receipt.inputFiles) tree.push({ path: file.filename, mode: '100644', type: 'blob', sha: inputs.get(file.filename).sha });
     }
-    const parent = scoped(`${target}/git/commits/${receipt.integratedBase ? receipt.baseSha : receipt.headSha}`);
-    const created = scoped(`${target}/git/trees`, { method: 'POST', body: { base_tree: sha(parent.tree.sha), tree } });
     const subject = requestSubject(receipt);
     const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}：${subject}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
     const identity = { name: 'Community review', email: `${policy.repositoryOwnerId}+${policy.repository.split('/')[0]}@users.noreply.github.com`, date: receipt.appliedAt };
-    const commit = scoped(`${target}/git/commits`, { method: 'POST', body: { message, tree: sha(created.sha), parents: generatedParents(receipt), author: identity, committer: identity } });
-    const before = pull(receipt.prNumber, call);
-    if (current() !== receipt.baseSha || reviewPrerequisite(before, expectedHead, receipt.baseSha)) throw new Error('PUBLICATION_HEAD_CHANGED');
-    // 普通快进更新：作者同时追加提交时 GitHub 拒绝，绝不强制覆盖投稿分支。
+    const commit = { sha: writeBranch(pr, { base: receipt.integratedBase ? receipt.baseSha : receipt.headSha,
+        parents: generatedParents(receipt), writes, entries: tree, message, identity, unchanged: () => {
+            const before = pull(receipt.prNumber, call);
+            if (current() !== receipt.baseSha || reviewPrerequisite(before, expectedHead, receipt.baseSha)) throw new Error('PUBLICATION_HEAD_CHANGED');
+        } }, scoped, { privateKey: branchKey }) };
     const branch = () => sha(scoped(`${target}/git/ref/heads/${pr.head.ref}`).object.sha);
-    try { scoped(`${target}/git/refs/heads/${pr.head.ref}`, { method: 'PATCH', body: { sha: sha(commit.sha), force: false } }); }
-    catch (error) { if (branch() !== commit.sha) throw error; }
     // Git ref 已更新时，PR 视图仍可能短暂返回父提交；只回读，不再次写入。
     for (let attempt = 1; attempt <= REVIEW_READBACK_ATTEMPTS; attempt++) {
         const actual = pull(pr.number, call), ref = branch(), base = current();

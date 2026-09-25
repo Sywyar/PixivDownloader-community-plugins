@@ -9,6 +9,7 @@ import { mergedRequest } from './apply-context.mjs';
 import { applySdk } from './apply-sdk.mjs';
 import { catalogId, prValue } from './platform.mjs';
 import { stateReader } from './submission-github.mjs';
+import { publisherPath } from './submission-check.mjs';
 import { formalTag, packageName, encoded, releaseStatus } from './apply-generation.mjs';
 export { releaseStatus };
 import { download as publicDownload } from './download.mjs';
@@ -152,7 +153,7 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
         if (release.draft) {
             if (!write) { pending = true; continue; }
             await promoteReleases(completion, sdk.workspace, { call, download, ...transport, authorize: () => {
-                const publisher = sdk.document('PUBLISHER', state.reference(record.historicalPublisherRef), record.historicalPublisherRef.path).value;
+                const publisher = sdk.document('PUBLISHER', state.reference(record.historicalPublisherRef), publisherPath(record.owner)).value;
                 const key = publisher.signingKeys.find(key => key.keyId === record.package.signature.keyId);
                 if (!key) throw new Error('PUBLICATION_KEY_MISSING');
                 const emergency = emergencyState(sdk, call);

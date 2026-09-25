@@ -238,8 +238,8 @@
     },
     {
       "path": "scripts/apply-result.mjs",
-      "size": 22895,
-      "sha256": "196e4200ca484f0747086e608344fa9355008e240e86a0c083bf93c9cf0b9ef3"
+      "size": 21876,
+      "sha256": "ceb266ace8d45dffb32bb942bb7c3baeaece3c78cedd5093384b2fc3b13de9c2"
     },
     {
       "path": "scripts/apply-sdk.mjs",
@@ -320,6 +320,11 @@
       "path": "scripts/repository-policy.json",
       "size": 621,
       "sha256": "40145de717c4228a861211197a3efa17f681b4b5d7c353e526fb9511c5a26015"
+    },
+    {
+      "path": "scripts/review-branch.mjs",
+      "size": 8373,
+      "sha256": "1a658a09e8bcebd7cc46e9f5efc10fd396f84d33a0b24dc96ab9f404201fec5e"
     },
     {
       "path": "scripts/sdk.mjs",
@@ -478,8 +483,8 @@
     },
     {
       "path": "scripts/tool-process.mjs",
-      "size": 2713,
-      "sha256": "3383b1473dc88c199feb4c7ff92f049b736719fda95ec1ca0b26590ce5d7d6b3"
+      "size": 2721,
+      "sha256": "ba6e4c08d06e9e01ea7aa2098730f712edbe292ccd40831c2c601e6ddd5fdcca"
     },
     {
       "path": "scripts/transfer-reviews.mjs",
