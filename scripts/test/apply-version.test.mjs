@@ -8,13 +8,15 @@ import { signingTool } from '../submission-signing.mjs';
 import { applySdk } from '../apply-sdk.mjs';
 import { publishVersion } from '../apply-version.mjs';
 import { currentAdmission } from '../apply-context.mjs';
-import { confirmPublication } from '../publication-releases.mjs';
+import { confirmPublication, finalizeReleases } from '../publication-releases.mjs';
+import { makeReceipt, receiptPath } from '../apply-result.mjs';
+import { proofPath, reference } from '../receipt-storage.mjs';
 import { scanBuild } from '../build-evidence.mjs';
-import { encoded } from '../apply-generation.mjs';
+import { encoded, packageName } from '../apply-generation.mjs';
 import { hash, root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
 
-test('真实签名包和扫描证据经审核后归档发布，同版本重放不产生写入', () => {
+test('真实签名包经审核合并后公开候选 Release，同版本重放不产生写入', async () => {
     const sdk = prepareSubmission(), sign = signingTool(sdk), adapter = applySdk(sdk);
     const records = new Map();
     const state = { tree: records, raw: file => records.get(file) ?? null,
@@ -59,7 +61,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
             protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer }] }] };
         if (route === `${prefix}/environments/release/deployment-branch-policies`) return [{ branch_policies: [{ id: 9, type: 'branch', name: 'master' }], total_count: 1 }];
         if (route === `${prefix}/actions/runs/91/approvals`) return [{ state: 'approved', environments: [{ id: 8, name: 'release' }], user: reviewer }];
-        if (route === `${prefix}/releases/501/assets`) return [[{ id: 601, name: 'plugin.jar', size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' }]];
+        if (route === `${prefix}/releases/501/assets`) return [[{ id: 601, name: packageName({ ...submission, owner }), size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' }]];
         throw new Error('Unexpected request ' + route);
     }, policy.repository, new Map([[current, records]])), 'example/fork', new Map([[pr.head.sha, records]])));
     const compiled = fs.readFileSync(path.join(project, 'Probe.class'));
@@ -75,6 +77,7 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
         report: JSON.parse(fs.readFileSync(path.join(sdk.workspace, scan.riskReportRef.path))) };
     const admission = currentAdmission(7, sdk, context, version, call, () => '');
     const options = { sdk, adapter, state, version, pr, context, admission, inputs: { recoveryApproved: false }, communityKey, privateBytes, appliedAt, call };
+    const originalRecords = new Map(records);
     const result = publishVersion(options);
     assert.equal(result.published.assuranceLevel, 'SOURCE_REVIEWED');
     assert.equal(result.published.sourceCommit, submission.source.commit);
@@ -97,5 +100,72 @@ test('真实签名包和扫描证据经审核后归档发布，同版本重放�
     assert.equal(confirmPublication(sdk, state, result.published, artifact, completion).verified, true);
     assert.equal(publishVersion(options).writes.size, 0);
     assert.throws(() => publishVersion({ ...options, version: { ...version, checked: { ...version.checked, package: { ...version.checked.package, sha256: 'f'.repeat(64) } } } }), /VERSION_DIGEST_CONFLICT/);
+    const put = (file, value) => { const bytes = encoded(value); result.writes.set(file, bytes); return { path: file, size: bytes.length, sha256: hash(bytes) }; };
+    const data = put('generated/generations/1/catalog.json', {});
+    put('generated/current.json', { sequence: 1, descriptor: data, directory: data, catalog: data,
+        revocations: put('revocations.json', { entries: [] }) });
+    const inputFiles = [{ filename: submissionPath, status: 'added', sha: reference(originalRecords.get(submissionPath)).blob }];
+    const made = makeReceipt({ requestId: hash(originalRecords.get(submissionPath)), operation: 'FIRST_RELEASE', pr,
+        current, run: context.run, writes: result.writes, state: { raw: file => originalRecords.get(file) },
+        releases: [result.release], appliedAt, inputFiles });
+    result.writes.forEach((value, file) => records.set(file, value));
+    const attestation = encoded({});
+    const pointer = { schemaVersion: 2, manifest: reference(made.bytes), attestation: reference(attestation) };
+    records.set(proofPath(pointer.manifest.sha256), made.bytes);
+    records.set(proofPath(pointer.attestation.sha256), attestation);
+    records.set(receiptPath(made.value.requestId), encoded(pointer));
+    const files = [...records.keys()].filter(file => !originalRecords.get(file)?.equals(records.get(file)))
+        .map(filename => ({ filename, status: originalRecords.has(filename) ? 'modified' : 'added' }));
+    const mergedPr = { ...completion.pr, changed_files: files.length + inputFiles.length };
+    const baseRecords = new Map(originalRecords); baseRecords.delete(submissionPath);
+    const release = { id: 501, draft: true, published_at: null, tag_name: result.release.originalTag };
+    const assets = structuredClone(result.release.originalAssets), bodies = new Map([['601', bytes]]);
+    let tag = null, promotions = 0;
+    const finalCall = withEmergencyState(withRepositoryFiles((endpoint, request = {}) => {
+        const route = endpoint.split('?')[0];
+        if (route === `${prefix}/branches/master`) return { commit: { sha: merged } };
+        if (route === `${prefix}/pulls/7`) return structuredClone(mergedPr);
+        if (route === `${prefix}/pulls/7/files`) return [[...inputFiles, ...files]];
+        if (route.endsWith('/check-runs')) return [{ total_count: 4, check_runs: policy.requiredContexts.map((name, i) => ({
+            id: i + 1, name, app: policy.gateApp, head_sha: generated, external_id: '91:1:7', status: 'completed', conclusion: 'success' })) }];
+        if (route.startsWith(`${prefix}/git/commits/`)) {
+            const sha = route.split('/').at(-1);
+            return { sha, parents: (sha === generated ? [pr.head.sha, current] : [current, generated]).map(sha => ({ sha })) };
+        }
+        if (route === `${prefix}/releases/501/assets`) return [structuredClone(assets)];
+        if (route.startsWith(`${prefix}/git/matching-refs/tags/`)) return [tag ? [tag] : []];
+        if (route === `${prefix}/releases/501`) {
+            if (request.method === 'PATCH') {
+                if (request.body.draft === false) {
+                    promotions++; release.published_at = appliedAt;
+                    tag = { ref: 'refs/tags/' + request.body.tag_name, object: { type: 'commit', sha: merged } };
+                }
+                Object.assign(release, request.body);
+            }
+            return structuredClone(release);
+        }
+        assert.fail(endpoint);
+    }, policy.repository, new Map([[current, baseRecords], [pr.head.sha, originalRecords], [generated, records], [merged, records]])));
+    const download = (endpoint, file, max, expected) => {
+        const bytes = bodies.get(endpoint.split('/').at(-1));
+        assert.ok(bytes.length <= max); assert.equal(bytes.length, expected.size); assert.equal(hash(bytes), expected.sha256);
+        fs.writeFileSync(file, bytes, { flag: 'wx' });
+    };
+    const transport = { call: finalCall, readGit: () => '', verify: () => ({ sourceRepositoryDigest: current }), download,
+        upload: (releaseId, file, name) => {
+            assert.equal(String(releaseId), '501');
+            const bytes = fs.readFileSync(file), id = 601 + assets.length;
+            const asset = { id, name, size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' };
+            assets.push(asset); bodies.set(String(id), bytes); return asset;
+        }, fetch: (url, file, max, expected) => {
+            assert.equal(url, `https://github.com/${policy.repository}/releases/download/${result.release.tag}/${result.release.packageName}`);
+            return download(`${prefix}/releases/assets/601`, file, max, expected);
+        } };
+    assert.equal((await finalizeReleases({ current: merged }, sdk, transport)).applied, true);
+    assert.equal(release.draft, false); assert.equal(promotions, 1);
+    assert.equal(release.tag_name, result.release.tag); assert.equal(release.target_commitish, merged);
+    assert.deepEqual(bodies.get('601'), bytes);
+    assert.equal((await finalizeReleases({ current: merged }, sdk, transport)).applied, true);
+    assert.equal(promotions, 1);
     sign.close(); privateBytes.fill(0);
 });
