@@ -139,7 +139,7 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
         previousHead: prepared.previousHead,
         writes: applied.writes, state, appliedAt, authorization: context.automatic ? 'SIGNED_OWNER' : undefined,
         recordOnly: applied.recordOnly === true, inputFiles: prepared.inputFiles, releases: applied.release ? [applied.release] : [],
-        reviewContext: { checked: Object.fromEntries(['operation', 'pr', 'pluginId', 'version', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
+        reviewContext: { checked: Object.fromEntries(['validation', 'operation', 'pr', 'pluginId', 'version', 'submission', 'submissionPath', 'submissionSha256', 'descriptor', 'package',
             'bindingSha256', 'publisherSha256', 'owner', 'from', 'to', 'singlePr', 'ownerConfirmationInRequest', 'requestPath', 'requestId', 'requestSha256', 'reasonCode', 'recoveryRequired', 'organizationRepresentationRequired']
             .filter(key => version.checked[key] !== undefined).map(key => [key, version.checked[key]])), publicationBindingSha256: version.publicationBindingSha256, transferRepresentations: version.transferRepresentations,
             ...(version.candidate ? { candidate: { inputSha256: version.candidate.inputSha256, evidence: admission.input.evidence,
@@ -150,7 +150,7 @@ export async function prepareResult(context, inputs, sdk, prepared, credentials,
     return { ...result, file };
 }
 
-export async function storeResult(context, file, bundle, sdk, inputs, { call = api, checkCall = github, readGit, verify = verifyPublicationProof } = {}) {
+export async function storeResult(context, file, bundle, sdk, inputs, { call = api, checkCall = github, readGit, verify = verifyPublicationProof, branchKey } = {}) {
     publicationEnvironment(context, inputs, call);
     if (!fs.lstatSync(file).isFile() || fs.statSync(file).size > API_BYTES) throw new Error('APPLY_RECEIPT_BUDGET');
     const certificate = verify(file, bundle, context.current, readGit);
@@ -171,22 +171,42 @@ export async function storeResult(context, file, bundle, sdk, inputs, { call = a
     const pointer = { schemaVersion: 2, manifest: reference(bytes), attestation: reference(bundleBytes) };
     const proofs = new Map([[proofPath(pointer.manifest.sha256), bytes], [proofPath(pointer.attestation.sha256), bundleBytes]]);
     // 审核正文和证明随原 PR 提交；仅安装包等大产物使用 Release。
-    try { return await appendReviewCommit(receipt, pointer, call, { proofs }); }
+    try { return await appendReviewCommit(receipt, pointer, call, { proofs, branchKey }); }
     catch (error) {
-        if (!['REVIEW_BRANCH_CREDENTIAL_REQUIRED', 'REVIEW_BRANCH_WRITE_DENIED'].includes(error.message)) throw error;
-        return { pending: error.message, pr: pull(receipt.prNumber, call) };
+        if (!['REVIEW_BRANCH_SSH_KEY_REQUIRED', 'REVIEW_BRANCH_SSH_KEY_INVALID', 'REVIEW_BRANCH_WRITE_FAILED'].includes(error.message)) throw error;
+        return { pending: error.message, diagnostic: error.diagnostic, pr: pull(receipt.prNumber, call) };
     }
 }
 
-export function waitingProjection(pr, code) {
+export function executionProjection(pr, context, summary) {
+    return { number: pr.number, head: sha(typeof pr.head === 'string' ? pr.head : pr.head.sha), state: pr.state, merged: pr.merged,
+        execution: { runId: id(context.run.id), attempt: Number(id(context.run.run_attempt)) }, summary };
+}
+
+export function executionFailure(pr, context, error) {
+    const code = /^([A-Z][A-Z0-9_]{0,79})(?=: |$)/u.exec(error.message)?.[1] ?? 'REQUEST_EXECUTION_FAILED';
+    return executionProjection(pr, context, `${code}\n\nThe protected operation did not complete. Inspect this workflow before retrying with the current PR head. Read back any prepared result or merge before repeating a write.`);
+}
+
+export function reportExecution(result, context) {
+    const projection = result.pending ? waitingProjection(result.pr, result.pending, context, result.diagnostic)
+        : executionProjection(result.pr, context, result.merged ? 'The request was merged. Release publication, when required, runs separately.'
+            : 'The verified result was written to this head. Waiting for final checks and merge.');
+    if (result.projection?.requestInfo) projection.requestInfo = result.projection.requestInfo;
+    output({ projections: JSON.stringify([projection]), head: result.head ?? '', merged: String(result.merged === true) });
+    if (result.pending) process.exitCode = 1;
+}
+
+export function waitingProjection(pr, code, context, diagnostic) {
     const messages = {
         TRANSFER_OWNER_CONFIRMATION_REQUIRED: 'The current owner must approve this request on its original pull request. Do not merge an incomplete transfer. Private organization representation requires explicit verification in this workflow.',
         TRANSFER_OWNER_REJECTED: 'The current owner rejected this transfer. Close the unmerged request; no ownership state has changed.',
         MAINTAINER_EDITS_REQUIRED: 'Please enable **Allow edits from maintainers** on this pull request, then retry Apply signed version status for an eligible signed status request, or Complete community review for a human-reviewed request. No files or releases were published.',
         REVIEW_OPEN_READY_PR_REQUIRED: 'Mark this pull request ready for review before completing the review.',
         REVIEW_OPERATION_REQUIRED: 'This form completes community submissions and management requests. Maintenance PRs use the existing review checks.',
-        REVIEW_BRANCH_CREDENTIAL_REQUIRED: 'The protected workflow needs a credential that can update this exact fork branch. Allow edits from maintainers alone does not grant the workflow token access. Configure COMMUNITY_REVIEW_BRANCH_TOKEN in community-status, then retry the selected workflow.',
-        REVIEW_BRANCH_WRITE_DENIED: 'GitHub denied the update to this fork branch. Check COMMUNITY_REVIEW_BRANCH_TOKEN access, Allow edits from maintainers, branch protection and API limits, then retry. The prepared archive is retained; the request has not been approved for merge.',
+        REVIEW_BRANCH_SSH_KEY_REQUIRED: 'Configure COMMUNITY_REVIEW_BRANCH_SSH_KEY in community-status and register its public key as an authentication key on the maintainer account. Enable Allow edits from maintainers on the original PR, then retry.',
+        REVIEW_BRANCH_SSH_KEY_INVALID: 'COMMUNITY_REVIEW_BRANCH_SSH_KEY must contain an unencrypted OpenSSH private key, at most 16 KiB. Upload the complete key file to the protected environment, then retry.',
+        REVIEW_BRANCH_WRITE_FAILED: 'Writing the reviewed result to the original request branch failed. Check the diagnostic below and the linked workflow. Restore SSH authentication, network access or branch permission as indicated, then retry with the current head. No merge was attempted.',
         PUBLICATION_REVIEW_REQUIRED: 'Resolve validation, scan findings and review objections for this exact head, then retry the selected workflow. Requests requiring human approval must complete that review first.',
         STATUS_MANUAL_REVIEW_REQUIRED: 'This request requires human review: provide a valid active-key proof as the current personal owner, or use Complete community review for recovery, organization authority or community restrictions.',
         STATUS_CHECKS_PENDING: 'The request is prepared. Checks for the generated head have not all passed; no merge was attempted. Resolve the checks, then retry the selected workflow with the current head.',
@@ -195,19 +215,23 @@ export function waitingProjection(pr, code) {
         CANDIDATE_ARCHIVE_PENDING: 'No complete verified candidate is visible. Check that candidate archival has finished and the trusted workflow token can read Draft Releases before completing the review.',
     };
     if (!messages[code]) throw new Error(code);
-    return { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged,
-        labels: ['review:pending'], summary: `${code}\n\n${messages[code]}` };
+    const summary = `${code}\n\n${messages[code]}${diagnostic ? '\n\nDiagnostic: `' + JSON.stringify(diagnostic) + '`' : ''}`;
+    return context ? executionProjection(pr, context, summary)
+        : { number: pr.number, head: pr.head.sha, state: pr.state, merged: pr.merged, labels: ['review:pending'], summary };
 }
 
 main(import.meta.url, async () => {
     const mode = process.argv[2];
     if (!['preflight', 'prepare', 'store', 'merge', 'finalize', 'finalize-notify', 'notify'].includes(mode) || process.argv.length !== 3) throw new Error('PUBLICATION_COMMAND_INVALID');
     const privateValue = process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
+    const branchKey = process.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY;
+    delete process.env.COMMUNITY_REVIEW_BRANCH_SSH_KEY;
     delete process.env.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64;
     if (privateValue && (mode !== 'prepare' || privateValue.length > 21848)) throw new Error('COMMUNITY_SIGNING_KEY_INVALID');
     const privateBytes = Buffer.from(privateValue ?? '', 'base64');
+    let context, pr;
     try {
-        const context = publicationExecution(mode);
+        context = publicationExecution(mode);
         if (mode === 'notify' || mode === 'finalize-notify') { notify(JSON.parse(process.env.COMMUNITY_PROJECTIONS)); return; }
         const sdk = prepareSubmission();
         if (mode === 'finalize') {
@@ -219,16 +243,15 @@ main(import.meta.url, async () => {
             return;
         }
         const inputs = inputsFrom(event());
+        pr = pull(inputs.prNumber);
         if (mode === 'merge') {
             const result = await mergeStatus(context, sdk, inputs.prNumber, process.env.COMMUNITY_STATUS_HEAD, { inputs });
-            output({ projections: JSON.stringify(result.pending
-                ? [{ ...result.projection, ...waitingProjection(result.pr, result.pending) }]
-                : result.projection ? [result.projection] : []) });
+            reportExecution(result, context);
             return;
         }
         if (mode === 'store') {
-            const result = await storeResult(context, process.env.COMMUNITY_PUBLICATION_FILE, process.env.COMMUNITY_ATTESTATION_BUNDLE, sdk, inputs);
-            output({ projections: JSON.stringify(result.pending ? [waitingProjection(result.pr, result.pending)] : []), head: result.head ?? '' });
+            const result = await storeResult(context, process.env.COMMUNITY_PUBLICATION_FILE, process.env.COMMUNITY_ATTESTATION_BUNDLE, sdk, inputs, { branchKey });
+            reportExecution(result, context);
             return;
         }
         let prepared;
@@ -238,9 +261,11 @@ main(import.meta.url, async () => {
             prepared = { pending: error.message, selected: { pr: pull(inputs.prNumber) } };
         }
         if (mode === 'prepare' && !prepared.pending && id(prepared.selected.pr.head.repo.id) !== policy.repositoryId
-            && process.env.HAS_REVIEW_BRANCH_TOKEN !== 'true') prepared.pending = 'REVIEW_BRANCH_CREDENTIAL_REQUIRED';
+            && !prepared.replayed && process.env.HAS_REVIEW_BRANCH_SSH_KEY !== 'true') prepared.pending = 'REVIEW_BRANCH_SSH_KEY_REQUIRED';
         if (prepared.pending) {
-            output({ ready: 'false', projections: JSON.stringify([waitingProjection(prepared.selected.pr, prepared.pending)]) }); return;
+            output({ ready: 'false', projections: JSON.stringify([waitingProjection(prepared.selected.pr, prepared.pending, context)]) });
+            if (mode === 'prepare' && prepared.pending === 'REVIEW_BRANCH_SSH_KEY_REQUIRED') process.exitCode = 1;
+            return;
         }
         if (mode === 'preflight') { output({ ready: 'true', projections: '[]' }); return; }
         if (prepared.replayed) { output({ head: prepared.selected.pr.head.sha }); return; }
@@ -249,5 +274,12 @@ main(import.meta.url, async () => {
             state: 'ACTIVE', publisher: 'PixivDownloader Community', trustLabel: 'Community source review', official: false };
         const result = await prepareResult(context, inputs, sdk, prepared, { privateBytes, communityKey });
         output({ manifest: result.file });
+    } catch (error) {
+        if (context && pr) {
+            const projection = executionFailure(pr, context, error);
+            output({ projections: JSON.stringify([projection]) });
+            throw new Error(projection.summary.split('\n')[0]);
+        }
+        throw error;
     } finally { privateBytes.fill(0); }
 });

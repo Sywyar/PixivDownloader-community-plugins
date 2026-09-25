@@ -101,7 +101,7 @@ jobs:
         run: node scripts/community-publication.mjs prepare
         env:
           GH_TOKEN: ${{ github.token }}
-          HAS_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN != '' }}
+          HAS_REVIEW_BRANCH_SSH_KEY: ${{ secrets.COMMUNITY_REVIEW_BRANCH_SSH_KEY != '' }}
           COMMUNITY_RELEASE_KEY_ID: ${{ vars.COMMUNITY_RELEASE_KEY_ID }}
           COMMUNITY_RELEASE_PUBLIC_KEY_BASE64: ${{ vars.COMMUNITY_RELEASE_PUBLIC_KEY_BASE64 }}
           COMMUNITY_RELEASE_PRIVATE_KEY_BASE64: ${{ secrets.COMMUNITY_RELEASE_PRIVATE_KEY_BASE64 }}
@@ -116,7 +116,7 @@ jobs:
         run: node scripts/community-publication.mjs store
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMUNITY_REVIEW_BRANCH_TOKEN: ${{ secrets.COMMUNITY_REVIEW_BRANCH_TOKEN }}
+          COMMUNITY_REVIEW_BRANCH_SSH_KEY: ${{ secrets.COMMUNITY_REVIEW_BRANCH_SSH_KEY }}
           COMMUNITY_PUBLICATION_FILE: ${{ steps.prepare.outputs.manifest }}
           COMMUNITY_ATTESTATION_BUNDLE: ${{ steps.proof.outputs.bundle-path }}
       - id: app

@@ -6,6 +6,9 @@ import path from 'node:path';
 import { prepareSubmission, withEmergencyState, withRepositoryFiles } from './local-sdk.mjs';
 import { signingTool, signOperation } from '../submission-signing.mjs';
 import { preparePublication, prepareResult } from '../community-publication.mjs';
+import { restoreReview } from '../apply-context.mjs';
+import { readReceiptFiles } from '../receipt-storage.mjs';
+import { readRequestInfo } from '../community-comments.mjs';
 import { encoded } from '../apply-generation.mjs';
 import { hash } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
@@ -83,6 +86,13 @@ test('两个旧基线请求顺序生成，真实 SDK 保留先前结果和原签
         assert.equal(result.value.headSha, request.pr.head.sha);
         assert.equal(result.value.sourceSha, source);
         assert.equal(result.value.baseSha, current);
+        const receipt = readReceiptFiles(JSON.parse(fs.readFileSync(result.file, 'utf8')), path.join(jobSdk.workspace, 'publication-files'));
+        const restored = restoreReview(jobSdk, prepared.state, receipt);
+        const info = readRequestInfo(jobSdk, restored.checked, request.pr, call);
+        for (const body of Object.values(info)) {
+            assert(body.includes(`/blob/${request.pr.head.sha}/${request.file}`));
+            assert(body.includes(hash(request.bytes)));
+        }
         const audit = JSON.parse(Buffer.from(result.value.files.find(file => file.path.startsWith('audits/')).bytes, 'base64'));
         assert.equal(audit.authorization, 'SIGNED_OWNER');
         assert.equal(audit.prEvidence[0].headSha, request.pr.head.sha);

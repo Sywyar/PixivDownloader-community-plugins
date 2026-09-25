@@ -65,7 +65,7 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
                 throw new Error('REVIEW_MERGE_CHANGED');
             }
             call(`${prefix}/actions/workflows/community-publication.yml/dispatches`, { method: 'POST', body: { ref: policy.defaultBranch } });
-            return { merged: true, head, merge: actual.merge_commit_sha, projection: details(actual) };
+            return { merged: true, head, merge: actual.merge_commit_sha, pr: actual, projection: details(actual) };
         }
         if (now() >= deadline) return { pending: 'STATUS_CHECKS_PENDING', pr, projection: details(pr) };
         await wait(Math.min(1000, deadline - now()));
