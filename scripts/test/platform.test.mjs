@@ -139,10 +139,13 @@ test('来源和路径边界拒绝候选执行器、错误身份、混合动作�
         assert.throws(() => trustedRun(71, 1, decisionPath, current, call, readGit));
         state.run[field] = old;
     }
-    assert.equal(classify(state.pr, state.files), 'maintenance');
-    state.pr.user = { ...state.owner, id: 123 };
-    assert.throws(() => classify(state.pr, state.files), /OWNER_REQUIRED/);
-    state.pr.user = state.owner;
+    for (const filename of ['README.md', 'CHANGELOG.md']) {
+        state.files[0].filename = filename;
+        assert.equal(classify(state.pr, state.files), 'maintenance');
+        state.pr.user = { ...state.owner, id: 123 };
+        assert.throws(() => classify(state.pr, state.files), /OWNER_REQUIRED/);
+        state.pr.user = state.owner;
+    }
     assert.throws(() => classify(state.pr, [{ filename: 'submissions/test.json' }]), /EXECUTOR_UNAVAILABLE/);
     state.pr.changed_files = 2;
     assert.throws(() => classify(state.pr, [...state.files, { filename: 'submissions/test.json' }]), /MIXED/);

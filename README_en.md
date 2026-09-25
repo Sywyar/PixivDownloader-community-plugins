@@ -71,6 +71,10 @@ Requests are prepared and merged through a shared queue. Unrelated mainline data
 
 For an update, change the version, push and wait for CI, then use the same entry point. The wizard restores license and marketplace details, preserves existing languages and images, and checks for duplicate IDs and versions early. Key rotation, yanking, unyanking, revocation and ownership transfer have separate management options.
 
+The key list shows registration state, compromise declarations, current plugin owners and restrictions on historically signed versions separately. A transfer ends the previous publisher's management rights for that plugin without retiring their active key. Restoring an old request keeps its original record and shows current ownership or keys. Open requests identify drafts and stale assumptions caused by changes such as rotation or transfer. Stale transfer requests remain available to inspect their reasons and original PR, but cannot be approved in the wizard.
+
+A registered version's ACTIVE, YANKED or REVOKED state is shown separately from Release availability. The availability check compares GitHub Release and package asset metadata only; failed reads or hidden objects leave availability unconfirmed. An UNYANK preview shows the resulting effective state and any independent community restrictions that remain.
+
 - To withdraw a request, confirm closing your unmerged PR, then separately choose whether to delete its request branch. Every deletion requires fresh confirmation. Branches with new commits, protection rules or another open PR are kept. Authors clean up branches in their own fork; the community owner cleans up submission branches in this repository. The fork, default branch, Releases, keys and saved answers are retained. For a merged request that has not been applied, ask a maintainer to pause execution.
 - YANK blocks new installations. UNYANK removes your own yank after the issue is resolved; independent community restrictions remain effective.
 - REVOKE blocks installation and startup and cannot be undone. Type the selected `pluginId@version` to confirm. Clients enforce the revocation protocols they support.

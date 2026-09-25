@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from 'node:util';
 import { id, policy, prefix, API_BYTES } from './github.mjs';
 import { publisherPath } from './submission-check.mjs';
 import { github, paged, eligible, repositoryTree, readBlob, unchanged } from './submission-github.mjs';
@@ -8,6 +7,7 @@ import { retryStep } from './submission-retry.mjs';
 import { currentProof } from './submission-operations.mjs';
 import { signOperationProof } from './submission-signing.mjs';
 import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
+import { requestCurrentState } from './submission-current-state.mjs';
 
 const transferFilters = ['transferFilterLabel', 'transferFilterMention'];
 
@@ -22,27 +22,24 @@ export function openTransfers(context, filters = transferFilters) {
     for (const issue of paged(`${prefix}/issues?${query}`, call)) {
         if (!issue.pull_request) continue;
         const pr = call(`${prefix}/pulls/${id(issue.number)}`);
-        if (pr.state !== 'open' || pr.draft || pr.merged || !pr.head.repo || pr.base.ref !== policy.defaultBranch
+        if (pr.state !== 'open' || pr.merged || !pr.head.repo || pr.base.ref !== policy.defaultBranch
             || id(pr.base.repo.id) !== policy.repositoryId || pr.user.type !== 'User' || id(pr.user.id) === snapshot.actor.id) continue;
         const files = paged(`${prefix}/pulls/${id(pr.number)}/files`, call);
         // 已准备结果的 PR 已有所有者确认；之后仍可在网页请求修改，Gate 会撤回准入。
         if (files.some(file => file.filename.startsWith('generated/receipts/'))) continue;
         const proposals = files.filter(file => /^ownership-transfers\/[^/]+\/[a-f0-9]{64}\/proposal\.json$/u.test(file.filename));
         if (proposals.length !== 1 || proposals[0].status !== 'added') continue;
-        const file = proposals[0].filename, binding = state.read(`plugin-bindings/${file.split('/')[1]}.json`, 'BINDING');
-        if (!binding || !eligible(binding.value.owner, snapshot.actor, call)) continue;
+        const file = proposals[0].filename;
         const tree = repositoryTree(pr.head.repo.full_name, pr.head.sha, call);
         const bytes = readBlob(pr.head.repo.full_name, tree.get(file), call);
         if ((total += bytes.length) > API_BYTES) throw new Error('INPUT_SIZE_EXCEEDED');
         let document;
         try { document = sdk.document('TRANSFER', bytes, file); } catch { continue; }
         const request = document.value;
-        if (request.payload.mode !== 'REGULAR' || binding.sha256 !== request.payload.pluginBindingSha256
-            || !isDeepStrictEqual(binding.value.owner, request.payload.from)
+        if (request.payload.mode !== 'REGULAR' || !eligible(request.payload.from, snapshot.actor, call)
             || state.tree.has(`audits/${request.requestId}.json`)) continue;
-        if ((state.read(publisherPath(request.payload.to), 'PUBLISHER')?.sha256 ?? null)
-            !== request.payload.targetPublisherRecordSha256) continue;
-        requests.push({ ...document, path: file, openPr: { number: pr.number, head: pr.head.sha, url: pr.html_url } });
+        const [facts] = requestCurrentState(context, new Map([[file, bytes]]));
+        requests.push({ ...document, path: file, ...facts, openPr: { number: pr.number, head: pr.head.sha, url: pr.html_url, draft: Boolean(pr.draft) } });
     }
     return requests;
 }
@@ -56,8 +53,15 @@ export async function selectTransfer(context) {
         if (!requests.length) ui.say('noTransferFrom');
         const selected = await ui.select('proposal', [...requests, 'changeTransferFilters'], record =>
             typeof record === 'string' ? ui.text(record)
-                : `#${record.openPr.number} ${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`);
-        if (selected !== 'changeTransferFilters') return selected;
+                : `#${record.openPr.number} ${record.value.payload.from.publisherId}/${record.value.payload.pluginId} → ${record.value.payload.to.publisherId} (${record.value.requestId})`
+                    + (record.openPr.draft ? ` · ${ui.text('option.REQUEST_DRAFT')}` : '')
+                    + (record.issues.length ? ` · ${ui.text('option.REQUEST_STALE')}` : ''));
+        if (selected !== 'changeTransferFilters') {
+            if (!selected.openPr.draft && !selected.issues.length) return selected;
+            ui.say(selected.openPr.draft ? 'requestDraft' : 'requestStale', { url: selected.openPr.url, ...selected.current });
+            for (const issue of selected.issues) ui.say('requestStale', issue);
+            continue;
+        }
         filters = await ui.multiselect('transferFilterScope', transferFilters, filters);
     }
 }

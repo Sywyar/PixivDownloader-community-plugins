@@ -12,7 +12,7 @@ const head = 'a'.repeat(40), base = 'b'.repeat(40);
 const from = { accountId: '101', accountType: 'User', publisherId: 'original' };
 const binding = Buffer.from(JSON.stringify({ owner: from }));
 const request = { requestId: 'c'.repeat(64), payload: { from, to: { accountId: '202', accountType: 'User', publisherId: 'recipient' },
-    pluginId: 'demo', pluginBindingSha256: hash(binding), targetPublisherRecordSha256: null, mode: 'REGULAR' } };
+    pluginId: 'demo', pluginBindingSha256: hash(binding), targetPublisherRecordSha256: null, mode: 'REGULAR', targetKey: { keyId: 'target', publicKeySpkiBase64: 'YWJj' } }, proofs: { targetKey: { keyId: 'target' } } };
 const bytes = Buffer.from(JSON.stringify(request));
 const checked = { operation: 'OWNERSHIP_TRANSFER', singlePr: true, from, requestSha256: hash(bytes), requestId: request.requestId,
     requestPath: `ownership-transfers/demo/${request.requestId}/proposal.json`, pluginId: 'demo', bindingSha256: hash(binding), pr: { head } };
@@ -168,7 +168,7 @@ test('转移入口在 GitHub 按标签与提及组合筛选，仅展开命中 PR
         assert.fail(endpoint);
     }, pr.head.repo.full_name, new Map([[head, rows]]));
     const context = () => ({ call, snapshot: { actor },
-        sdk: { document: () => ({ value: request, sha256: hash(bytes) }) },
+        emergency: { readBlock: () => null }, sdk: { document: () => ({ value: request, sha256: hash(bytes) }) },
         state: { tree: new Map(), read: file => file.startsWith('plugin-bindings/') ? { value: { owner: from }, sha256: hash(binding) } : null } });
     for (const filters of [undefined, ['transferFilterLabel'], ['transferFilterMention'], []]) {
         const result = openTransfers(context(), filters);
@@ -195,11 +195,44 @@ test('组织代表取消提及筛选后仍须通过当前成员身份核验', ()
         if (endpoint === 'user/memberships/orgs/group') return { state: active ? 'active' : 'pending', user: owner, organization: { id: '505' } };
         assert.fail(endpoint);
     }, pr.head.repo.full_name, new Map([[head, new Map([[checked.requestPath, bytes]])]]));
-    const context = { call, snapshot: { actor: owner }, sdk: { document: () => ({ value, sha256: hash(bytes) }) },
+    const context = { call, snapshot: { actor: owner }, emergency: { readBlock: () => null }, sdk: { document: () => ({ value, sha256: hash(bytes) }) },
         state: { tree: new Map(), read: file => file.startsWith('plugin-bindings/') ? { value: { owner: organization }, sha256: hash(binding) } : null } };
     assert.deepEqual(openTransfers(context, ['transferFilterLabel']), []);
     active = true;
     assert.equal(openTransfers(context, ['transferFilterLabel']).length, 1);
+});
+
+test('转移和换钥后的旧申请仍可查看原因与链接，草稿和失效条目不能进入确认', async () => {
+    for (const mode of ['binding', 'publisher', 'draft']) {
+        const changed = { ...pr, draft: mode === 'draft', html_url: 'https://github.com/example/pull/7' };
+        const call = withRepositoryFiles(endpoint => {
+            if (endpoint.includes('/issues?')) return [[{ id: pr.id, number: 7, pull_request: {} }]];
+            if (endpoint.endsWith('/pulls/7')) return changed;
+            if (endpoint.includes('/files?')) return [[{ filename: checked.requestPath, status: 'added' }]];
+            assert.fail(endpoint);
+        }, pr.head.repo.full_name, new Map([[head, new Map([[checked.requestPath, bytes]])]]));
+        const notices = [];
+        let choices = 0;
+        const context = { call, snapshot: { actor: owner }, emergency: { readBlock: () => null },
+            sdk: { document: () => ({ value: request, sha256: hash(bytes) }) },
+            state: { tree: new Map(), read: file => file.startsWith('plugin-bindings/')
+                ? { value: { owner: mode === 'binding' ? request.payload.to : from }, sha256: mode === 'binding' ? 'new' : hash(binding) }
+                : mode === 'publisher' ? { sha256: 'new', value: { signingKeys: [{ ...request.payload.targetKey, state: 'ACTIVE', keyId: 'next' }] } } : null },
+            ui: { text: key => localizedText('en-US', key), task: async (_key, work) => work(), say: (key, value) => notices.push({ key, value }),
+                select: async (_key, rows, label) => {
+                    if (choices++) throw new Error('WIZARD_BACK');
+                    const item = rows[0];
+                    assert(label(item).includes(localizedText('en-US', 'option.' + (mode === 'draft' ? 'REQUEST_DRAFT' : 'REQUEST_STALE'))));
+                    return item;
+                } } };
+        const rows = openTransfers(context);
+        assert.equal(rows.length, 1);
+        if (mode !== 'draft') assert(rows[0].issues.length);
+        await assert.rejects(selectTransfer(context), /WIZARD_BACK/);
+        assert(notices.some(row => row.value?.url === changed.html_url));
+        if (mode === 'binding') assert(notices.some(row => row.value?.code === 'BINDING_CHANGED'));
+        if (mode === 'publisher') assert(notices.some(row => row.value?.code === 'TARGET_PUBLISHER_CHANGED'));
+    }
 });
 
 test('列表末尾始终提供筛选入口，默认勾选两项，清空和再次修改后按确认范围重查', async () => {

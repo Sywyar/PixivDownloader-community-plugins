@@ -247,7 +247,7 @@ test('紧急向导可多选当前与历史密钥，无需密码；生效后原�
         for (const key of f.keys) {
             const label = keyLabel(context, f.request.payload.owner, key);
             assert(label.includes(localizedText(locale, 'option.DECLARED_COMPROMISED')));
-            assert(!label.includes(localizedText(locale, 'option.' + key.state)));
+            assert(label.includes(localizedText(locale, 'option.' + key.state)));
         }
     }
     assert.equal(f.publisher.signingKeys[0].state, 'ACTIVE');

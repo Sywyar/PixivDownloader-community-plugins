@@ -12,12 +12,16 @@ export const formalTag = record => `${record.owner.publisherId}/${record.pluginI
 export const packageName = record => `pixivdownload-plugin-${record.owner.publisherId}-${record.pluginId}-${record.version}${new URL(record.package.url).pathname.endsWith('.zip') ? '.zip' : '.jar'}`;
 export const packageUrl = record => `https://github.com/${policy.repository}/releases/download/${formalTag(record)}/${packageName(record)}`;
 
-export function releaseStatus(record, revocations) {
-    const matches = revocations.entries.filter(entry => (entry.pluginId == null || entry.pluginId === record.pluginId)
+export function releaseRestrictions(record, revocations) {
+    return revocations.entries.filter(entry => (entry.pluginId == null || entry.pluginId === record.pluginId)
         && (entry.version == null || entry.version === record.version)
         && (entry.packageSha256 == null || entry.packageSha256 === record.package.sha256)
         && (entry.keyId == null || entry.keyId === record.communitySignature.keyId)
         && (entry.publisherId == null || entry.publisherId === record.owner.publisherId));
+}
+
+export function releaseStatus(record, revocations) {
+    const matches = releaseRestrictions(record, revocations);
     return matches.some(entry => entry.action === 'REVOKED') ? 'REVOKED' : matches.some(entry => entry.action === 'YANKED') ? 'YANKED' : 'ACTIVE';
 }
 

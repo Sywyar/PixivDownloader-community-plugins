@@ -109,7 +109,7 @@ export function classify(pr, files) {
     }
     const isMaintenance = name => /^(?:\.github|scripts|tools|schemas)\//u.test(name)
         || /^generated\/(?:legacy-receipts|proofs)\/[a-f0-9]{64}\.json$/u.test(name)
-        || ['.gitignore', '.gitattributes', 'README.md', 'README_en.md', 'CONTRIBUTING.md', 'LICENSE', 'package.json', 'package-lock.json'].includes(name);
+        || ['.gitignore', '.gitattributes', 'README.md', 'README_en.md', 'CHANGELOG.md', 'CONTRIBUTING.md', 'LICENSE', 'package.json', 'package-lock.json'].includes(name);
     if (paths.every(isMaintenance)) {
         if (id(pr.user.id) !== policy.repositoryOwnerId || id(pr.head.repo.id) !== policy.repositoryId) {
             throw new Error('PROTECTED_PATH_OWNER_REQUIRED');
