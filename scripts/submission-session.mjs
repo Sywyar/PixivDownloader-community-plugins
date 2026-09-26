@@ -65,7 +65,7 @@ export function savePrepared(context, prepared) {
         if (!readFile(target, API_BYTES).equals(bytes)) throw new Error('PROJECT_SESSION_CHANGED');
     } else fs.writeFileSync(target, bytes, { flag: 'wx', mode: 0o600 });
     saveSession(context, { prepared: { files, size, digest, title: prepared.title,
-        snapshot: context.snapshot, source: prepared.sourceRelease ? sourceFacts(context.projectRoot) : null,
+        snapshot: prepared.snapshot ?? context.snapshot, source: prepared.sourceRelease ? sourceFacts(context.projectRoot) : null,
         sourceRelease: prepared.sourceRelease ?? null, previousMarket: prepared.previousMarket ?? null } });
 }
 

@@ -11,7 +11,7 @@ export function unavailable(ui, code, details = {}) {
     throw new Error('WIZARD_MENU');
 }
 
-export function navigation(ui, getStore = () => null, { history = [], onChange = () => {}, onBack = () => {}, onMenu = () => {}, onFailure } = {}) {
+export function navigation(ui, getStore = () => null, { history = [], onChange = () => {}, onBack = () => {}, onMenu = () => {}, onFailure, onRefresh } = {}) {
     const answers = structuredClone(history);
     let cursor = 0;
     let replay = answers.length;
@@ -64,6 +64,7 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
             cursor = 0; counts = new Map();
             try { return await work(wrapped); }
             catch (error) {
+                if (error.message === 'COMMUNITY_BASE_CHANGED' && onRefresh && await onRefresh()) { replay = answers.length; continue; }
                 if (recoverableRequest(error) && onFailure && await onFailure(error)) { replay = answers.length; continue; }
                 if (!sealed && error.message === 'WIZARD_MENU') {
                     answers.length = 0; replay = 0; onMenu(); onChange([]); continue;

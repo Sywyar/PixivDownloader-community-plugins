@@ -109,9 +109,16 @@ export function protectedSnapshot(call = github, branch = policy.defaultBranch) 
     return { repositoryId: id(repository.id), base: sha(emergency.commit.sha), actor: currentActor, branch, masterBase: base };
 }
 
-export function unchanged(expected, call = github) {
+export function refreshSnapshot(expected, call = github) {
     const current = protectedSnapshot(call, expected.branch);
-    if (JSON.stringify(current) !== JSON.stringify(expected)) throw new Error('IDENTITY_OR_BASE_CHANGED');
+    const identity = ({ base, masterBase, ...value }) => JSON.stringify(value);
+    if (identity(current) !== identity(expected)) throw new Error('COMMUNITY_IDENTITY_CHANGED');
+    return current;
+}
+
+export function unchanged(expected, call = github) {
+    const current = refreshSnapshot(expected, call);
+    if (current.base !== expected.base || current.masterBase !== expected.masterBase) throw new Error('COMMUNITY_BASE_CHANGED');
     return current;
 }
 

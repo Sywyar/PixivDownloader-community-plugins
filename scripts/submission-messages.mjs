@@ -3,7 +3,7 @@ import { diagnostics, diagnosticAliases } from './submission-error-messages.mjs'
 // 展示名称与协议值分离；选项和预览使用同一词表，不改写签名数据。
 export const optionNames = {
     CURRENT_OWNER: ['当前归属', 'Currently owned', '目前歸屬', '現在の所有者', '현재 소유'],
-    OWNERSHIP_TRANSFERRED: ['历史签名；因所有权转移已无管理权', 'Historical signer; management rights ended by transfer', '歷史簽章；因所有權移轉已無管理權', '過去の署名者・所有権移転により管理権限なし', '이전 서명자 · 소유권 이전으로 관리 권한 없음'],
+    OWNERSHIP_TRANSFERRED: ['历史签名；插件已转移', 'Historical signature; plugin ownership transferred', '歷史簽章；外掛程式已移轉', '過去の署名・プラグインの所有権は移転済み', '과거 서명 · 플러그인 소유권 이전됨'],
     BINDING_MISSING: ['当前归属缺失', 'Current ownership missing', '目前歸屬缺失', '現在の所有者情報がありません', '현재 소유권 정보 없음'],
     REQUEST_DRAFT: ['草稿', 'Draft', '草稿', 'ドラフト', '초안'],
     REQUEST_STALE: ['请求已过时', 'Request is stale', '請求已過時', '申請の前提が変更済み', '요청이 현재 상태와 맞지 않음'],
@@ -90,6 +90,7 @@ export const optionNames = {
 
 export const additions = {
     currentOwner: ['当前所有者', 'Current owner', '目前擁有者', '現在の所有者', '현재 소유자'],
+    validatedBaseLabel: ['本次校验主线', 'Mainline used for validation', '本次驗證主線', '検証に使用したメインブランチ', '검증에 사용한 기본 브랜치'],
     historicalOwner: ['原发布者', 'Original publisher', '原發布者', '公開時の発行者', '원래 게시자'],
     canManage: ['当前账号可申请发布和管理', 'Current account may request publication and management', '目前帳號可申請發布與管理', '現在のアカウントで公開・管理を申請可能', '현재 계정으로 게시 및 관리 요청 가능'],
     currentKeyId: ['当前活动密钥', 'Current active key', '目前有效金鑰', '現在有効な鍵', '현재 활성 키'],

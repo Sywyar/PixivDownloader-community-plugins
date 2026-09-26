@@ -102,14 +102,20 @@ export async function submitPreview(options) {
     return submitOnce(options);
 }
 
-async function submitOnce({ sdk, snapshot, changes, result, title, confirm, recheck,
+async function submitOnce({ sdk, snapshot, commitBase = snapshot.base, changes, result, title, confirm, recheck,
     actions = [], beforeWrite, write = work => work(), retry,
     call = github, readGit = git, wait = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
     // 每个写入步骤自行回读结果后才可重试；已完成的步骤不重放。
     const step = (key, work) => retryStep(key, () => { unchanged(snapshot, call); return work(); }, { retry, wait });
     unchanged(snapshot, call);
+    if (commitBase !== snapshot.base) {
+        const comparison = call(`repos/${policy.repository}/compare/${sha(commitBase)}...${snapshot.base}`);
+        if (comparison.status !== 'ahead' || comparison.merge_base_commit?.sha !== commitBase) throw new Error('SUBMISSION_BASE_DIVERGED');
+    }
     const fork = forkTarget(snapshot, call);
-    const preview = writePreview(snapshot, changes, result, fork, title);
+    // 请求字节与原始父提交共同定位已推送分支；主线推进不能制造第二个投稿。
+    const preview = writePreview({ ...snapshot, base: commitBase }, changes, result, fork, title);
+    if (commitBase !== snapshot.base) preview.validatedBase = snapshot.base;
     preview.branch = submissionBranch(snapshot, preview.branch, call);
     preview.actions.unshift(...actions);
     if (!await confirm(preview)) return { cancelled: true };
@@ -145,7 +151,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     if (existing.length) {
         if (existing.length !== 1 || existing[0].state !== 'open' || existing[0].draft
             || id(existing[0].user.id) !== snapshot.actor.id || id(existing[0].head.repo.id) !== id(repository.id)
-            || existing[0].base.sha !== snapshot.base || existing[0].base.ref !== (snapshot.branch ?? policy.defaultBranch) || existing[0].title !== preview.title
+            || existing[0].base.ref !== (snapshot.branch ?? policy.defaultBranch) || existing[0].title !== preview.title
             || existing[0].body !== preview.body) throw new Error('EXISTING_PR_CONFLICT');
         // 同一分支的现有 PR 必须仍是预览的全部新增文件。
         const actual = paged(`repos/${policy.repository}/pulls/${existing[0].number}/files`, call);
@@ -156,8 +162,8 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     readGit(checkout, 'init');
     readGit(checkout, 'remote', 'add', 'upstream', `https://github.com/${policy.repository}.git`);
     readGit(checkout, 'remote', 'add', 'origin', `https://github.com/${fork.name}.git`);
-    await step('git_fetch', () => readGit(checkout, 'fetch', '--depth=1', 'upstream', snapshot.base));
-    if (readGit(checkout, 'rev-parse', 'FETCH_HEAD') !== snapshot.base) throw new Error('FETCHED_BASE_CHANGED');
+    await step('git_fetch', () => readGit(checkout, 'fetch', '--depth=1', 'upstream', commitBase));
+    if (readGit(checkout, 'rev-parse', 'FETCH_HEAD') !== commitBase) throw new Error('FETCHED_BASE_CHANGED');
     let head;
     try { head = sha(call(`repos/${fork.name}/git/ref/heads/${preview.branch}`).object.sha); }
     catch (error) { if (error.message !== 'GITHUB_NOT_FOUND') throw error; }
@@ -166,7 +172,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
         await step('git_fetch', () => readGit(checkout, 'fetch', '--depth=2', 'origin', head));
         if (readGit(checkout, 'rev-parse', 'FETCH_HEAD') !== head) throw new Error('REMOTE_HEAD_CHANGED');
     } else {
-        readGit(checkout, 'switch', '--create', preview.branch, snapshot.base);
+        readGit(checkout, 'switch', '--create', preview.branch, commitBase);
         for (const [file, bytes] of changes) {
             const destination = sdk.invoke({ command: 'path', root: checkout, path: file, mustExist: false }).path;
             fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -223,7 +229,7 @@ async function submitOnce({ sdk, snapshot, changes, result, title, confirm, rech
     return pull;
     });
     const actual = call(`repos/${policy.repository}/pulls/${id(pull.number)}`);
-    if (actual.draft || actual.state !== 'open' || actual.head.sha !== head || actual.base.sha !== snapshot.base
+    if (actual.draft || actual.state !== 'open' || actual.head.sha !== head
         || actual.base.ref !== (snapshot.branch ?? policy.defaultBranch)
         || actual.title !== preview.title || actual.body !== preview.body
         || id(actual.user.id) !== snapshot.actor.id || id(actual.head.repo.id) !== id(repository.id)) throw new Error('CREATED_PR_MISMATCH');

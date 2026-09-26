@@ -68,7 +68,8 @@ export async function checkPull(number, sdk, call = readOnly, fetch, { appliedBa
     const result = await validateChanges({ sdk, state, changes, user: before.user, authorize, call, ...(fetch ? { fetch } : {}) });
     const after = snapshot(call(endpoint));
     const currentBase = sha(call(`repos/${policy.repository}/git/ref/heads/${policy.defaultBranch}`).object.sha);
-    if (!isDeepStrictEqual(before, after) || currentBase !== current) throw new Error('PR_OR_BASE_CHANGED');
+    if (!isDeepStrictEqual({ ...before, base: after.base }, after)) throw new Error('PR_OR_BASE_CHANGED');
+    if (before.base !== after.base || currentBase !== current) throw new Error('COMMUNITY_BASE_CHANGED');
     return { ...result, pr: { ...before, base: current }, organizationRepresentationRequired: [...organizations] };
 }
 

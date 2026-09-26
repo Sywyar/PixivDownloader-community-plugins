@@ -150,7 +150,7 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
         const result = native(endpoint, options);
         if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch) && ++reads === 2) return { object: { sha: 'f'.repeat(40) } };
         return result;
-    }, input.fetch), /PR_OR_BASE_CHANGED/u);
+    }, input.fetch), /COMMUNITY_BASE_CHANGED/u);
 });
 
 test('轮换、状态请求及双方转移批准独立校验签名与受保护身份', async () => {
@@ -205,7 +205,10 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
             const latestBlob = crypto.createHash('sha1').update(Buffer.from(`blob ${latestBytes.length}\0`)).update(latestBytes).digest('hex');
             const outcome = await runWizard(project, { stateHome, ui: { resume: true, locale: 'en-US', text: key => key,
                 select() { assert.fail('completed form must not repeat'); }, password() { assert.fail('completed signature must not unlock'); },
-                confirm(key, preview) { assert.equal(key, 'preview'); assert.equal(preview.base, base); previews++; return false; },
+                confirm(key, preview) {
+                    assert.equal(key, 'preview'); assert.equal(preview.base, snapshot.base);
+                    assert.equal(preview.validatedBase ?? preview.base, base); previews++; return false;
+                },
                 task: (_key, work) => work(), say: key => spoken.push(key), close() {} }, call(endpoint, options = {}) {
                 assert(!options.method || options.method === 'GET');
                 if (endpoint === 'user') return snapshot.actor;
@@ -213,6 +216,9 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
                     owner: { id: policy.repositoryOwnerId }, default_branch: policy.defaultBranch };
                 if (endpoint === 'repos/example/plugin') return { full_name: 'example/plugin', id: 100, owner: { id: 101 } };
                 if (endpoint.endsWith('/git/ref/heads/' + policy.defaultBranch)) return { object: { sha: base } };
+                if (endpoint === `repos/${policy.repository}/compare/${snapshot.base}...${base}`) {
+                    return { status: 'ahead', merge_base_commit: { sha: snapshot.base } };
+                }
                 if (endpoint.includes('/git/trees/')) {
                     assert(endpoint.includes(base));
                     return { tree: [{ path: publisherPath, sha: latestBlob, type: 'blob', mode: '100644', size: latestBytes.length }] };
@@ -224,8 +230,7 @@ test('轮换、状态请求及双方转移批准独立校验签名与受保护�
             } });
             assert.deepEqual(outcome, changedPublisher ? { failed: 'PUBLISHER_CHANGED' } : { cancelled: true });
             assert.equal(previews, mode === 'unchanged' ? 1 : 2);
-            assert.equal(sessionLocator(project, stateHome).read().session.prepared.snapshot.base,
-                changedPublisher ? 'd'.repeat(40) : base);
+            assert.equal(sessionLocator(project, stateHome).read().session.prepared.snapshot.base, snapshot.base);
         }
         assert.equal(spoken.filter(key => key === 'sessionBaseUpdated').length, 2);
     } finally { process.exitCode = priorExitCode; }
