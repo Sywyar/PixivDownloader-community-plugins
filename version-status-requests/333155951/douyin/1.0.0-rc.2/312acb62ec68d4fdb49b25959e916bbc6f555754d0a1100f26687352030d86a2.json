@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "owner": {
+      "accountId": "333155951",
+      "accountType": "User",
+      "publisherId": "tyvyl"
+    },
+    "requester": {
+      "id": "333155951",
+      "type": "User"
+    },
+    "pluginBindingSha256": "a883e4073b18008b79a73e7e6caabd4f72fdcdee8b7804ba1d8bb7f2716c08db",
+    "pluginId": "douyin",
+    "version": "1.0.0-rc.2",
+    "packageSha256": "cf050ee36491ccdce9a3618e117e435a37fdfc67ad75fb081abbd3689cd7d876",
+    "action": "YANK",
+    "reasonCode": "MAINTAINER_WITHDRAWAL",
+    "explanation": "4轮YANK测试"
+  },
+  "requestId": "312acb62ec68d4fdb49b25959e916bbc6f555754d0a1100f26687352030d86a2",
+  "proofs": {
+    "activeKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "3f7551a6-18fd-41a6-b69d-47484917c299",
+      "value": "U8V1OlBY8SvNbRZf43whEhhoiNtVkjeeAXDHrSGb7/ra1G8D8ljYtq77VpzwR/xI2o/F4WPwKUWb4iw5a/pDBw=="
+    }
+  }
+}
