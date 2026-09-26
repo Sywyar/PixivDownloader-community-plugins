@@ -5,7 +5,7 @@ import { main, policy } from './github.mjs';
 import { preflight, sourceFacts, git } from './project.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { terminal, failureCode, failureDetails } from './submission-ui.mjs';
-import { protectedSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails, authenticationRequired } from './submission-github.mjs';
+import { protectedSnapshot, refreshSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails, authenticationRequired } from './submission-github.mjs';
 import { signingTool } from './submission-signing.mjs';
 import { prepareRelease } from './submission-release.mjs';
 import { prepareRotation, prepareStatus, prepareTransfer, confirmRevocation } from './submission-operations.mjs';
@@ -96,7 +96,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             context.operation = saved.session.operation;
             resumePending = false;
         };
-        let retryRound = 1;
+        let retryRound = 1, baseRefreshes = 0;
         const retry = async error => {
             if (ui.retryRequest) return ui.retryRequest(error, error.retryRound ?? retryRound++);
             const authentication = authenticationRequired(error.message);
@@ -107,10 +107,20 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             context.resumePrepared = Boolean(context.store?.record.session?.prepared);
             return true;
         };
-        const navigator = navigation(ui, () => context.store, { history, onFailure: retry, onChange: values => {
+        const navigator = navigation(ui, () => context.store, { history, onFailure: retry, onRefresh: async () => {
+            if (++baseRefreshes > 3) throw new Error('COMMUNITY_BASE_UNSTABLE');
+            await ui.task('loading', () => {
+                const snapshot = refreshSnapshot(context.snapshot, call);
+                const state = stateReader(sdk, snapshot.masterBase ?? snapshot.base, call);
+                Object.assign(context, { snapshot, state, emergency: null,
+                    resumePrepared: Boolean(context.store?.record.session?.prepared) });
+            });
+            ui.say('sessionBaseUpdated');
+            return true;
+        }, onChange: values => {
             history = values; saveSession(context, { navigation: history, operation: context.operation, prepared: null });
         }, onBack: () => { context.resumePrepared = false; }, onMenu: () => {
-            retryRound = 1;
+            retryRound = 1; baseRefreshes = 0;
             context.store?.update({ session: null });
             context.store?.close(); context.sign?.close();
             Object.assign(context, { store: null, keyStore: null, publisherOwner: null, state: null, emergency: null, generatedKey: null, resumePrepared: false, operation: undefined });
@@ -128,8 +138,10 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         await initialize();
         if (operation === 'emergency' && !context.snapshot.branch) {
             const target = protectedSnapshot(call, policy.emergencyBranch);
-            if (target.masterBase !== context.snapshot.base) throw new Error('IDENTITY_OR_BASE_CHANGED');
+            if (JSON.stringify(target.actor) !== JSON.stringify(context.snapshot.actor)) throw new Error('COMMUNITY_IDENTITY_CHANGED');
+            const previousBase = context.snapshot.base;
             context.snapshot = target;
+            if (target.masterBase !== previousBase) throw new Error('COMMUNITY_BASE_CHANGED');
         }
         const { snapshot, state } = context;
         if (operation === 'withdraw') return withdrawRequest(context);
@@ -151,7 +163,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
                 if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
             if (!prepared.original) {
-                if (prepared.snapshot.base !== snapshot.base) ui.say('sessionBaseUpdated');
+                if (!baseRefreshes && (prepared.snapshot.base !== snapshot.base || prepared.snapshot.masterBase !== snapshot.masterBase)) ui.say('sessionBaseUpdated');
                 const pending = await ui.task('loading', () => pendingPrepared(snapshot, prepared.changes, call, sdk));
                 if (pending) { unchanged(snapshot, call); presentOriginal(context, pending, prepared.changes); return { original: pending }; }
             }
@@ -176,8 +188,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             presentOriginal(context, prepared.original);
             return { original: prepared.original.value };
         }
-        // 首次准备先保存原始字节；恢复时须通过当前主线校验后才替换旧快照。
-        if (!context.resumePrepared) savePrepared(context, prepared);
+        // 原始字节与首次基线共同定位同一投稿；当前主线另行校验，不能覆盖原基线。
+        if (!context.resumePrepared) { prepared.snapshot = snapshot; savePrepared(context, prepared); }
         const original = appliedRequest(sdk, state, prepared.changes);
         if (original) {
             unchanged(snapshot, call);
@@ -196,7 +208,7 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             Object.assign(result, requestedVersionState(state, record, request));
         }
         if (context.resumePrepared) savePrepared(context, prepared);
-        return submitPreview({ sdk, snapshot, changes: prepared.changes, title: prepared.title, result, call,
+        return submitPreview({ sdk, snapshot, commitBase: prepared.snapshot.base, changes: prepared.changes, title: prepared.title, result, call,
             actions: prepared.actions, beforeWrite: async () => { navigator.seal(); await prepared.beforeWrite?.(); },
             confirm: async preview => {
                 await confirmRevocation(ui, result, prepared.changes);
@@ -229,7 +241,8 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
         // 原生命令输出可能含凭据，只投影受控错误码与诊断字段。
         const code = failureCode(error);
         if (ui) ui.say(code.startsWith('DOWNLOAD_') ? 'downloadFailed' : 'failed', { code, ...requestDetails(error), ...failureDetails(error),
-            ...(error.statePath ? { path: error.statePath } : {}) });
+            ...(error.statePath || code === 'COMMUNITY_BASE_UNSTABLE' && context.store
+                ? { path: error.statePath ?? context.store.folder } : {}) });
         else console.error(code);
         process.exitCode = 1;
         return { failed: code };

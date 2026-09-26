@@ -125,8 +125,8 @@ test('写入前两次身份快照拒绝账号或主线改变', () => {
     const expected = protectedSnapshot(call);
     assert.deepEqual(unchanged(expected, call), expected);
     userId = '102';
-    assert.throws(() => unchanged(expected, call), /IDENTITY_OR_BASE_CHANGED/u);
+    assert.throws(() => unchanged(expected, call), /COMMUNITY_IDENTITY_CHANGED/u);
     userId = '101'; base = 'b'.repeat(40);
-    assert.throws(() => unchanged(expected, call), /IDENTITY_OR_BASE_CHANGED/u);
+    assert.throws(() => unchanged(expected, call), /COMMUNITY_BASE_CHANGED/u);
     assert.throws(() => readBlob('owner/repo', { mode: '120000', type: 'blob', size: 1 }), /GITHUB_FILE_INVALID/u);
 });

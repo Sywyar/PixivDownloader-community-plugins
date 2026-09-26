@@ -15,7 +15,7 @@ const labels = {
     signals: 'riskLabel', path: 'pathLabel', accountId: 'accountLabel', accountType: 'accountTypeLabel',
     url: 'urlLabel', html_url: 'urlLabel', version: 'versionLabel', title: 'titleLabel',
     buildProfile: 'profile', license: 'license', market: 'marketLabel', key: 'keyAction', owner: 'owner',
-    code: 'errorCodeLabel', stage: 'stageLabel', branch: 'branchLabel', base: 'commitLabel',
+    code: 'errorCodeLabel', stage: 'stageLabel', branch: 'branchLabel', base: 'commitLabel', validatedBase: 'validatedBaseLabel',
     status: 'statusLabel', attempts: 'attemptsLabel', head: 'commitLabel', repositoryId: 'repositoryLabel',
     directory: 'directoryLabel', protection: 'keyProtection', present: 'presentLabel', algorithm: 'algorithmLabel',
     dependencies: 'dependenciesLabel', reasonCode: 'reason', mode: 'mode', role: 'roleLabel',

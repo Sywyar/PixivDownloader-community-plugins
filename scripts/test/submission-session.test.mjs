@@ -99,6 +99,21 @@ test('新进程按项目恢复语言和已答问题，未签名时仍解锁，�
     context.store.close();
 });
 
+test('写入开始后主线刷新保留已答内容并重新确认，不恢复返回上一步权限', async () => {
+    let prompts = 0, previews = 0, refreshes = 0, writes = 0;
+    const nav = navigation({ ask: () => { prompts++; return 'request'; }, confirm: () => ++previews === 1 }, undefined,
+        { onRefresh: () => { refreshes++; return true; } });
+    const result = await nav.run(async ui => {
+        assert.equal(await ui.ask('summary'), 'request');
+        if (!await ui.confirm('preview')) return { cancelled: true };
+        nav.seal(); writes++;
+        throw new Error('COMMUNITY_BASE_CHANGED');
+    });
+    assert.deepEqual(result, { cancelled: true });
+    assert.deepEqual({ prompts, previews, refreshes, writes }, { prompts: 1, previews: 2, refreshes: 1, writes: 1 });
+    await assert.rejects(nav.run(() => { throw new Error('WIZARD_BACK'); }), /WIZARD_BACK/u);
+});
+
 test('已准备内容按原始字节恢复，身份、篡改、超限和私钥内容均拒绝', async t => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'submission-prepared-'));
     t.after(() => fs.rmSync(home, { recursive: true }));
@@ -112,6 +127,9 @@ test('已准备内容按原始字节恢复，身份、篡改、超限和私钥�
     assert.deepEqual((await restorePrepared(context)).changes, changes);
     const updated = { ...context.snapshot, base: 'b'.repeat(40) };
     assert.deepEqual((await restorePrepared({ ...context, snapshot: updated })).changes, changes);
+    assert.deepEqual(store.record.session.prepared.snapshot, context.snapshot);
+    const restored = await restorePrepared({ ...context, snapshot: updated });
+    savePrepared({ ...context, snapshot: updated }, restored);
     assert.deepEqual(store.record.session.prepared.snapshot, context.snapshot);
     for (const changed of [{ actor: { id: '202' } }, { repositoryId: '909' }]) {
         await assert.rejects(restorePrepared({ ...context, snapshot: { ...updated, ...changed } }), /SESSION_IDENTITY_CHANGED/u);
