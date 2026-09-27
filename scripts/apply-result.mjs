@@ -203,7 +203,11 @@ export async function checkResult(number, sdk, current, options = {}) {
     const tree = repositoryTree(name, pr.head.sha, scoped);
     const pointer = JSON.parse(readBlob(name, tree.get(pointers[0].filename), scoped).toString('utf8'));
     const receipt = await readReceipt(sdk, pointer, current, { ...options, call: scoped, repositoryName: name });
-    if (!merged) protectedSource(receipt.baseSha, current, readGit);
+    if (!merged) {
+        // 恢复只借旧回执还原原申请；准入必须在当前主线重新计算。
+        if (refresh) readGit(['merge-base', '--is-ancestor', receipt.baseSha, current]);
+        else protectedSource(receipt.baseSha, current, readGit);
+    }
     if (!merged && !refresh && receiptExpired(receipt)) throw new Error('APPLY_RESULT_EXPIRED');
     const original = receipt.originalPr;
     if (!original || receipt.prNumber !== number || original.number !== number || original.state !== 'open' || original.merged || original.draft

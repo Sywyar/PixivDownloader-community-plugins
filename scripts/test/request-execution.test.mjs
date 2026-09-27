@@ -65,3 +65,35 @@ test('执行被阻断时真实子进程失败，仍输出可供通知读取的�
         if (pending) assert(projection.summary.startsWith(pending + '\n'));
     }
 });
+
+test('平台故障经过执行评论和 CLI 错误出口仍保留诊断，凭据与原始输出不外泄', t => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'execution-failure-test-'));
+    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    const file = path.join(directory, 'failure.mjs');
+    fs.writeFileSync(file, `
+        import { api, main, prefix } from ${JSON.stringify(new URL('../github.mjs', import.meta.url).href)};
+        import { executionFailure } from ${JSON.stringify(new URL('../community-publication.mjs', import.meta.url).href)};
+        main(import.meta.url, () => {
+            try {
+                api(prefix + '/pulls/7/merge', { method: 'PUT' }, () => {
+                    throw Object.assign(new Error('command fixture-secret'), { status: 1,
+                        stdout: 'fixture-secret', stderr: 'authorization fixture-secret (HTTP 503)' });
+                });
+            } catch (error) {
+                const projection = executionFailure(${JSON.stringify(pr)}, ${JSON.stringify(context)}, error);
+                console.log(JSON.stringify(projection));
+                throw new Error(projection.summary.split('\\n')[0]);
+            }
+        });
+    `, 'utf8');
+    const child = spawnSync(process.execPath, [file], { encoding: 'utf8', timeout: 60000, windowsHide: true });
+    assert.equal(child.status, 1);
+    const projection = JSON.parse(child.stdout);
+    for (const output of [projection.summary, child.stderr]) {
+        assert(output.includes('GITHUB_REQUEST_FAILED'));
+        assert(output.includes('"status":503'));
+        assert(output.includes('"method":"PUT"'));
+        assert(output.includes('"phase":"github-api"'));
+        assert(!output.includes('fixture-secret'));
+    }
+});
