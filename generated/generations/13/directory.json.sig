@@ -1,0 +1,1 @@
+{"formatVersion":1,"algorithm":"Ed25519","keyId":"community-release-b1cbdc37-b767-49fe-8f84-3b85bfde33b4","value":"vMpQrIDvy2L84ZEbqICkol5mxBdx2DGwWw2+fwTueUhqimPPRrHBNDWLH65O2zhWWhtQvvyEeijYwsTbw6N6Dw=="}
