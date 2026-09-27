@@ -17,7 +17,7 @@ export function buildToolchain(sdk) {
 export function copyBuildScripts(directory) {
     fs.mkdirSync(path.join(directory, 'scripts'));
     fs.mkdirSync(path.join(directory, 'tools'));
-    for (const name of ['sdk.mjs', 'github.mjs', 'repository-policy.json', 'build-profile.mjs']) {
+    for (const name of ['sdk.mjs', 'github.mjs', 'submission-errors.mjs', 'repository-policy.json', 'build-profile.mjs']) {
         fs.copyFileSync(path.join(root, 'scripts', name), path.join(directory, 'scripts', name));
     }
     for (const name of ['build-model.mjs', 'community-model.gradle']) {

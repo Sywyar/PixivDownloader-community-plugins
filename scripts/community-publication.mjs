@@ -185,7 +185,8 @@ export function executionProjection(pr, context, summary) {
 
 export function executionFailure(pr, context, error) {
     const code = /^([A-Z][A-Z0-9_]{0,79})(?=: |$)/u.exec(error.message)?.[1] ?? 'REQUEST_EXECUTION_FAILED';
-    return executionProjection(pr, context, `${code}\n\nThe protected operation did not complete. Inspect this workflow before retrying with the current PR head. Read back any prepared result or merge before repeating a write.`);
+    const diagnostic = error.diagnostic ? ': ' + JSON.stringify(error.diagnostic) : '';
+    return executionProjection(pr, context, `${code}${diagnostic}\n\nThe protected operation did not complete. Inspect this workflow before retrying with the current PR head. Read back any prepared result or merge before repeating a write.`);
 }
 
 export function reportExecution(result, context) {
