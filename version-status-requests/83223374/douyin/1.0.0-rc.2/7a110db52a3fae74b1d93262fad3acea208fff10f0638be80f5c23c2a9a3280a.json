@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "payload": {
+    "owner": {
+      "accountId": "83223374",
+      "accountType": "User",
+      "publisherId": "sywyar"
+    },
+    "requester": {
+      "id": "83223374",
+      "type": "User"
+    },
+    "pluginBindingSha256": "dbe93620a414853151fed72048ff3ba4b6402a46f258fd4d0938368342c9137f",
+    "pluginId": "douyin",
+    "version": "1.0.0-rc.2",
+    "packageSha256": "cf050ee36491ccdce9a3618e117e435a37fdfc67ad75fb081abbd3689cd7d876",
+    "action": "UNYANK",
+    "reasonCode": "OTHER",
+    "explanation": "恢复douyin-1.0.0-rc2",
+    "yankedDecisionSha256": "7a3267070ef447c6ce203e9d983762e49dca38cfcb24070e1ec6b685fac8a52b"
+  },
+  "requestId": "7a110db52a3fae74b1d93262fad3acea208fff10f0638be80f5c23c2a9a3280a",
+  "proofs": {
+    "activeKey": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
+      "value": "ybYSCof3B4fqasLenhTRXldAe37++3d8F8KTPCew83WZHD3XpKGThXCHG7xcFxsPTBz5zkTWHHWW9SCmDSz6DQ=="
+    }
+  }
+}
