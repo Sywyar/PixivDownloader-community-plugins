@@ -115,7 +115,8 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
         if (route === prefix + '/releases/501/assets') return [assets];
         throw new Error('Unexpected request ' + endpoint);
     };
-    const options = { call, readGit: args => git(args), verify: () => ({ sourceRepositoryDigest: source }),
+    let certificateSource = source;
+    const options = { call, readGit: args => git(args), verify: () => ({ sourceRepositoryDigest: certificateSource }),
         download: (endpoint, file) => fs.writeFileSync(file, blobs.get(endpoint.split('/').at(-1)), { flag: 'wx' }) };
     assert.equal(reviewPrerequisite({ ...pr, head: { ...pr.head, repo: { id: 123 } } }, requested, source), 'MAINTAINER_EDITS_REQUIRED');
     const result = await appendReviewCommit(made.value, pointer, call, { proofs, wait: async ms => { assert.equal(ms, 1000); waits++; } });
@@ -152,9 +153,21 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     git(['update-ref', 'refs/heads/' + pr.head.ref, generated]);
     pr.head.sha = generated; pr.state = 'open'; pr.merged = false; extraTreeFile = false;
     await assert.rejects(checkResult(7, { workspace }, current, options), /APPLY_BASE_CHANGED/);
+    await checkResult(7, { workspace }, current, { ...options, refresh: true });
+    git(['read-tree', current]);
+    add('scripts/fixture', '{"updated":true}');
+    current = git(['commit-tree', git(['write-tree']), '-p', current], 'Protected runtime maintenance\n');
+    git(['update-ref', 'refs/heads/master', current]);
+    await assert.rejects(checkResult(7, { workspace }, current, options), /WORKFLOW_SOURCE_CHANGED/);
     const prior = (await checkResult(7, { workspace }, current, { ...options, refresh: true })).receipt;
+    pr.head.sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', generated], 'Unexpected request edit\n');
+    await assert.rejects(checkResult(7, { workspace }, current, { ...options, refresh: true }), /REVIEW_PARENT_CHANGED/);
+    pr.head.sha = generated;
+    const unrelated = git(['commit-tree', git(['rev-parse', current + '^{tree}'])], 'Unrelated history\n');
+    await assert.rejects(checkResult(7, { workspace }, unrelated, { ...options, refresh: true }), error => error.status === 1);
+    certificateSource = current;
     made = makeReceipt({ ...prior, pr: { ...prior.originalPr, base: { ...prior.originalPr.base, sha: current } },
-        current, previousHead: generated, run: { id: 12, run_attempt: 1, sourceSha: source },
+        current, previousHead: generated, run: { id: 12, run_attempt: 1, sourceSha: current },
         writes: new Map(prior.files.map(file => [file.path, Buffer.from(file.bytes, 'base64')])),
         state: { raw: file => file === 'generated/current.json' ? baseline : null } });
     pointer = { schemaVersion: 2, manifest: reference(made.bytes), attestation: reference(proof) };
