@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { policy, prefix, list, api, API_BYTES, API_TIMEOUT } from '../github.mjs';
 import { labels, labelChanges, syncLabels, updateRequestLabels } from '../sync-labels.mjs';
 import { desiredSettings, checkSettings, configure, readSettings, initializeEmergency } from '../configure-repository.mjs';
@@ -202,4 +203,18 @@ test('原始 job 日志按字节读取控制字符，普通 API 保留终端保�
     assert.deepEqual(api(`${prefix}/actions/artifacts/456/zip`, { raw: true }, execute), Buffer.from('archive'));
     const failure = new Error('HTTP failure');
     assert.throws(() => api(endpoint, { raw: true }, () => { throw failure; }), error => error === failure);
+});
+
+test('平台 API 失败保留受控请求诊断和原始异常供内部分类，不泄露请求或输出', () => {
+    for (const [status, code] of [[403, 'GITHUB_ACCESS_DENIED'], [500, 'GITHUB_REQUEST_FAILED']]) {
+        assert.throws(() => api(`${prefix}/pulls/7/files?private-query=fixture-secret`, {}, () =>
+            execFileSync(process.execPath, ['-e', "process.stderr.write('fixture-secret (HTTP ' + process.argv[1] + ')'); process.exitCode = 1;", String(status)],
+                { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })), error => {
+            assert(error.message.startsWith(code + ': '));
+            assert.deepEqual(error.diagnostic, { phase: 'github-api', method: 'GET', resource: 'pulls', status, exitCode: 1 });
+            assert(!error.message.includes('fixture-secret'));
+            assert(String(error.stderr).includes('(HTTP ' + status + ')'));
+            return true;
+        });
+    }
 });

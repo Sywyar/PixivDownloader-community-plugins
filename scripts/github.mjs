@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { githubFailure } from './submission-errors.mjs';
 
 export const policy = JSON.parse(fs.readFileSync(new URL('repository-policy.json', import.meta.url), 'utf8'));
 export const prefix = `repos/${policy.repository}`;
@@ -22,11 +23,25 @@ export function api(endpoint, { method = 'GET', body, token, pages = false, raw 
     }
     if (pages) args.push('--paginate', '--slurp');
     if (body !== undefined) args.push('--input', '-');
-    const output = execute('gh', args, {
-        encoding: raw ? 'buffer' : 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
-        stdio: ['pipe', 'pipe', 'pipe'], input: body === undefined ? undefined : JSON.stringify(body),
-        env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },
-    });
+    let output;
+    try {
+        output = execute('gh', args, {
+            encoding: raw ? 'buffer' : 'utf8', windowsHide: true, timeout: API_TIMEOUT, maxBuffer: API_BYTES,
+            stdio: ['pipe', 'pipe', 'pipe'], input: body === undefined ? undefined : JSON.stringify(body),
+            env: { ...process.env, ...(token ? { GH_TOKEN: token } : {}) },
+        });
+    } catch (error) {
+        const failure = githubFailure(error), resource = endpoint.split('/')[3]?.split('?')[0];
+        // 只公开固定资源类别；路径、查询参数、请求正文和原始输出可能含凭据。
+        const diagnostic = { phase: 'github-api',
+            method: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(method) ? method : 'OTHER',
+            resource: endpoint === 'user' ? 'identity' : ['pulls', 'git', 'actions', 'releases', 'check-runs', 'issues',
+                'branches', 'collaborators', 'rules', 'rulesets', 'environments', 'contents', 'labels', 'attestations'].includes(resource) ? resource : 'other',
+            ...(failure.status ? { status: failure.status } : {}),
+            ...(failure.exitCode === undefined ? {} : { exitCode: failure.exitCode }) };
+        // 原始异常仍供内部 HTTP 分类和写入结果回读使用，CLI 仅输出受控 message。
+        throw Object.assign(error, { message: failure.message + ': ' + JSON.stringify(diagnostic), diagnostic });
+    }
     return raw ? output : output.trim() ? JSON.parse(output) : null;
 }
 
