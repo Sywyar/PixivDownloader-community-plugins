@@ -263,6 +263,19 @@ export function restoreVersions(bytes, context, sdk, readGit) {
     return value.rows;
 }
 
+export async function preparedVersion(number, context, prepared, rows, call = api, readGit) {
+    if (rows === null) return versionContext(number, prepared, context.current, call, readGit);
+    const row = rows.find(row => row.number === number), pr = pull(number, call);
+    if (!row) throw new Error('GATE_TRANSFER_CHANGED');
+    // 队列外准备的结果可能已被签名流程推进；废弃整份快照并重新验签，不复用旧授权。
+    if (row.head !== pr.head.sha || row.base !== pr.base.sha || row.state !== pr.state || row.merged !== pr.merged) {
+        return versionContext(number, prepared, context.current, call, readGit);
+    }
+    if (row.error) throw new Error(row.error);
+    if (row.version?.completion) row.version.completion.reviewCall = reviewedRequestCall(row.version.completion.receipt, call);
+    return row.version;
+}
+
 export async function gate(mode) {
     const context = execution(gatePath);
     const payload = event();
@@ -302,14 +315,7 @@ export async function gate(mode) {
         // 准备或交接失败也必须撤回同 head 的旧成功，不能只让 job 失败而保留准入。
         prepared = error;
     }
-    const resolve = async number => {
-        if (rows === null) return versionContext(number, prepared, context.current);
-        const row = rows.find(row => row.number === number), pr = pull(number);
-        if (row.head !== pr.head.sha || row.base !== pr.base.sha || row.state !== pr.state || row.merged !== pr.merged) throw new Error('PR_OR_BASE_CHANGED');
-        if (row.error) throw new Error(row.error);
-        if (row.version?.completion) row.version.completion.reviewCall = reviewedRequestCall(row.version.completion.receipt);
-        return row.version;
-    };
+    const resolve = number => preparedVersion(number, context, prepared, rows);
     const projections = [];
     for (const number of numbers) projections.push(await publish(number, context, prepared, api, api, undefined, resolve));
     fs.appendFileSync(process.env.GITHUB_OUTPUT, 'projections=' + JSON.stringify(projections) + '\n', 'utf8');

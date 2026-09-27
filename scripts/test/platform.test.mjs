@@ -7,7 +7,7 @@ import { policy, prefix } from '../github.mjs';
 import { prepareSdk, evaluate, hash, evidence, readDecisionArtifact } from '../sdk.mjs';
 import { trustedRun, execution, classify, facts, decisionPath, gatePath } from '../platform.mjs';
 import { createDecision, attachDecisions, loadDecisions } from '../decisions.mjs';
-import { publish, notify, gateRequests } from '../community-gate.mjs';
+import { publish, notify, gateRequests, preparedVersion, freezeVersions, restoreVersions } from '../community-gate.mjs';
 import { renewalBranch, renewalFile } from '../community-renewal.mjs';
 import { prepareSubmission, withEmergencyState, withRepositoryFiles } from './local-sdk.mjs';
 
@@ -249,6 +249,25 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     const pending = await publish(7, context, prepared, call, call, readGit);
     assert.equal(pending.error, undefined);
     assert.equal([...state.checks.values()].filter(check => check.conclusion === 'success').length, 4);
+    const snapshot = { number: 7, head, base: current, state: 'open', merged: false, error: 'STALE_PREPARATION' };
+    for (const change of [{ head: '0'.repeat(40) }, { base: '0'.repeat(40) }, { state: 'closed' }, { merged: true }]) {
+        const rows = restoreVersions(freezeVersions(context, [{ ...snapshot, ...change }], prepared), context, prepared, readGit);
+        const queued = await publish(7, context, prepared, call, call, readGit,
+            number => preparedVersion(number, context, prepared, rows, call, readGit));
+        assert.equal(queued.error, undefined);
+        assert([...state.checks.values()].slice(-4).every(check => check.head_sha === head && check.conclusion === 'success'));
+    }
+    const unchangedFailure = await publish(7, context, prepared, call, call, readGit,
+        number => preparedVersion(number, context, prepared, [snapshot], call, readGit));
+    assert.equal(unchangedFailure.error, 'STALE_PREPARATION');
+    assert([...state.checks.values()].slice(-4).every(check => check.conclusion === 'failure'));
+    const originalFiles = state.files;
+    state.files = [{ filename: 'untrusted.json', status: 'added' }];
+    const invalidCurrent = await publish(7, context, prepared, call, call, readGit,
+        number => preparedVersion(number, context, prepared, [{ ...snapshot, head: '0'.repeat(40) }], call, readGit));
+    assert.equal(invalidCurrent.error, 'SUBMISSION_EXECUTOR_UNAVAILABLE');
+    assert([...state.checks.values()].slice(-4).every(check => check.conclusion === 'failure'));
+    state.files = originalFiles;
     state.pr.state = 'closed';
     const closed = await publish(7, context, prepared, call, call, readGit);
     notify([closed], call);
