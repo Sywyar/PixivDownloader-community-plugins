@@ -5,12 +5,12 @@
   "version": "1.0.0",
   "source": {
     "repository": "https://github.com/Sywyar/PixivDownloader-community-plugins",
-    "commit": "974aa2c6ab7ce4ef406d50392a6aac5cbef2f848",
+    "commit": "ca1bdb731664ac2edfbf07e43a5885ab72e2fcee",
     "previousReviewedCommit": null,
     "archive": {
-      "url": "https://github.com/Sywyar/PixivDownloader-community-plugins/archive/974aa2c6ab7ce4ef406d50392a6aac5cbef2f848.zip",
-      "size": 15823727,
-      "sha256": "3334964a61a3c1c6d43efd32f9163028b8bd032017586f52143eea2bea7f3b28"
+      "url": "https://github.com/Sywyar/PixivDownloader-community-plugins/archive/ca1bdb731664ac2edfbf07e43a5885ab72e2fcee.zip",
+      "size": 15823726,
+      "sha256": "09f3ba4d47c6ac15639502854acb79e3e665abae19523f374ba9213137fbf97b"
     }
   },
   "buildProfile": {
@@ -29,14 +29,14 @@
     ]
   },
   "package": {
-    "url": "https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/974aa2c6ab7ce4ef406d50392a6aac5cbef2f848/examples/review-exceptions/dist/community-review-example.jar",
-    "expectedSize": 4678,
-    "sha256": "c78d3d97248968f31844c90f49f8c819967d5b97808ce598aa64a7d7c8faa5bb",
+    "url": "https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/ca1bdb731664ac2edfbf07e43a5885ab72e2fcee/examples/review-exceptions/dist/community-review-example.jar",
+    "expectedSize": 4674,
+    "sha256": "f037c1b06b4b1d544de328653cc7de43b4ebe54de8ebcbfa0f6ef39728c5571b",
     "signature": {
       "formatVersion": 1,
       "algorithm": "Ed25519",
       "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
-      "value": "KNaUUDqnWmU3bZZsqCzkO27BYF19yd6TMRkdMmYrubWBgmT2biITTObMvEfJh+RL/WOCz2AxFZF0UjenbyTpDQ=="
+      "value": "l5/zZsY0pWZoRiYRkRvq9S5kLLjdZ92yRFIZZ2HiO55df203ARmIVG68fRhlzd79VtfCT9KWmQKutas5Nd4EDA=="
     }
   },
   "market": {
