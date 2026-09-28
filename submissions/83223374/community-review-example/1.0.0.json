@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "publisherId": "sywyar",
+  "pluginId": "community-review-example",
+  "version": "1.0.0",
+  "source": {
+    "repository": "https://github.com/Sywyar/PixivDownloader-community-plugins",
+    "commit": "974aa2c6ab7ce4ef406d50392a6aac5cbef2f848",
+    "previousReviewedCommit": null,
+    "archive": {
+      "url": "https://github.com/Sywyar/PixivDownloader-community-plugins/archive/974aa2c6ab7ce4ef406d50392a6aac5cbef2f848.zip",
+      "size": 15823727,
+      "sha256": "3334964a61a3c1c6d43efd32f9163028b8bd032017586f52143eea2bea7f3b28"
+    }
+  },
+  "buildProfile": {
+    "id": "maven-java17-v1",
+    "projectDir": "examples/review-exceptions",
+    "artifactPath": "target/community-review-example.jar"
+  },
+  "license": {
+    "expression": "AGPL-3.0-only",
+    "files": [
+      {
+        "path": "examples/review-exceptions/LICENSE",
+        "size": 34509,
+        "sha256": "9fa604bf06417aba7b7c25db20d3bf562a27656d9153c0286f2e336d917b11bd"
+      }
+    ]
+  },
+  "package": {
+    "url": "https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/974aa2c6ab7ce4ef406d50392a6aac5cbef2f848/examples/review-exceptions/dist/community-review-example.jar",
+    "expectedSize": 4678,
+    "sha256": "c78d3d97248968f31844c90f49f8c819967d5b97808ce598aa64a7d7c8faa5bb",
+    "signature": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
+      "value": "KNaUUDqnWmU3bZZsqCzkO27BYF19yd6TMRkdMmYrubWBgmT2biITTObMvEfJh+RL/WOCz2AxFZF0UjenbyTpDQ=="
+    }
+  },
+  "market": {
+    "defaultLocale": "en",
+    "displayName": {
+      "en": "Community review example"
+    },
+    "summary": {
+      "en": "Non-publishing example for reviewing scanner exceptions."
+    },
+    "category": "utility",
+    "tags": [
+      "developer-tools"
+    ]
+  }
+}
