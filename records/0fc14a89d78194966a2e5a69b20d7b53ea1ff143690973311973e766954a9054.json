@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "publisherId": "sywyar",
+  "pluginId": "douyin",
+  "version": "1.0.0-rc.3",
+  "source": {
+    "repository": "https://github.com/Sywyar/PixivDownloader-Plugin-Douyin",
+    "commit": "4aeffa51836a816dc3a9e326f25dbd4df3845cb5",
+    "previousReviewedCommit": "97997f23fe1d3591d85ba9e3baf54150c8b28bd2",
+    "archive": {
+      "url": "https://github.com/Sywyar/PixivDownloader-Plugin-Douyin/archive/4aeffa51836a816dc3a9e326f25dbd4df3845cb5.zip",
+      "size": 14427456,
+      "sha256": "f6a95068088a8888a3f6d259f6d1bb871a169a48ac14b542e235487876cc610c"
+    }
+  },
+  "buildProfile": {
+    "id": "maven-java17-v1",
+    "projectDir": ".",
+    "artifactPath": "target/pixivdownload-plugin-douyin-1.0.0-rc.3.jar"
+  },
+  "license": {
+    "expression": "AGPL-3.0",
+    "files": [
+      {
+        "path": "LICENSE",
+        "size": 34509,
+        "sha256": "9fa604bf06417aba7b7c25db20d3bf562a27656d9153c0286f2e336d917b11bd"
+      }
+    ]
+  },
+  "package": {
+    "url": "https://github.com/Sywyar/PixivDownloader-Plugin-Douyin/releases/download/candidate-douyin-1.0.0-rc.3-4aeffa51836a816dc3a9e326f25dbd4df3845cb5/pixivdownload-plugin-douyin-1.0.0-rc.3.jar",
+    "expectedSize": 402017,
+    "sha256": "691162c54589dea2b6b5b690e0ab5105703d00e811b3933c790f0e690eadadd4",
+    "signature": {
+      "formatVersion": 1,
+      "algorithm": "Ed25519",
+      "keyId": "f871ceb3-d351-4b10-827d-1b9eb9b79581",
+      "value": "5UBs1xFa3eJPGsDpfkzv+kQWeaUQW7k9IeVxZCfeVDwNHDdbeiPgiDeJUFNai39uq6KbMrGGzzpC9QbBY2fnAA=="
+    }
+  },
+  "market": {
+    "defaultLocale": "zh-CN",
+    "displayName": {
+      "zh-CN": "抖音"
+    },
+    "summary": {
+      "zh-CN": "抖音下载支持(非tiktok)"
+    },
+    "category": "download-type",
+    "tags": [
+      "download",
+      "gallery"
+    ]
+  }
+}
