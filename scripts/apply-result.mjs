@@ -162,6 +162,14 @@ export function forkApi(pr, call = api) {
     return scoped;
 }
 
+function changedPaths(parentTree, generatedTree) {
+    return [...new Set([...parentTree.keys(), ...generatedTree.keys()])].filter(file => {
+        const a = parentTree.get(file), b = generatedTree.get(file);
+        if (a?.type === 'tree' || b?.type === 'tree') return false;
+        return a?.sha !== b?.sha || a?.mode !== b?.mode || a?.type !== b?.type;
+    });
+}
+
 export function verifyGeneratedTree(receipt, pointer, parentTree, generatedTree, read) {
     const expected = new Map(receipt.files.map(file => [file.path, file]));
     if (expected.size !== receipt.files.length || expected.has(receiptPath(receipt.requestId))) throw new Error('APPLY_RECEIPT_INVALID');
@@ -176,11 +184,7 @@ export function verifyGeneratedTree(receipt, pointer, parentTree, generatedTree,
         }
         expected.set(file, { ...ref, before: null, bytes: bytes.toString('base64') });
     }
-    const changed = [...new Set([...parentTree.keys(), ...generatedTree.keys()])].filter(file => {
-        const a = parentTree.get(file), b = generatedTree.get(file);
-        if (a?.type === 'tree' || b?.type === 'tree') return false;
-        return a?.sha !== b?.sha || a?.mode !== b?.mode || a?.type !== b?.type;
-    });
+    const changed = changedPaths(parentTree, generatedTree);
     if (changed.length !== expected.size || changed.some(file => !expected.has(file))) throw new Error('APPLY_WRITE_FORBIDDEN');
     for (const [file, record] of expected) {
         if (!resultPath(file) || generatedTree.get(file)?.mode !== '100644' || generatedTree.get(file)?.type !== 'blob') throw new Error('APPLY_WRITE_FORBIDDEN');
@@ -194,13 +198,25 @@ export function verifyGeneratedTree(receipt, pointer, parentTree, generatedTree,
 
 export async function checkResult(number, sdk, current, options = {}) {
     const { call = api, readGit = git, merged = false, refresh = false } = options;
-    const pr = pull(number, call), files = list(`${prefix}/pulls/${number}/files`, null, call);
-    if (files.length !== pr.changed_files || (merged ? !pr.merged || pr.state !== 'closed' : pr.state !== 'open' || pr.merged)) throw new Error('APPLY_RESULT_PR_INVALID');
-    const pointers = files.filter(file => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(file.filename));
-    if (pointers.length !== 1 || pointers[0].status !== 'added') throw new Error('APPLY_WRITE_FORBIDDEN');
+    const pr = pull(number, call);
+    if (merged ? !pr.merged || pr.state !== 'closed' : pr.state !== 'open' || pr.merged) throw new Error('APPLY_RESULT_PR_INVALID');
     // 合并后的树从社区 Git 历史读取，不依赖投稿分支仍然存在。
     const scoped = merged ? call : forkApi(pr, call), name = merged ? policy.repository : pr.head.repo.full_name;
     const tree = repositoryTree(name, pr.head.sha, scoped);
+    let merge, baseTree;
+    if (merged) {
+        merge = call(`${prefix}/git/commits/${sha(pr.merge_commit_sha)}`);
+        if (merge.sha !== pr.merge_commit_sha || merge.parents?.length !== 2 || merge.parents[1].sha !== pr.head.sha) throw new Error('REVIEW_MERGE_CHANGED');
+        readGit(['merge-base', '--is-ancestor', pr.merge_commit_sha, current]);
+        // 已合并请求的差异固定为真实 merge 第一父节点到生成 head，不依赖 PR 差异服务。
+        baseTree = repositoryTree(name, merge.parents[0].sha, scoped);
+    }
+    const files = merged ? changedPaths(baseTree, tree).map(filename => ({ filename,
+        status: !baseTree.has(filename) ? 'added' : tree.has(filename) ? 'modified' : 'removed' }))
+        : list(`${prefix}/pulls/${number}/files`, null, call);
+    if (files.length !== pr.changed_files) throw new Error('APPLY_RESULT_PR_INVALID');
+    const pointers = files.filter(file => /^generated\/receipts\/[a-f0-9]{64}\.json$/u.test(file.filename));
+    if (pointers.length !== 1 || pointers[0].status !== 'added') throw new Error('APPLY_WRITE_FORBIDDEN');
     const pointer = JSON.parse(readBlob(name, tree.get(pointers[0].filename), scoped).toString('utf8'));
     const receipt = await readReceipt(sdk, pointer, current, { ...options, call: scoped, repositoryName: name });
     if (!merged) {
@@ -218,15 +234,10 @@ export async function checkResult(number, sdk, current, options = {}) {
         || receiptPath(receipt.requestId) !== pointers[0].filename || !merged && !refresh && receipt.baseSha !== current) throw new Error('APPLY_BASE_CHANGED');
     const commit = scoped(`repos/${name}/git/commits/${sha(pr.head.sha)}`);
     if (commit.sha !== pr.head.sha || !isDeepStrictEqual(commit.parents.map(parent => parent.sha), generatedParents(receipt))) throw new Error('REVIEW_PARENT_CHANGED');
+    if (merged && merge.parents[0].sha !== receipt.baseSha) throw new Error('REVIEW_MERGE_CHANGED');
     const headTree = repositoryTree(name, receipt.headSha, scoped);
-    const parentTree = receipt.integratedBase ? requestTree(repositoryTree(name, receipt.baseSha, scoped), headTree, receipt.inputFiles) : headTree;
+    const parentTree = receipt.integratedBase ? requestTree(baseTree ?? repositoryTree(name, receipt.baseSha, scoped), headTree, receipt.inputFiles) : headTree;
     verifyGeneratedTree(receipt, pointer, parentTree, tree, entry => readBlob(name, entry, scoped));
-    let merge;
-    if (merged) {
-        merge = call(`${prefix}/git/commits/${sha(pr.merge_commit_sha)}`);
-        if (merge.sha !== pr.merge_commit_sha || !isDeepStrictEqual(merge.parents.map(parent => parent.sha), [receipt.baseSha, pr.head.sha])) throw new Error('REVIEW_MERGE_CHANGED');
-        readGit(['merge-base', '--is-ancestor', pr.merge_commit_sha, current]);
-    }
     const after = pull(number, call);
     if (after.head.sha !== pr.head.sha || after.state !== pr.state || after.base.sha !== pr.base.sha
         || sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== current) throw new Error('PR_OR_BASE_CHANGED');

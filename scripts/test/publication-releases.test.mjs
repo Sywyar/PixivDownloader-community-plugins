@@ -127,13 +127,13 @@ test('已合并整代状态驱动 Release 更新，响应丢失回读且只读�
     const call = (endpoint, options = {}) => {
         const route = endpoint.split('?')[0];
         if (route.startsWith(`${prefix}/git/trees/`)) {
-            const commit = route.split('/').at(-1), tree = commit === current ? records : commit === generated ? generatedRecords : parentRecords;
+            const commit = route.split('/').at(-1);
+            const tree = new Map([[current, records], [generated, generatedRecords], [head, parentRecords], [source, new Map()]]).get(commit);
+            assert.ok(tree, 'Git tree must belong to a known commit');
             return { truncated: false, tree: [...tree].map(([path, bytes]) => ({ path, type: 'blob', mode: '100644', size: bytes.length, sha: blobId(bytes) })) };
         }
         if (route === `${prefix}/pulls/3`) return structuredClone(pr);
-        if (route === `${prefix}/pulls/3/files`) return [[...inputFiles,
-            ...made.value.files.map(file => ({ filename: file.path, status: 'added' })),
-            { filename: `generated/receipts/${made.value.requestId}.json`, status: 'added' }]];
+        if (route === `${prefix}/pulls/3/files`) throw new Error('GITHUB_DIFF_UNAVAILABLE_HTTP_500');
         if (route.endsWith('/check-runs')) return [{ total_count: 4, check_runs: policy.requiredContexts.map((name, i) => ({
             id: i + 1, name, app: policy.gateApp, head_sha: generated, external_id: '17:1:3', status: 'completed', conclusion: 'success' })) }];
         if (route.startsWith(`${prefix}/git/commits/`)) {

@@ -130,6 +130,11 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     git(['merge-base', '--is-ancestor', latest, result.head]);
     assert.ok(!mutations.some(route => route === prefix + '/pulls' || route === prefix + '/git/refs'));
     assert.equal((await checkResult(7, { workspace }, current, options)).receipt.headSha, requested);
+    const unavailableDiff = { ...options, call: (endpoint, ...args) => {
+        if (endpoint.split('?')[0] === prefix + '/pulls/7/files') throw new Error('GITHUB_DIFF_UNAVAILABLE_HTTP_500');
+        return call(endpoint, ...args);
+    } };
+    await assert.rejects(checkResult(7, { workspace }, current, unavailableDiff), /GITHUB_DIFF_UNAVAILABLE_HTTP_500/);
     assert.equal(receiptExpired(made.value), false);
     assert.equal(receiptExpired(made.value, Date.now() + 86400001), true);
     const generated = pr.head.sha;
@@ -138,10 +143,20 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     pr.head.sha = requested; pr.changed_files = 1; extraTreeFile = true;
     await appendReviewCommit(made.value, pointer, call, { proofs });
     await assert.rejects(checkResult(7, { workspace }, current, options), /APPLY_WRITE_FORBIDDEN/);
+    const injected = pr.head.sha;
     pr.head.sha = generated;
     pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', latest, '-p', generated], 'Merge\n');
     pr.state = 'closed'; pr.merged = true; current = pr.merge_commit_sha;
-    assert.equal((await checkResult(7, { workspace }, current, { ...options, merged: true })).merge.sha, current);
+    // 已合并请求依据真实合并父链取差异，不依赖历史 PR 的差异服务或过时 base 视图。
+    pr.base.sha = source;
+    assert.equal((await checkResult(7, { workspace }, current, { ...unavailableDiff, merged: true })).merge.sha, current);
+    pr.changed_files--;
+    await assert.rejects(checkResult(7, { workspace }, current, { ...unavailableDiff, merged: true }), /APPLY_RESULT_PR_INVALID/);
+    pr.changed_files += 2;
+    pr.head.sha = injected;
+    pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', injected + '^{tree}']), '-p', latest, '-p', injected], 'Injected merge\n');
+    await assert.rejects(checkResult(7, { workspace }, pr.merge_commit_sha, { ...unavailableDiff, merged: true }), /APPLY_WRITE_FORBIDDEN/);
+    pr.changed_files--; pr.head.sha = generated;
     pr.merge_commit_sha = git(['commit-tree', git(['rev-parse', generated + '^{tree}']), '-p', generated, '-p', source], 'Wrong merge\n');
     await assert.rejects(checkResult(7, { workspace }, current, { ...options, merged: true }), /REVIEW_MERGE_CHANGED/);
 
