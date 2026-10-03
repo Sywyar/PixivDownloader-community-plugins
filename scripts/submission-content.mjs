@@ -29,7 +29,8 @@ export async function contentFields(context, sourceRoot, source, market, facts, 
         const pending = new Map();
         const retain = (bytes, type) => asset(bytes, type, pending);
         const document = { format: input.format, asset: retain(bytes, `text/${input.format}`),
-            ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}), resources: {} };
+            ...(input.sourcePath ? { sourcePath: input.sourcePath } : {}),
+            ...(input.sourceUrl ? { sourceUrl: input.sourceUrl } : {}), resources: {} };
         const external = information.images.filter(url => url.startsWith('https://'));
         const includeExternal = external.length && await ui.confirm('contentExternal', { urls: external });
         let imageRoot = input.root;
@@ -95,6 +96,8 @@ export async function contentFields(context, sourceRoot, source, market, facts, 
                     const file = resolve(selected);
                     input = { file, root: repositoryFile ? sourceRoot : path.dirname(file),
                         sourcePath: repositoryFile ? selected : path.basename(file),
+                        ...(repositoryFile ? { sourceUrl: source.repository + '/blob/' + source.commit + '/'
+                            + selected.split('/').map(encodeURIComponent).join('/') } : {}),
                         format: purpose === 'releaseNotes' ? 'markdown' : await ui.select('contentFormat', ['markdown', 'html'], undefined,
                             /\.html?$/iu.test(selected) ? 'html' : 'markdown') };
                 }

@@ -404,8 +404,8 @@
     },
     {
       "path": "scripts/submission-content.mjs",
-      "size": 8554,
-      "sha256": "c0b1af50473e11ff4b9c156749627755dbdce867b04671e72e83a34913daab29"
+      "size": 8828,
+      "sha256": "3db203876af0b5e3a8bee3c6ce2a4c794c6a2c51b9c65eb52e6ef96b9e592b71"
     },
     {
       "path": "scripts/submission-current-state.mjs",

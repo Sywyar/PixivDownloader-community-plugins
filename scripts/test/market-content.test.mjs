@@ -97,6 +97,7 @@ test('冻结源码精确提取本版日志，HTML 原文件进入附件并投影
     const notes = result.files.get(result.content.releaseNotes.en.asset.name).toString();
     assert(notes.includes('### Features')); assert(!notes.includes('Old feature'));
     assert.equal(result.files.get(result.content.readme.en.asset.name).toString(), html);
+    assert.equal(result.content.readme.en.sourceUrl, source.repository + '/blob/' + source.commit + '/README.html');
     assert(result.files.get(result.content.changelog.en.asset.name).toString().includes('Old feature'));
     assert(!result.files.get(result.content.changelog.en.asset.name).toString().includes('Changed after snapshot'));
     assert.equal(previews.length, 3);
@@ -108,6 +109,7 @@ test('冻结源码精确提取本版日志，HTML 原文件进入附件并投影
     assert.equal(catalog.readme.en.asset.url, 'https://example.org/release/' + original.readme.en.asset.name);
     assert.deepEqual(original, result.content);
     assert.equal(catalog.readme.en.asset.sha256, hash(Buffer.from(html)));
+    assert.equal(catalog.readme.en.sourceUrl, result.content.readme.en.sourceUrl);
     fs.appendFileSync(path.join(frozen, result.content.readme.en.asset.name), 'changed');
     assert.throws(() => sdk.invoke({ command: 'content', value: result.content, root: frozen, locale: 'en' }));
 });
@@ -126,6 +128,7 @@ test('缺失版本必须显式选择跳过；手工多行不被 trim 或压成�
     assert.equal(missing, 1);
     assert.equal([...result.files.values()][0].toString(), manual);
     assert(!result.content.changelog); assert(!result.content.readme);
+    assert.equal(result.content.releaseNotes.en.sourceUrl, undefined);
 });
 
 test('多行返回和会话恢复保留换行，改变链接身份不能重放其它条目的网址', async () => {
