@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +20,7 @@ test('固定扫描工具处理实际 class 并绑定包、源码、依赖和重�
         + 'plugin.class=Probe\nplugin.description=Example\npixiv.execution-mode=host-process-full-trust\n');
     const artifact = path.join(sdk.workspace, 'plugin.jar');
     sdk.run('jar', ['--create', '--no-manifest', '--file', artifact, '-C', project, '.']);
-    const submission = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/submission.json'), 'utf8'));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json'), 'utf8'));
     submission.source.previousReviewedCommit = null;
     const build = { artifact, package: sdk.invoke({ command: 'inspect', file: artifact }), compiledClasses: [
         { path: 'target/classes/Probe.class', size: compiled.length, sha256: hash(compiled) }],

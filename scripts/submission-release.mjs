@@ -14,6 +14,8 @@ import { download } from './download.mjs';
 import { saveSession } from './submission-session.mjs';
 import { hash } from './sdk.mjs';
 import { keyLabel } from './submission-emergency.mjs';
+import { contentFields } from './submission-content.mjs';
+import { contentRelease } from './submission-content-release.mjs';
 
 export async function signingKey(context, registeredKeys = [], { rotation = false } = {}) {
     const { sdk, sign, ui, projectRoot, store } = context;
@@ -157,7 +159,16 @@ export async function prepareRelease(context, selection, profileId) {
         const old = context.store?.record.marketAssets?.[file];
         const cached = old && context.store.cached(old.sha256, old.size);
         return cached ? readFile(cached, old.size) : null;
-    });
+    }, source.repository);
+    for (const image of [market.icon, ...(market.screenshots ?? [])].filter(Boolean)) {
+        const bytes = changes.get(image.path);
+        const metadata = sdk.invoke({ command: 'image', file: sdk.save(bytes, '.image'), icon: image === market.icon });
+        const name = 'market-' + path.posix.basename(image.path);
+        image.asset = { name, url: `https://github.com/${policy.repository}/releases/download/${owner.publisherId}/${facts.pluginId}-v${facts.version}/${name}`,
+            mediaType: metadata.mediaType, size: metadata.size, sha256: metadata.sha256 };
+    }
+    const fixedRoot = sdk.invoke({ command: 'source', file: archiveFile, projectDir: buildProfile.projectDir }).sourceRoot;
+    const selectedContent = await contentFields(context, fixedRoot, fixedSource, market, facts, buildProfile.projectDir);
     const marketAssets = {};
     for (const [file, bytes] of changes) if (file.startsWith('assets/')) {
         const sha256 = (await import('./sdk.mjs')).hash(bytes);
@@ -167,7 +178,9 @@ export async function prepareRelease(context, selection, profileId) {
     context.store?.update({ license, market, marketAssets });
     const submission = { schemaVersion: 1, publisherId: owner.publisherId, pluginId: facts.pluginId, version: facts.version,
         source: fixedSource, buildProfile, license,
-        package: { url: packageUrl, expectedSize: facts.size, sha256: facts.sha256, signature: JSON.parse(readFile(signatureFile, 16 * 1024).toString('utf8')) }, market };
+        package: { url: packageUrl, expectedSize: facts.size, sha256: facts.sha256, signature: JSON.parse(readFile(signatureFile, 16 * 1024).toString('utf8')) }, market,
+        ...(selectedContent.content ? { content: selectedContent.content } : {}) };
+    const contents = contentRelease(context, submission, selectedContent.files);
     changes.set(`submissions/${owner.accountId}/${facts.pluginId}/${facts.version}.json`, Buffer.from(JSON.stringify(submission, null, 2) + '\n'));
     const recheck = async () => {
         if (!isDeepStrictEqual(sourceFacts(projectRoot), source)) throw new Error('SOURCE_CHANGED');
@@ -176,7 +189,10 @@ export async function prepareRelease(context, selection, profileId) {
         if (pendingVersion(context, facts, source, binding)) throw new Error('VERSION_SUBMISSION_CONFLICT');
         await candidate.recheck();
     };
-    return { changes, recheck, beforeWrite: candidate.beforeWrite, fetch: candidate.fetch, actions: candidate.actions,
+    const contentUrls = new Set(Object.values(selectedContent.content ? sdk.invoke({ command: 'content', value: selectedContent.content, locale: market.defaultLocale }) : {}).map(asset => asset.url));
+    return { changes, recheck, beforeWrite: async () => { await candidate.beforeWrite(); await contents.beforeWrite(); },
+        fetch: (url, ...args) => contentUrls.has(url) ? contents.fetch(url, ...args) : candidate.fetch(url, ...args),
+        contentFiles: selectedContent.files, actions: [...candidate.actions, ...contents.actions],
         sourceRelease: candidate.sourceRelease, previousMarket: previous?.market, submission,
         title: `feat(plugin): ${facts.pluginId} ${facts.version}` };
 }

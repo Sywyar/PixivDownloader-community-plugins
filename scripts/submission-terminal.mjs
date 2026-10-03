@@ -43,6 +43,7 @@ export async function workerTerminal(port, cancelled, options) {
             throw new Error(Atomics.load(gate, 0) === 3 ? 'CANCELLED' : 'WIZARD_SAVE');
         },
         ask: (key, initial, validate) => request('ask', [key, initial], validate),
+        multiline: (key, initial, validate) => request('multiline', [key, initial], validate),
         password: (key, validate) => request('password', [key], validate),
         async select(key, values, label = value => optionText(value, ui.text), initial) {
             const index = await request('select', [key, values.map(label), values.indexOf(initial)]);
@@ -144,7 +145,7 @@ export function connectTerminal(worker, cancelled, input = process.stdin, output
                 prompting = true;
                 let value;
                 try {
-                    if (method === 'ask') value = await ui.ask(...args, message.validate ? validate(message.id) : undefined);
+                    if (method === 'ask' || method === 'multiline') value = await ui[method](...args, message.validate ? validate(message.id) : undefined);
                     else if (method === 'password') value = await ui.password(...args, message.validate ? validate(message.id) : undefined);
                     else if (method === 'select') value = await ui.select(args[0], args[1].map((_, i) => i), i => args[1][i], args[2]);
                     else if (method === 'multiselect' || method === 'confirm') value = await ui[method](...args);

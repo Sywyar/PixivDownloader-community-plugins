@@ -15,8 +15,8 @@ function fixture(t) {
     t.after(() => fs.rmSync(workspace, { recursive: true, force: true }));
     const current = 'b'.repeat(40), releases = [], pulls = new Map(), runs = new Map(), stored = new Map(), writes = [];
     let nextAsset = 100, failUpload = false;
-    const sdk = { workspace, invoke: () => ({ maxArchiveBytes: 1024 * 1024 }) };
-    const create = (number = 7, run = '31', head = 'a'.repeat(40)) => {
+    const sdk = { workspace, invoke: () => ({ maxArchiveBytes: 1024 * 1024, releaseBytes: 1024 * 1024 }) };
+    const create = (number = 7, run = '31', head = 'a'.repeat(40), content = false) => {
         const directory = fs.mkdtempSync(path.join(workspace, 'input-'));
         fs.writeFileSync(path.join(directory, 'plugin.jar'), 'package-' + run);
         fs.writeFileSync(path.join(directory, 'source.zip'), 'source-' + run);
@@ -26,9 +26,16 @@ function fixture(t) {
         });
         const checked = { validation: 'STATIC_VALIDATED', sourceRepositoryId: '201', publisherKeyFingerprint: 'f'.repeat(64),
             pr: { number, head, base: current, headId: '301' }, owner: { accountId: '101', accountType: 'User', publisherId: 'example' },
-            submission: { pluginId: 'demo', version: '2.3.4', source: { commit: 'c'.repeat(40), archive: files[1] } },
+            submission: { pluginId: 'demo', version: '2.3.4', market: {}, source: { commit: 'c'.repeat(40), archive: files[1] } },
             submissionSha256: hash(Buffer.from(run)), descriptor: {}, package: { size: files[0].size, sha256: files[0].sha256 },
             packageFile: path.join(directory, 'plugin.jar') };
+        if (content) {
+            const bytes = Buffer.from('# Documentation ' + run), sha256 = hash(bytes), name = `content-${sha256}.md`;
+            fs.writeFileSync(path.join(directory, name), bytes);
+            files.push({ path: name, size: bytes.length, sha256 });
+            checked.contentAssets = { [name]: { name, size: bytes.length, sha256 } };
+            checked.contentRoot = directory;
+        }
         const inputs = { report: run };
         const candidate = { ...checked, schemaVersion: 1, state: 'PENDING_REVIEW', workflowPath: buildPath,
             workflowSha: current, repositoryId: policy.repositoryId, repositoryOwnerId: policy.repositoryOwnerId,
@@ -78,7 +85,7 @@ function fixture(t) {
         assert.fail('unexpected read ' + endpoint);
     };
     const upload = (releaseId, file, name) => {
-        if (failUpload) { failUpload = false; throw new Error('INTERRUPTED_UPLOAD'); }
+        if (failUpload === true || failUpload === name) { failUpload = false; throw new Error('INTERRUPTED_UPLOAD'); }
         const bytes = fs.readFileSync(file), asset = { id: nextAsset++, name, state: 'uploaded', size: bytes.length, digest: 'sha256:' + hash(bytes) };
         releases.find(row => String(row.id) === String(releaseId)).assets.push(asset); stored.set(asset.id, bytes);
         return structuredClone(asset);
@@ -96,8 +103,28 @@ function fixture(t) {
         return storeArchiveProof('1', path.join(value.directory, 'candidate.json'), file, current, options);
     };
     return { sdk, current, create, archive, proof, options, releases, pulls, writes, stored,
-        interrupt() { failUpload = true; } };
+        interrupt(name = true) { failUpload = name; } };
 }
+
+test('文档先于候选清单上传后中断仍能恢复，替换草稿移除旧文档且拒绝未知附件', async t => {
+    const f = fixture(t), first = f.create(7, '31', 'a'.repeat(40), true);
+    f.interrupt('candidate.json');
+    await assert.rejects(f.archive(first), /INTERRUPTED_UPLOAD/);
+    assert(f.releases[0].assets.some(asset => asset.name.startsWith('content-')));
+    assert(!f.releases[0].assets.some(asset => asset.name === 'candidate.json'));
+    await f.archive(first); await f.proof(first);
+    const oldName = first.candidate.files.at(-1).path;
+    const second = f.create(7, '32', 'd'.repeat(40), true);
+    f.interrupt('candidate.json');
+    await assert.rejects(f.archive(second), /INTERRUPTED_UPLOAD/);
+    assert(!f.releases[0].assets.some(asset => asset.name === oldName));
+    await f.archive(second); await f.proof(second);
+    const before = f.writes.length;
+    await f.archive(second); assert.equal(f.writes.length, before);
+    f.releases[0].assets.push({ name: `content-${'e'.repeat(64)}.md`, id: 900, size: 2, state: 'uploaded', digest: 'sha256:' + 'e'.repeat(64) });
+    await assert.rejects(f.archive(second), /CANDIDATE_ASSETS_CONFLICT/);
+    assert.equal(f.writes.length, before);
+});
 
 test('同一发布身份跨提交和关闭后重新投稿复用草稿；中断不保留旧证明', async t => {
     const f = fixture(t), first = f.create();

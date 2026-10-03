@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +14,7 @@ const head = 'a'.repeat(40);
 const pr = { number: 7, state: 'open', merged: false, user: { id: '101', login: 'example', type: 'User' },
     base: { ref: policy.defaultBranch, repo: { id: policy.repositoryId } },
     head: { sha: head, repo: { full_name: 'example/fork' } } };
-const vector = file => JSON.parse(fs.readFileSync(new URL('../../schemas/community/v1/vectors/' + file + '.json', import.meta.url), 'utf8'));
+const vector = file => JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/' + file + '.json'), 'utf8'));
 const visible = body => body.replace(/&#([0-9]+);/gu, (_, code) => String.fromCodePoint(Number(code)));
 const checked = (operation, request) => ({ operation, validation: 'STATIC_VALIDATED',
     owner: request.payload?.owner, pluginId: request.payload?.pluginId ?? request.pluginId,

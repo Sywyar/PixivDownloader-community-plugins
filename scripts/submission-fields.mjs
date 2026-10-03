@@ -3,6 +3,7 @@ import path from 'node:path';
 import { root, hash } from './sdk.mjs';
 import { API_BYTES } from './github.mjs';
 import { git } from './project.mjs';
+import { marketLinks } from './submission-links.mjs';
 
 export function readFile(file, maximum = API_BYTES) {
     if (!fs.lstatSync(file).isFile()) throw new Error('REGULAR_FILE_REQUIRED');
@@ -74,7 +75,7 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.', prev
     for (const file of files) {
         const actual = readFile(path.join(projectRoot, file)).toString('utf8').replace(/\s+/gu, ' ').trim();
         for (const id of templates) {
-            const template = readFile(path.join(root, `schemas/community/v1/licenses/${id}.txt`)).toString('utf8');
+            const template = readFile(path.join(sdk.workspace, `contracts/community/v1/licenses/${id}.txt`)).toString('utf8');
             const pattern = template.trim().split(/(<year>|<owner>|<copyright holders>|YEAR|AUTHOR EMAIL|\s+)/u).map(part =>
                 /^(?:<.+>|YEAR|AUTHOR EMAIL)$/u.test(part) ? '.+?' : /^\s+$/u.test(part) ? ' ' : part.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('');
             if (new RegExp('^' + pattern + '$', 'u').test(actual)) { known.add(id); recognized++; }
@@ -98,7 +99,7 @@ export async function licenseFields(sdk, ui, projectRoot, projectDir = '.', prev
     return result;
 }
 
-export async function marketFields(sdk, ui, owner, facts, changes, previous, previousAsset) {
+export async function marketFields(sdk, ui, owner, facts, changes, previous, previousAsset, repository) {
     const check = field => value => { if (value) sdk?.invoke({ command: 'field', field, value }); };
     const locale = await ui.ask('locale', previous?.defaultLocale ?? ui.locale ?? 'en-US', check('locale'));
     const market = structuredClone(previous ?? {});
@@ -108,10 +109,11 @@ export async function marketFields(sdk, ui, owner, facts, changes, previous, pre
     const description = await ui.ask('description', previous?.description?.[locale] ?? '', check('description'));
     if (description) market.description = { ...market.description, [locale]: description };
     else if (market.description) { delete market.description[locale]; if (!Object.keys(market.description).length) delete market.description; }
-    const catalog = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/catalogs.json'), 'utf8'));
+    const catalog = JSON.parse(fs.readFileSync(path.join(sdk.workspace, 'contracts/community/v1/catalogs.json'), 'utf8'));
     market.category = await ui.select('category', catalog.categories, undefined, previous?.category);
     market.tags = await ui.multiselect('tags', catalog.tags, previous?.tags ?? []);
-    const homepage = await ui.ask('homepage', previous?.homepageUrl ?? '', check('homepage'));
+    market.links = await marketLinks(sdk, ui, locale, previous, repository);
+    const homepage = market.links.find(link => link.kind === 'repository')?.url;
     if (homepage) market.homepageUrl = homepage; else delete market.homepageUrl;
     const image = async (file, icon) => {
         const bytes = readFile(path.resolve(file), icon ? 256 * 1024 : 2 * 1024 * 1024);

@@ -35,6 +35,10 @@ import top.sywyar.pixivdownload.sdk.community.candidate.SourceCandidate;
 import top.sywyar.pixivdownload.sdk.community.submission.DescriptorSnapshot;
 import top.sywyar.pixivdownload.sdk.community.submission.LicenseTemplates;
 import top.sywyar.pixivdownload.sdk.community.submission.MarketImages;
+import top.sywyar.pixivdownload.sdk.community.submission.MarketDocumentFiles;
+import top.sywyar.pixivdownload.sdk.community.submission.ChangelogSections;
+import top.sywyar.pixivdownload.sdk.community.content.MarketContent;
+import top.sywyar.pixivdownload.sdk.community.content.MarketLink;
 import top.sywyar.pixivdownload.sdk.community.submission.VersionSubmission;
 import top.sywyar.pixivdownload.sdk.community.review.PublishedVersion;
 import top.sywyar.pixivdownload.sdk.community.emergency.EmergencyKeyDeclaration;
@@ -64,6 +68,35 @@ public final class CommunitySubmission {
             case "inspect" -> inspect(workspace, input, null, null);
             case "verify" -> verify(workspace, input);
             case "image" -> image(input);
+            case "content-inspect" -> {
+                var info = MarketDocumentFiles.inspect(MarketDocumentFiles.read(Path.of(text(input, "root")),
+                        text(input, "path"), MarketContent.DOCUMENT_BYTES), text(input, "format"));
+                yield Map.of("format", info.format(), "size", info.size(), "sha256", info.sha256(), "images", info.images());
+            }
+            case "changelog" -> {
+                String notes = ChangelogSections.extract(MarketDocumentFiles.read(Path.of(text(input, "root")),
+                        text(input, "path"), MarketContent.DOCUMENT_BYTES), text(input, "version"));
+                Path file = Files.createTempFile(workspace, "release-notes-", ".md");
+                Files.writeString(file, notes, java.nio.charset.StandardCharsets.UTF_8);
+                yield Map.of("file", file.toString());
+            }
+            case "content-resource" -> Map.of("path", MarketContent.resourcePath(input.path("sourcePath").asText(null), text(input, "path")));
+            case "content-limits" -> Map.of("documentBytes", MarketContent.DOCUMENT_BYTES, "imageBytes", MarketContent.IMAGE_BYTES,
+                    "manualBytes", 16 * 1024, "links", MarketLink.MAX_LINKS,
+                    "releaseBytes", MarketContent.TOTAL_DOCUMENT_BYTES + MarketContent.TOTAL_IMAGE_BYTES + MarketImages.TOTAL_BYTES);
+            case "content" -> {
+                var content = CommunityJson.decode("marketContent", CommunityJson.encode(input.get("value")),
+                        CommunityJson.Kind.SUBMISSION.maximumBytes(), MarketContent.class);
+                content.validate(text(input, "locale"));
+                if (input.hasNonNull("root")) MarketDocumentFiles.validate(content, Path.of(text(input, "root")), text(input, "locale"));
+                yield content.assets();
+            }
+            case "links" -> {
+                var links = java.util.Arrays.asList(CommunityJson.decode("market/properties/links",
+                        CommunityJson.encode(input.get("value")), CommunityJson.Kind.SUBMISSION.maximumBytes(), MarketLink[].class));
+                MarketLink.validate(links);
+                yield links;
+            }
             case "licenses" -> LicenseTemplates.available();
             case "license" -> license(workspace, input);
             case "canonical" -> canonical(workspace, input);
@@ -238,6 +271,8 @@ public final class CommunitySubmission {
         submission.license().verifySourceFiles(Path.of(text(input, "sourceRoot")));
         var images = MarketImages.validate(Path.of(text(input, "imagesRoot")), publisher.githubAccount().id(),
                 submission.pluginId(), submission.version(), submission.market());
+        if (submission.content() != null) MarketDocumentFiles.validate(submission.content(),
+                Path.of(text(input, "contentRoot")), submission.market().defaultLocale());
         var result = inspect(workspace, input, submission, publisher);
         result.put("images", images);
         return result;

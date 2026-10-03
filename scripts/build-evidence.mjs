@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { root, evidence, hash } from './sdk.mjs';
+import { root, evidence, hash, sdkResource } from './sdk.mjs';
 import { buildPolicy } from './build-sandbox.mjs';
 import { fileDifference } from './build-files.mjs';
 import { toolJson } from './tool-process.mjs';
@@ -10,7 +10,8 @@ export function scanInputs(directory = root) {
     return ['tools/sdk-tools.jar', 'tools/CommunityScan.java', 'scripts/build-evidence.mjs',
         'scripts/submission-build.mjs', 'scripts/sdk.mjs', 'scripts/tool-process.mjs', 'scripts/build-files.mjs',
         'scripts/submission-check.mjs', 'scripts/submission-github.mjs']
-        .map(file => ({ path: file, sha256: hash(fs.readFileSync(path.join(directory, file))) }));
+        .map(file => ({ path: file, sha256: hash(fs.readFileSync(file === 'tools/sdk-tools.jar'
+            ? sdkResource(file, directory) : path.join(directory, file))) }));
 }
 
 export function scanBuild(sdk, build, submission, execution, previous = null) {

@@ -25,6 +25,18 @@ function tagCommit(tag, call) {
 
 const assetIdentity = ({ id, name, size, digest, state }) => ({ id, name, size, digest, state });
 
+export async function verifyPublicAssets(tag, assets, directory, fetch = publicDownload) {
+    for (const asset of assets) {
+        if (!Number.isSafeInteger(asset.size) || asset.size < 1 || asset.state !== 'uploaded'
+            || !/^sha256:[a-f0-9]{64}$/u.test(asset.digest) || path.basename(asset.name) !== asset.name) throw new Error('PUBLICATION_ASSET_CHANGED');
+        const file = path.join(directory, `public-${asset.id}`);
+        await fetch(`https://github.com/${policy.repository}/releases/download/${tag}/${encodeURIComponent(asset.name)}`,
+            file, asset.size, { size: asset.size, sha256: asset.digest.slice(7) });
+        if (!fs.lstatSync(file).isFile() || fs.statSync(file).size !== asset.size
+            || hash(fs.readFileSync(file)) !== asset.digest.slice(7)) throw new Error('PUBLICATION_READBACK_FAILED');
+    }
+}
+
 export async function promoteReleases(completion, workspace, { call = api, download = downloadCandidate, fetch = publicDownload, confirm, authorize, ...transport } = {}) {
     const { receipt, pr, commit, merge } = completion;
     if (!pr?.merged || pr.state !== 'closed' || !merge || merge.sha !== pr.merge_commit_sha
@@ -72,8 +84,7 @@ export async function promoteReleases(completion, workspace, { call = api, downl
         }
         const published = read();
         if (published.release.draft || !published.release.published_at || tagCommit(expected.tag, call) !== targetCommit) throw new Error('PUBLICATION_READBACK_FAILED');
-        await fetch(`https://github.com/${policy.repository}/releases/download/${expected.tag}/${expected.packageName}`,
-            path.join(directory, 'public-package'), expected.packageSize, { size: expected.packageSize, sha256: expected.packageSha256 });
+        await verifyPublicAssets(expected.tag, published.assets, directory, fetch);
     }
 }
 
@@ -169,6 +180,8 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
         if (release.tag_name !== formalTag(record) || release.draft
             || tagCommit(formalTag(record), call) !== completion.merge.sha) throw new Error('PUBLICATION_RELEASE_CHANGED');
         const assets = list(`${prefix}/releases/${id(release.id)}/assets`, null, call);
+        const known = new Set([...original[0].originalAssets.map(asset => asset.name), 'review.json', 'community-signature.json']);
+        if (assets.some(asset => !known.has(asset.name))) throw new Error('PUBLICATION_ASSET_CHANGED');
         const status = releaseStatus(record, revocations);
         const storedPackage = status === 'REVOKED' ? archivedPackage(record, call) : null;
         for (const asset of original[0].originalAssets) {
@@ -185,6 +198,9 @@ export async function finalizeReleases(context, sdk, { call = api, readGit, down
             if (matches.length !== 1 || matches[0].state !== 'uploaded' || matches[0].size !== bytes.length
                 || matches[0].digest !== `sha256:${hash(bytes)}`) throw new Error('PUBLICATION_ASSET_CHANGED');
         }
+        const marketAssets = assets.filter(asset => /^(?:content|market)-/u.test(asset.name));
+        if (marketAssets.length) await verifyPublicAssets(formalTag(record), marketAssets,
+            fs.mkdtempSync(path.join(sdk.workspace, 'public-content-')), transport.fetch ?? publicDownload);
         const manager = state.read(`plugin-bindings/${record.pluginId}.json`, 'BINDING').value.owner;
         const name = `${record.owner.publisherId} / ${record.pluginId}-v${record.version}${status === 'ACTIVE' ? '' : ` [${status}]`}`;
         const body = releaseBody(release.body, { record, manager, status, sequence: current.sequence, review });

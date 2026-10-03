@@ -3,6 +3,21 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { prepareSdk, evidence, evaluate, root, verifyTool } from '../sdk.mjs';
+import { ensureSdk, sdkCache } from '../sdk-resources.mjs';
+import { signingTool } from '../submission-signing.mjs';
+
+test('公开固定 SDK 自带签名工具完成加密密钥生成和配对检查', t => {
+    const sdk = prepareSdk(), sign = signingTool(sdk);
+    t.after(() => { sign.close(); fs.rmSync(sdk.workspace, { recursive: true }); });
+    const directory = path.join(sdk.workspace, 'test-key');
+    const privateFile = path.join(directory, 'private-key.pem'), publicFile = path.join(directory, 'public-key.pem');
+    sign.password(privateFile, 'sdk-fixture-password');
+    sign('keygen', '--directory', directory);
+    assert.match(fs.readFileSync(privateFile, 'utf8'), /^-----BEGIN ENCRYPTED PRIVATE KEY-----/);
+    sign('check-key', '--private-key', privateFile, '--public-key', publicFile);
+    sign.password(privateFile, 'wrong-password');
+    assert.throws(() => sign('check-key', '--private-key', privateFile, '--public-key', publicFile), /KEY_PASSWORD_INVALID/);
+});
 
 test('真实 JVM 警告不污染 JSON 输出，非零退出仍携带诊断', () => {
     const sdk = prepareSdk();
@@ -71,18 +86,19 @@ test('实际固定 SDK 处理原生审核、自审、拒绝及旧 head', () => {
 });
 
 test('执行前拒绝被替换的工具或发行元数据，固定资源由 SDK 校验', () => {
+    const ready = ensureSdk();
     const copy = fs.mkdtempSync(path.join(root, 'target/sdk-tamper-'));
     fs.mkdirSync(path.join(copy, 'tools'));
-    for (const file of ['sdk-lock.json', 'community-contract.json', 'sdk-tools.jar', 'CommunityReview.java']) {
+    for (const file of ['submission-files.json', 'CommunityReview.java']) {
         fs.copyFileSync(path.join(root, 'tools', file), path.join(copy, 'tools', file));
     }
-    fs.writeFileSync(path.join(copy, 'tools/sdk-tools.jar'), 'changed');
-    assert.throws(() => verifyTool(copy), /TOOL_HASH/);
-    fs.copyFileSync(path.join(root, 'tools/sdk-tools.jar'), path.join(copy, 'tools/sdk-tools.jar'));
-    fs.appendFileSync(path.join(copy, 'tools/community-contract.json'), ' ');
-    assert.throws(() => verifyTool(copy), /METADATA_HASH/);
-    fs.copyFileSync(path.join(root, 'tools/community-contract.json'), path.join(copy, 'tools/community-contract.json'));
-    fs.cpSync(path.join(root, 'schemas'), path.join(copy, 'schemas'), { recursive: true });
-    fs.appendFileSync(path.join(copy, 'schemas/community/v1/community.schema.json'), ' ');
-    assert.throws(() => prepareSdk(copy));
+    const cached = sdkCache(copy, ready.sdk);
+    fs.cpSync(ready.directory, cached, { recursive: true });
+    for (const name of ['tools/sdk-tools.jar', 'tools/community-contract.json', 'contracts/community/v1/community.schema.json']) {
+        const file = path.join(cached, name);
+        fs.appendFileSync(file, 'changed');
+        assert.throws(() => verifyTool(copy), /SDK_RESOURCE_CHANGED/);
+        fs.copyFileSync(path.join(ready.directory, name), file);
+    }
+    assert.equal(prepareSdk(copy).invoke('verify').sdkVersion, ready.sdk.version);
 });

@@ -7,6 +7,7 @@ import { hash } from './sdk.mjs';
 import { candidateIdentity, candidateSlot, verifyFiles } from './candidate.mjs';
 import { verifyBuildRun } from './candidate-run.mjs';
 import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
+import { isMarketAsset, candidateBudget, verifyCandidateMarket } from './market-assets.mjs';
 import { checkPull } from './submission-pr.mjs';
 import { pull } from './platform.mjs';
 
@@ -82,9 +83,22 @@ export async function prepareCandidateDraft(sdk, candidate, directory, current, 
         if (new Set(assets.map(asset => asset.name)).size !== assets.length) throw new Error('CANDIDATE_ASSETS_CONFLICT');
         const packageStem = `pixivdownload-plugin-${candidate.owner.publisherId}-${candidate.submission.pluginId}-${candidate.submission.version}`;
         const allowed = new Set(['candidate.json', 'archive-attestation.json', 'source.zip', 'review-evidence.zip', `${packageStem}.jar`, `${packageStem}.zip`]);
-        if (assets.some(asset => !allowed.has(asset.name))) throw new Error('CANDIDATE_ASSETS_CONFLICT');
         const previous = await candidateReservation(release, assets, sdk.workspace, download);
         if (previous.slot !== candidateSlot(candidate)) throw new Error('CANDIDATE_RELEASE_CHANGED');
+        const manifest = assets.find(asset => asset.name === 'candidate.json');
+        if (previous.manifestSha256 === next.manifestSha256) {
+            // 上传清单前中断时，槽位中的摘要仍绑定本轮完整附件集合。
+            for (const file of expected) if (isMarketAsset(file.name)) allowed.add(file.name);
+        } else if (manifest && assets.some(asset => isMarketAsset(asset.name))) {
+            if (manifest.digest !== `sha256:${previous.manifestSha256}` || manifest.size > API_BYTES) throw new Error('CANDIDATE_ASSET_CONFLICT');
+            const file = path.join(sdk.workspace, `previous-content-${crypto.randomUUID()}.json`);
+            await download(`${prefix}/releases/assets/${id(manifest.id)}`, file, API_BYTES, { size: manifest.size, sha256: previous.manifestSha256 });
+            const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+            candidateIdentity(old);
+            if (candidateSlot(old) !== previous.slot) throw new Error('CANDIDATE_RELEASE_CHANGED');
+            for (const file of old.files) if (isMarketAsset(file.path)) allowed.add(file.path);
+        }
+        if (assets.some(asset => !allowed.has(asset.name))) throw new Error('CANDIDATE_ASSETS_CONFLICT');
         const pr = pull(previous.prNumber, call);
         if (pr.merged || previous.prNumber !== next.prNumber && pr.state !== 'closed') throw new Error('CANDIDATE_SLOT_IN_USE');
         if (previous.prNumber === next.prNumber && (BigInt(previous.runId) > BigInt(next.runId)
@@ -100,6 +114,13 @@ export async function prepareCandidateDraft(sdk, candidate, directory, current, 
             }
             assets = assets.filter(asset => asset.name !== 'archive-attestation.json');
         }
+        // 先移除已核验的旧集合剩余项，再切换槽位身份；中断后仍能按旧身份继续。
+        for (const asset of assets.filter(asset => asset.name !== 'archive-attestation.json' && !expected.some(file => file.name === asset.name))) {
+            if (!replace) throw new Error('CANDIDATE_ASSETS_CONFLICT');
+            requireDraft(release, call);
+            call(`${prefix}/releases/assets/${id(asset.id)}`, { method: 'DELETE' });
+        }
+        assets = assets.filter(asset => asset.name === 'archive-attestation.json' || expected.some(file => file.name === asset.name));
     }
     const body = `Pending review. This draft does not grant approval or catalog admission.\n\n`
         + `Publisher: ${candidate.owner.publisherId}; GitHub ${candidate.owner.accountType} ID ${candidate.owner.accountId}.\n`
@@ -126,9 +147,10 @@ export async function archiveCandidate(sdk, candidate, directory, current, { cal
         || !isDeepStrictEqual(actual.owner, candidate.owner) || !isDeepStrictEqual(actual.package, candidate.package)
         || !isDeepStrictEqual(actual.descriptor, candidate.descriptor)
         || actual.publisherKeyFingerprint !== candidate.publisherKeyFingerprint) throw new Error('CANDIDATE_SUBMISSION_CHANGED');
-    const maximum = 2 * sdk.invoke({ command: 'limits' }).maxArchiveBytes + API_BYTES;
+    const maximum = candidateBudget(sdk);
     verifyFiles(directory, candidate.files, maximum);
     verifyFiles(sdk.workspace, candidate.evidence, API_BYTES);
+    verifyCandidateMarket(candidate, actual);
     const packaged = candidate.files.filter(file => /^plugin\.(?:jar|zip)$/u.test(file.path));
     const source = candidate.files.find(file => file.path === 'source.zip');
     if (packaged.length !== 1 || packaged[0].size !== actual.package.size || packaged[0].sha256 !== actual.package.sha256
@@ -139,11 +161,6 @@ export async function archiveCandidate(sdk, candidate, directory, current, { cal
     }
     const { release, assets, expected, replace, tag } = await prepareCandidateDraft(sdk, candidate, directory, current, { call, download });
     id(release.id);
-    for (const asset of assets.filter(asset => asset.name !== 'archive-attestation.json' && !expected.some(file => file.name === asset.name))) {
-        if (!replace) throw new Error('CANDIDATE_ASSETS_CONFLICT');
-        requireDraft(release, call);
-        call(`${prefix}/releases/assets/${id(asset.id)}`, { method: 'DELETE' });
-    }
     for (const file of expected) {
         let asset = assets.find(value => value.name === file.name);
         if (asset && (asset.state !== 'uploaded' || asset.size !== file.size || asset.digest !== `sha256:${file.sha256}`)) {

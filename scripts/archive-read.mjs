@@ -6,6 +6,7 @@ import { candidateIdentity, candidateSlot, checkFiles, verifyFiles } from './can
 import { downloadCandidate, prepareArchive } from './candidate-transfer.mjs';
 import { candidateAssets } from './archive.mjs';
 import { verifyArchiveProof } from './archive-proof.mjs';
+import { candidateBudget } from './market-assets.mjs';
 
 export async function readArchivedCandidate(sdk, release, current, { call = api, readGit,
     download = downloadCandidate, verify = verifyArchiveProof } = {}) {
@@ -31,13 +32,13 @@ export async function readArchivedCandidate(sdk, release, current, { call = api,
     const candidate = JSON.parse(fs.readFileSync(manifest, 'utf8'));
     if (![candidateIdentity(candidate), candidateSlot(candidate)].includes(release.tag_name)) throw new Error('CANDIDATE_TAG_CHANGED');
     const maximum = sdk.invoke({ command: 'limits' }).maxArchiveBytes;
-    checkFiles(candidate.files, 2 * maximum + API_BYTES);
+    checkFiles(candidate.files, candidateBudget(sdk));
     const expected = candidateAssets(candidate, directory);
     if (assets.length !== expected.length + 1) throw new Error('CANDIDATE_ASSETS_CONFLICT');
     for (const file of expected.filter(file => file.path !== 'candidate.json')) {
         await fetch(file.name, path.join(directory, file.path), file.path === 'review-evidence.zip' ? API_BYTES : maximum, file);
     }
-    verifyFiles(directory, candidate.files, 2 * maximum + API_BYTES);
+    verifyFiles(directory, candidate.files, candidateBudget(sdk));
     prepareArchive(sdk);
     sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath, 'CommunityArchive', 'reports', manifest,
         path.join(directory, 'review-evidence.zip'), sdk.workspace]);

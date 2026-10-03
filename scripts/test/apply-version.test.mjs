@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -38,10 +40,25 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
     const bytes = fs.readFileSync(artifact), inspected = sdk.invoke({ command: 'inspect', file: artifact });
     const signature = path.join(sdk.workspace, 'publisher-signature.json');
     sign('artifact', '--artifact', artifact, '--plugin-id', 'example-minimal', '--version', '2.3.4', '--key-id', key.keyId, '--private-key', privateFile, '--out', signature);
-    const submission = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/submission.json')));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json')));
     submission.package = { ...submission.package, expectedSize: bytes.length, sha256: hash(bytes), signature: JSON.parse(fs.readFileSync(signature)) };
+    const contentFiles = new Map();
+    submission.content = {};
+    submission.market.links = [];
+    for (const [kind, format, text] of [['readme', 'html', '<h1>Usage</h1><script>blocked()</script>'],
+        ['releaseNotes', 'markdown', '## [v2.3.4]\n### Features\n- Current feature'],
+        ['changelog', 'markdown', '## [v2.3.4]\n### Features\n- Current feature\n## [v2.3.3]\n- Previous feature']]) {
+        const bytes = Buffer.from(text), sha256 = hash(bytes), name = `content-${sha256}.${format === 'html' ? 'html' : 'md'}`;
+        contentFiles.set(name, bytes); fs.writeFileSync(path.join(sdk.workspace, name), bytes);
+        submission.content[kind] = { en: { format, asset: { name, url: `https://example.org/content/${name}`,
+            mediaType: `text/${format}`, size: bytes.length, sha256 }, resources: {} } };
+    }
+    const contentAssets = sdk.invoke({ command: 'content', value: submission.content, root: sdk.workspace, locale: 'en' });
     const submissionPath = 'submissions/101/example-minimal/2.3.4.json'; records.set(submissionPath, encoded(submission));
     const owner = { accountId: '101', accountType: 'User', publisherId: 'example' };
+    const originalAssets = [{ id: 601, name: packageName({ ...submission, owner }), size: bytes.length,
+        digest: 'sha256:' + hash(bytes), state: 'uploaded' }, ...[...contentFiles].map(([name, bytes], index) =>
+        ({ id: 602 + index, name, size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' }))];
     records.set('publishers/101/example.json', encoded({ schemaVersion: 1, publisherId: 'example', displayName: 'Example',
         githubAccount: { id: '101', type: 'User', loginAtRegistration: 'example' }, signingKeys: [key] }));
     const current = 'b'.repeat(40), appliedAt = '2026-01-02T00:00:00Z';
@@ -61,7 +78,7 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
             protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer }] }] };
         if (route === `${prefix}/environments/release/deployment-branch-policies`) return [{ branch_policies: [{ id: 9, type: 'branch', name: 'master' }], total_count: 1 }];
         if (route === `${prefix}/actions/runs/91/approvals`) return [{ state: 'approved', environments: [{ id: 8, name: 'release' }], user: reviewer }];
-        if (route === `${prefix}/releases/501/assets`) return [[{ id: 601, name: packageName({ ...submission, owner }), size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' }]];
+        if (route === `${prefix}/releases/501/assets`) return [originalAssets];
         throw new Error('Unexpected request ' + route);
     }, policy.repository, new Map([[current, records]])), 'example/fork', new Map([[pr.head.sha, records]])));
     const compiled = fs.readFileSync(path.join(project, 'Probe.class'));
@@ -70,10 +87,12 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
     { runId: '81', runAttempt: 1, headSha: pr.head.sha });
     const binding = encoded({ schemaVersion: 1, pluginId: submission.pluginId, owner, effectiveRequestId: null, updatedAt: appliedAt });
     const version = { releaseId: '501', tag: 'candidate/' + 'c'.repeat(64), directory: sdk.workspace, publicationBindingSha256: hash(binding),
-        checked: { operation: 'FIRST_RELEASE', owner, submission, submissionPath, submissionSha256: hash(records.get(submissionPath)), descriptor: inspected.descriptor,
+        checked: { operation: 'FIRST_RELEASE', owner, submission, contentAssets, contentRoot: sdk.workspace,
+            submissionPath, submissionSha256: hash(records.get(submissionPath)), descriptor: inspected.descriptor,
             publisherSha256: hash(records.get('publishers/101/example.json')), bindingSha256: hash(Buffer.from('null')), package: { size: bytes.length, sha256: hash(bytes) },
             pr: { head: pr.head.sha, base: current, user: { id: '101', type: 'User' } } },
-        candidate: { inputSha256: 'c'.repeat(64), scan, evidence: Object.values(scan).filter(ref => ref?.path), files: [{ path: 'plugin.jar' }] },
+        candidate: { inputSha256: 'c'.repeat(64), scan, evidence: Object.values(scan).filter(ref => ref?.path), files: [{ path: 'plugin.jar' },
+            ...[...contentFiles].map(([path, bytes]) => ({ path, size: bytes.length, sha256: hash(bytes) }))] },
         report: JSON.parse(fs.readFileSync(path.join(sdk.workspace, scan.riskReportRef.path))) };
     const admission = currentAdmission(7, sdk, context, version, call, () => '');
     const options = { sdk, adapter, state, version, pr, context, admission, inputs: { recoveryApproved: false }, communityKey, privateBytes, appliedAt, call };
@@ -120,6 +139,7 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
     const baseRecords = new Map(originalRecords); baseRecords.delete(submissionPath);
     const release = { id: 501, draft: true, published_at: null, tag_name: result.release.originalTag };
     const assets = structuredClone(result.release.originalAssets), bodies = new Map([['601', bytes]]);
+    for (const asset of originalAssets.slice(1)) bodies.set(String(asset.id), contentFiles.get(asset.name));
     let tag = null, promotions = 0;
     const finalCall = withEmergencyState(withRepositoryFiles((endpoint, request = {}) => {
         const route = endpoint.split('?')[0];
@@ -158,13 +178,17 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
             const asset = { id, name, size: bytes.length, digest: 'sha256:' + hash(bytes), state: 'uploaded' };
             assets.push(asset); bodies.set(String(id), bytes); return asset;
         }, fetch: (url, file, max, expected) => {
-            assert.equal(url, `https://github.com/${policy.repository}/releases/download/${result.release.tag}/${result.release.packageName}`);
-            return download(`${prefix}/releases/assets/601`, file, max, expected);
+            const base = `https://github.com/${policy.repository}/releases/download/${result.release.tag}/`;
+            assert(url.startsWith(base));
+            const asset = assets.find(asset => asset.name === decodeURIComponent(url.slice(base.length)));
+            assert(asset, 'public read must name an actual release asset');
+            return download(`${prefix}/releases/assets/${asset.id}`, file, max, expected);
         } };
     assert.equal((await finalizeReleases({ current: merged }, sdk, transport)).applied, true);
     assert.equal(release.draft, false); assert.equal(promotions, 1);
     assert.equal(release.tag_name, result.release.tag); assert.equal(release.target_commitish, merged);
     assert.deepEqual(bodies.get('601'), bytes);
+    for (const asset of originalAssets.slice(1)) assert.deepEqual(bodies.get(String(asset.id)), contentFiles.get(asset.name));
     assert.equal((await finalizeReleases({ current: merged }, sdk, transport)).applied, true);
     assert.equal(promotions, 1);
     sign.close(); privateBytes.fill(0);

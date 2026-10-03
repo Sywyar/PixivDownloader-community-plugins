@@ -124,16 +124,23 @@ export async function validateChanges({ sdk, state, changes, user, authorize, ca
             fs.mkdirSync(path.dirname(output), { recursive: true });
             if (!fs.existsSync(output)) fs.writeFileSync(output, bytes, { flag: 'wx' });
         }
+        const contentRoot = path.join(sdk.workspace, `content-${crypto.randomUUID()}`);
+        fs.mkdirSync(contentRoot);
+        const contentAssets = value.content ? sdk.invoke({ command: 'content', value: value.content, locale: value.market.defaultLocale }) : {};
+        for (const asset of Object.values(contentAssets)) {
+            const output = sdk.invoke({ command: 'path', root: contentRoot, path: asset.name, mustExist: false }).path;
+            await fetch(asset.url, output, asset.size, asset);
+        }
         const extension = new URL(value.package.url).pathname.endsWith('.jar') ? '.jar' : '.zip';
         const artifact = path.join(sdk.workspace, crypto.randomUUID() + extension);
         await observe('downloadingPackage', '', () => fetch(value.package.url, artifact, sdk.invoke({ command: 'limits' }).maxArchiveBytes,
             { size: value.package.expectedSize, sha256: value.package.sha256 }));
         const verified = sdk.invoke({ command: 'verify', file: artifact, submission: sdk.save(record.bytes),
             publisher: sdk.save(publisher.bytes), publisherPath: publisherFile, path: record.path,
-            previousReviewedCommit: previousCommit, sourceRoot: source.sourceRoot, imagesRoot });
+            previousReviewedCommit: previousCommit, sourceRoot: source.sourceRoot, imagesRoot, contentRoot });
         result = { operation: binding ? 'UPDATE' : 'FIRST_RELEASE', owner, pluginId: value.pluginId,
             version: value.version, publisherDisplayName: publisher.value.displayName,
-            descriptor: verified.descriptor, sourceArchive: source.archiveFile,
+            descriptor: verified.descriptor, sourceArchive: source.archiveFile, contentRoot, imagesRoot, images: verified.images, contentAssets,
             sourceRoot: source.sourceRoot, sourceRepositoryId: source.repositoryId, packageFile: artifact,
             submission: value, submissionPath: record.path, submissionSha256: record.sha256,
             bindingSha256: binding?.sha256 ?? hash(Buffer.from('null')), publisherSha256: publisher.sha256,

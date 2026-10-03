@@ -2,28 +2,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { root, hash } from './sdk.mjs';
+import { root } from './sdk.mjs';
 import { git } from './project.mjs';
 import { readFile } from './submission-fields.mjs';
 import { failureCode } from './submission-ui.mjs';
 
 export function signingTool(sdk) {
-    const lock = JSON.parse(fs.readFileSync(path.join(root, 'tools/signing-tool.json'), 'utf8'));
-    if (lock.schemaVersion !== 1 || lock.sourceRepository !== 'https://github.com/Sywyar/PixivDownloader'
-        || !/^[a-f0-9]{40}$/u.test(lock.sourceCommit) || lock.path !== 'tools/signing-tool.jar') throw new Error('SIGNING_TOOL_LOCK_INVALID');
-    const source = path.join(root, lock.path);
-    if (!fs.lstatSync(source).isFile() || fs.statSync(source).size !== lock.size) throw new Error('SIGNING_TOOL_CHANGED');
-    const bytes = fs.readFileSync(source);
-    if (bytes.length !== lock.size || hash(bytes) !== lock.sha256) throw new Error('SIGNING_TOOL_CHANGED');
-    const jar = path.join(sdk.workspace, 'signing-tool.jar');
-    fs.writeFileSync(jar, bytes, { flag: 'wx' });
     const passwords = new Map();
     const sign = (...args) => {
         const privateIndex = args.indexOf('--private-key');
         const directoryIndex = args.indexOf('--directory');
         const file = privateIndex >= 0 ? args[privateIndex + 1] : directoryIndex >= 0 ? path.join(args[directoryIndex + 1], 'private-key.pem') : null;
         const password = passwords.get(file);
-        return sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', jar,
+        return sdk.run('java', ['-Dfile.encoding=UTF-8', '-cp', sdk.classpath,
             'top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool', ...args,
             ...(password ? ['--password-stdin', 'true'] : [])], sdk.workspace, password);
     };

@@ -1,3 +1,5 @@
+import { ensureSdk, sdkCache } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -74,7 +76,7 @@ test('候选下载按 API 选择媒体类型，并保留字节校验和拒绝覆
 
 test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不覆盖资产', async () => {
     const sdk = prepareSubmission();
-    const submission = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/submission.json'), 'utf8'));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json'), 'utf8'));
     const source = path.join(sdk.workspace, 'source');
     fs.mkdirSync(source);
     fs.writeFileSync(path.join(source, 'plugin.properties'), 'plugin.id=example-minimal\nplugin.version=2.3.4\nplugin.class=example.Plugin\n');
@@ -159,17 +161,24 @@ test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不
     assert.equal(reused.reusedFrom.releaseId, '701');
     const scannerDirectory = path.join(sdk.workspace, 'scanner-inputs');
     const scanner = scanInputs();
+    fs.mkdirSync(path.join(scannerDirectory, 'tools'), { recursive: true });
+    fs.copyFileSync(path.join(root, 'tools/submission-files.json'), path.join(scannerDirectory, 'tools/submission-files.json'));
+    const scannerCache = sdkCache(scannerDirectory, ensureSdk().sdk);
+    fs.cpSync(sdkResources, scannerCache, { recursive: true });
     for (const file of scanner) {
+        if (file.path === 'tools/sdk-tools.jar') continue;
         const destination = path.join(scannerDirectory, file.path);
         fs.mkdirSync(path.dirname(destination), { recursive: true });
         fs.copyFileSync(path.join(root, file.path), destination);
     }
     assert.deepEqual(scanInputs(scannerDirectory), scanner);
     for (const file of scanner) {
-        const destination = path.join(scannerDirectory, file.path);
+        const tool = file.path === 'tools/sdk-tools.jar';
+        const destination = path.join(tool ? scannerCache : scannerDirectory, file.path);
         const original = fs.readFileSync(destination);
         fs.appendFileSync(destination, '\nchanged scan implementation');
-        assert.notDeepEqual(scanInputs(scannerDirectory), scanner, file.path);
+        if (tool) assert.throws(() => scanInputs(scannerDirectory), /SDK_RESOURCE_CHANGED/);
+        else assert.notDeepEqual(scanInputs(scannerDirectory), scanner, file.path);
         assert.deepEqual(fs.readFileSync(reusedBuild(sdk, archived, checked, inputs).artifact), bytes);
         fs.writeFileSync(destination, original);
     }

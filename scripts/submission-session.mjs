@@ -7,6 +7,7 @@ import { sourceFacts } from './project.mjs';
 import { readFile } from './submission-fields.mjs';
 import { projectFolder, projectIdentity, managementFolder, managementIdentity, submissionHome, STATE_BYTES, writeState } from './submission-state.mjs';
 import { sourceCandidate } from './submission-candidate.mjs';
+import { contentRelease } from './submission-content-release.mjs';
 import { locales } from './submission-ui.mjs';
 import { versionAvailable } from './submission-check.mjs';
 
@@ -34,7 +35,7 @@ export function sessionLocator(directory, home = submissionHome()) {
                     || !locales.includes(session.locale)
                     || management && (session.operation === 'publish' || session.sourceCommit !== null)
                     || session.navigation.some(answer => !answer || !Array.isArray(answer.signature)
-                        || !['ask', 'select', 'multiselect', 'confirm'].includes(answer.signature[0]))) throw new Error();
+                        || !['ask', 'multiline', 'select', 'multiselect', 'confirm'].includes(answer.signature[0]))) throw new Error();
                 return { identity, actorId: ref.actorId, session };
             } catch { throw Object.assign(new Error('PROJECT_SESSION_INVALID'), { statePath: file }); }
         },
@@ -55,10 +56,11 @@ function pendingFile(store, digest) {
 
 export function savePrepared(context, prepared) {
     if (!context.store) return;
-    const files = [...prepared.changes].map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: hash(bytes) }));
+    const all = [...prepared.changes, ...[...prepared.contentFiles ?? []].map(([name, bytes]) => ['@content/' + name, bytes])];
+    const files = all.map(([file, bytes]) => ({ path: file, size: bytes.length, sha256: hash(bytes) }));
     const size = files.reduce((sum, file) => sum + file.size, 0);
     if (size > API_BYTES) throw new Error('INPUT_SIZE_EXCEEDED');
-    const bytes = Buffer.concat([...prepared.changes.values()]);
+    const bytes = Buffer.concat(all.map(([, bytes]) => bytes));
     if (/-----BEGIN (?:ENCRYPTED |OPENSSH |RSA |EC )?PRIVATE KEY-----/u.test(bytes.toString('utf8'))) throw new Error('PRIVATE_KEY_IN_SUBMISSION');
     const digest = hash(bytes); const target = pendingFile(context.store, digest);
     if (fs.existsSync(target)) {
@@ -83,7 +85,13 @@ export function preparedChanges(store) {
         changes.set(file.path, content);
     }
     if (offset !== bytes.length || !changes.size) throw new Error('PROJECT_SESSION_INVALID');
-    return { ...prepared, changes };
+    const contentFiles = new Map();
+    for (const [file, bytes] of changes) if (file.startsWith('@content/')) {
+        const name = file.slice('@content/'.length);
+        if (!/^content-[a-f0-9]{64}\.(?:md|html|png|jpg|webp)$/u.test(name)) throw new Error('PROJECT_SESSION_INVALID');
+        contentFiles.set(name, bytes); changes.delete(file);
+    }
+    return { ...prepared, changes, ...(contentFiles.size ? { contentFiles } : {}) };
 }
 
 export async function restorePrepared(context) {
@@ -106,7 +114,11 @@ export async function restorePrepared(context) {
     if (candidate.sourceRelease.repository !== prepared.sourceRelease.repository || candidate.sourceRelease.tag !== prepared.sourceRelease.tag
         || candidate.packageUrl !== submission.package.url
         || candidate.facts.sha256 !== submission.package.sha256 || candidate.facts.size !== submission.package.expectedSize) throw new Error('CANDIDATE_PREVIEW_CHANGED');
-    return { ...prepared, submission, fetch: candidate.fetch, beforeWrite: candidate.beforeWrite, actions: candidate.actions,
+    const contents = contentRelease(context, submission, prepared.contentFiles);
+    const urls = new Set(Object.values(submission.content ? context.sdk.invoke({ command: 'content', value: submission.content,
+        locale: submission.market.defaultLocale }) : {}).map(asset => asset.url));
+    return { ...prepared, submission, fetch: (url, ...args) => urls.has(url) ? contents.fetch(url, ...args) : candidate.fetch(url, ...args),
+        beforeWrite: async () => { await candidate.beforeWrite(); await contents.beforeWrite(); }, actions: [...candidate.actions, ...contents.actions],
         recheck: async () => {
             if (!isDeepStrictEqual(sourceFacts(context.projectRoot), source)) throw new Error('SOURCE_CHANGED');
             await candidate.recheck();

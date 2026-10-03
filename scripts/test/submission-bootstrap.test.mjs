@@ -43,8 +43,12 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
     if (options.input !== undefined) launcher = launcher.replace('[Console]::IsInputRedirected', '$false');
     const script = path.join(folder, 'submit.ps1');
     fs.writeFileSync(script, launcher);
-    const runtime = Buffer.from(`console.log(JSON.stringify(process.argv.slice(2))); process.exit(${exitCode}); // ${crypto.randomUUID()}`);
-    const manifest = Buffer.from(JSON.stringify({ schemaVersion: 1, files: [{ path: 'scripts/submit.mjs', size: runtime.length, sha256: hash(runtime) }] }));
+    const program = options.sdk
+        ? "import fs from 'node:fs'; console.log(JSON.stringify(JSON.parse(fs.readFileSync(new URL('../tools/submission-files.json', import.meta.url), 'utf8')).sdk));"
+        : 'console.log(JSON.stringify(process.argv.slice(2)));';
+    const runtime = Buffer.from(`${program} process.exit(${exitCode}); // ${crypto.randomUUID()}`);
+    const manifest = Buffer.from(JSON.stringify({ schemaVersion: options.sdk ? 2 : 1, ...(options.sdk ? { sdk: options.sdk } : {}),
+        files: [{ path: 'scripts/submit.mjs', size: runtime.length, sha256: hash(runtime) }] }));
     const initial = { schemaVersion: 1, channel: channel.CHANNEL, repository: channel.REPOSITORY, sequence: 1,
         runtimeCommit: crypto.randomBytes(20).toString('hex'), manifestSha256: hash(manifest), issuedAt: now, expiresAt: now + 3600 };
     const state = { scenario: 'success', bytes: channel.signChannel(initial, privateKey), requests: [], faults: new Map(), tunnels: [], tlsDrops: 0, reached: Promise.withResolvers() };
@@ -154,10 +158,25 @@ async function fixture(t, shell, exitCode = 0, options = {}) {
             return { code: 0, ...await running };
         } catch (error) { return { code: error.code, stdout: error.stdout, stderr: error.stderr }; }
     };
-    return { ...state, state, folder, project, invoke, stateFile, cachedRuntime, initial, privateKey, runtime };
+    return { ...state, state, folder, project, invoke, stateFile, cachedRuntime, initial, privateKey, runtime, manifest };
 }
 
 for (const shell of shells) {
+    test(`${shell} 签名清单向运行时交付同一 SDK 引用，缓存清单篡改拒绝执行`, async t => {
+        const sdk = JSON.parse(fs.readFileSync(new URL('../../tools/submission-files.json', import.meta.url), 'utf8')).sdk;
+        const f = await fixture(t, shell, 0, { sdk });
+        const result = await f.invoke();
+        assert.equal(result.code, 0, result.stderr);
+        assert.deepEqual(JSON.parse(result.stdout.trim()), sdk);
+        const cachedManifest = path.join(path.dirname(path.dirname(f.cachedRuntime)), 'tools/submission-files.json');
+        assert.deepEqual(fs.readFileSync(cachedManifest), f.manifest);
+        fs.writeFileSync(cachedManifest, '{}');
+        const rejected = await f.invoke();
+        assert.equal(rejected.code, 1);
+        assert.match(rejected.stderr, /BOOTSTRAP_MANIFEST_CHANGED/u);
+        assert(!rejected.stdout.includes(sdk.sourceCommit));
+    });
+
     test(`${shell} 连续手动重试显示递增轮次与累计尝试，单轮预算不变`, async t => {
         const f = await fixture(t, shell, 0, { deadline: 1000, input: 'R\nR\n\n' });
         f.state.faults.set('submit.mjs', ['timeout', 'timeout', 'timeout']);
