@@ -12,6 +12,8 @@ import top.sywyar.pixivdownload.plugin.runtime.install.model.PluginPackageLimits
 import top.sywyar.pixivdownload.sdk.community.format.CommunityJson;
 import top.sywyar.pixivdownload.sdk.community.format.CommunityValues.Reference;
 import top.sywyar.pixivdownload.sdk.community.project.CommunityPaths;
+import top.sywyar.pixivdownload.sdk.community.content.MarketContent;
+import top.sywyar.pixivdownload.sdk.community.content.MarketImageBytes;
 
 /** 只解包声明的普通数据文件；不加载投稿类，不执行归档中的脚本。 */
 public final class CommunityArchive {
@@ -31,7 +33,8 @@ public final class CommunityArchive {
         if (args.length != 3) throw new IllegalArgumentException("ARCHIVE_ARGUMENTS");
         Path archive = Path.of(args[0]), output = Path.of(args[1]);
         long packageBytes = PluginPackageLimits.defaults().maxArchiveBytes();
-        long maximum = 2 * packageBytes + 2L * REPORT_BYTES;
+        long maximum = 2 * packageBytes + 2L * REPORT_BYTES + MarketContent.TOTAL_DOCUMENT_BYTES
+                + MarketContent.TOTAL_IMAGE_BYTES + MarketImageBytes.TOTAL_BYTES;
         if (Files.size(archive) > maximum) throw new IOException("ARCHIVE_SIZE_EXCEEDED");
         byte[] manifest;
         try (var zip = new ZipFile(archive.toFile())) {
@@ -54,11 +57,12 @@ public final class CommunityArchive {
         var result = new HashMap<String, Reference>();
         for (var value : values) {
             var ref = new com.fasterxml.jackson.databind.ObjectMapper().treeToValue(value, Reference.class);
-            String pattern = reports ? "reviews/evidence/[a-f0-9]{64}\\.json" : "(?:plugin\\.(?:jar|zip)|source\\.zip|review-evidence\\.zip)";
+            String pattern = reports ? "reviews/evidence/[a-f0-9]{64}\\.json" : "(?:plugin\\.(?:jar|zip)|source\\.zip|review-evidence\\.zip|content-[a-f0-9]{64}\\.(?:md|html|png|jpg|webp)|market-[a-f0-9]{64}\\.(?:png|jpg|webp))";
             if (!ref.path().matches(pattern) || ref.size() < 0 || ref.size() > maximum
                     || !ref.sha256().matches("[a-f0-9]{64}") || result.put(ref.path(), ref) != null) throw new IOException("ARCHIVE_FILES_INVALID");
         }
-        if (!reports && (result.size() != 3 || !result.containsKey("source.zip") || !result.containsKey("review-evidence.zip"))) {
+        if (!reports && (result.keySet().stream().filter(name -> name.matches("plugin\\.(?:jar|zip)")).count() != 1
+                || !result.containsKey("source.zip") || !result.containsKey("review-evidence.zip"))) {
             throw new IOException("ARCHIVE_FILES_INVALID");
         }
         return result;

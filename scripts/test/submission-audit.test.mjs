@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -29,7 +32,7 @@ test('审计原始字节推导当前 YANK 决定，旧引用与 REVOKE 后恢复
             ...(action === 'UNYANK' ? { yankedDecisionSha256: decision } : {}) },
     }, {});
     const applied = (value, sequence) => {
-        const audit = JSON.parse(fs.readFileSync(root + 'schemas/community/v1/vectors/structure/audit.json', 'utf8'));
+        const audit = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure/audit.json'), 'utf8'));
         Object.assign(audit, { requestId: value.requestId, action: value.payload.action, revocationSequence: sequence,
             requestRef: put(`history/${value.requestId}/request.json`, value),
             beforeRef: put(`history/${sequence}/before.json`, { sequence: sequence - 1 }),

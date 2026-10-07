@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -28,10 +30,10 @@ test('固定 SDK 独立验证真实签名包、描述符、许可证及坏包，
     sdk.run('java', ['-cp', sdk.classpath, 'top.sywyar.pixivdownload.plugin.signature.cli.PluginSignatureTool',
         'artifact', '--artifact', artifact, '--plugin-id', facts.pluginId, '--version', facts.version,
         '--key-id', 'Test:Key', '--private-key', keyFile, '--out', signatureFile]);
-    const publisher = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/structure/publisher.json'), 'utf8'));
+    const publisher = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure/publisher.json'), 'utf8'));
     publisher.signingKeys[0] = { ...publisher.signingKeys[0], keyId: 'Test:Key',
         publicKeySpkiBase64: keys.publicKey.export({ type: 'spki', format: 'der' }).toString('base64') };
-    const submission = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/submission.json'), 'utf8'));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json'), 'utf8'));
     submission.package = { url: 'https://example.org/plugin.jar', expectedSize: facts.size,
         sha256: facts.sha256, signature: JSON.parse(fs.readFileSync(signatureFile, 'utf8')) };
     const license = Buffer.from('test license text');
@@ -55,21 +57,21 @@ test('固定 SDK 独立验证真实签名包、描述符、许可证及坏包，
 
 test('原始 JSON、内容请求 ID、静态图片与 Git 工程标识均由 SDK 重算', () => {
     const sdk = prepareSubmission();
-    const publisherBytes = fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/structure/publisher.json'));
+    const publisherBytes = fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure/publisher.json'));
     const actual = sdk.document('PUBLISHER', publisherBytes, 'publishers/101/example.json');
     assert.equal(actual.sha256, hash(publisherBytes));
     assert.throws(() => sdk.document('PUBLISHER', publisherBytes, 'publishers/102/example.json'));
     assert.throws(() => sdk.document('PUBLISHER', Buffer.concat([publisherBytes, Buffer.from('{}')]), 'publishers/101/example.json'));
     assert.throws(() => sdk.document('PUBLISHER', Buffer.from('{"schemaVersion":1,"schemaVersion":1}'), 'publishers/101/example.json'));
-    const rotation = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/structure/rotation.json'), 'utf8'));
+    const rotation = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure/rotation.json'), 'utf8'));
     const canonical = sdk.invoke({ command: 'canonical', kind: 'ROTATION', file: sdk.save(rotation) });
     rotation.requestId = canonical.requestId;
     const rotationPath = 'key-rotations/101/example/' + rotation.requestId + '.json';
     assert.equal(sdk.document('ROTATION', rotation, rotationPath).value.requestId, rotation.requestId);
     rotation.payload.explanation = 'changed';
     assert.throws(() => sdk.document('ROTATION', rotation, rotationPath));
-    assert.equal(sdk.invoke({ command: 'image', file: path.join(root, 'schemas/community/v1/vectors/images/static.png'), icon: true }).mediaType, 'image/png');
-    assert.throws(() => sdk.invoke({ command: 'image', file: path.join(root, 'schemas/community/v1/vectors/images/animated.png'), icon: true }));
+    assert.equal(sdk.invoke({ command: 'image', file: path.join(sdkResources, 'contracts/community/v1/vectors/images/static.png'), icon: true }).mediaType, 'image/png');
+    assert.throws(() => sdk.invoke({ command: 'image', file: path.join(sdkResources, 'contracts/community/v1/vectors/images/animated.png'), icon: true }));
     const project = path.join(sdk.workspace, 'project');
     fs.mkdirSync(project);
     sdk.run('git', ['init', project]);

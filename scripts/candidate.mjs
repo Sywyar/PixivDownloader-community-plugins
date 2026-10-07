@@ -3,6 +3,7 @@ import path from 'node:path';
 import { API_BYTES, api, id, sha, policy, prefix, list } from './github.mjs';
 import { hash } from './sdk.mjs';
 import { fileSnapshot } from './build-files.mjs';
+import { isMarketAsset, candidateBudget, checkedMarketFiles } from './market-assets.mjs';
 
 export const buildPath = '.github/workflows/submission-check.yml';
 export const archivePath = '.github/workflows/community-archive.yml';
@@ -51,7 +52,7 @@ export function checkFiles(files, maximum) {
     if (!Array.isArray(files) || new Set(files.map(file => file.path)).size !== files.length) throw new Error('CANDIDATE_FILES_INVALID');
     let total = 0;
     for (const file of files) {
-        if (!/^(?:plugin\.(?:jar|zip)|source\.zip|review-evidence\.zip|reviews\/evidence\/[a-f0-9]{64}\.json)$/u.test(file.path)
+        if (!(isMarketAsset(file.path) || /^(?:plugin\.(?:jar|zip)|source\.zip|review-evidence\.zip|reviews\/evidence\/[a-f0-9]{64}\.json)$/u.test(file.path))
             || !Number.isSafeInteger(file.size) || file.size < 0 || (total += file.size) > maximum) throw new Error('CANDIDATE_FILES_INVALID');
         digest(file.sha256);
     }
@@ -76,8 +77,9 @@ export async function writeCandidate(sdk, checked, build, scan, inputs, executio
     if (!['.jar', '.zip'].includes(extension)) throw new Error('CANDIDATE_PACKAGE_INVALID');
     fs.copyFileSync(build.artifact, path.join(directory, `plugin${extension}`), fs.constants.COPYFILE_EXCL);
     fs.copyFileSync(checked.sourceArchive, path.join(directory, 'source.zip'), fs.constants.COPYFILE_EXCL);
+    for (const file of checkedMarketFiles(checked)) fs.copyFileSync(file.source, path.join(directory, file.path), fs.constants.COPYFILE_EXCL);
     sdk.run('jar', ['--create', '--no-manifest', '--file', path.join(directory, 'review-evidence.zip'), '-C', sdk.workspace, 'reviews']);
-    const files = await fileSnapshot(directory, 2 * sdk.invoke({ command: 'limits' }).maxArchiveBytes + API_BYTES);
+    const files = await fileSnapshot(directory, candidateBudget(sdk));
     const candidate = { schemaVersion: 1, state: 'PENDING_REVIEW', repositoryId: policy.repositoryId,
         repositoryOwnerId: policy.repositoryOwnerId, workflowPath: buildPath, workflowSha: execution.workflowSha,
         runId: execution.runId, runAttempt: execution.runAttempt, pr: checked.pr,

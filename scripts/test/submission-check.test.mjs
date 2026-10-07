@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,7 +24,7 @@ test('独立投稿检查重新验证包与源码；身份冲突、版本占用�
     sign('keygen', '--directory', keyDirectory);
     const exported = exportKey(sdk, sign, path.join(keyDirectory, 'public-key.pem'), 'test:key');
     const { fingerprint, ...key } = exported;
-    const fixture = name => JSON.parse(fs.readFileSync(path.join(root, `schemas/community/v1/vectors/${name}.json`), 'utf8'));
+    const fixture = name => JSON.parse(fs.readFileSync(path.join(sdkResources, `contracts/community/v1/vectors/${name}.json`), 'utf8'));
     const publisher = fixture('structure/publisher');
     publisher.signingKeys = [{ ...key, state: 'ACTIVE' }];
     const sourceFolder = path.join(sdk.workspace, 'archive-content');

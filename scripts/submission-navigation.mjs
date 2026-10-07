@@ -4,7 +4,7 @@ import { recoverableRequest } from './submission-github.mjs';
 // 工具临时路径和 Buffer 不属于选择身份；恢复后返回本次重新读取的对象。
 const selectionIdentity = value => value?.candidate ? { candidate: value.candidate }
     : value?.value && value?.sha256 ? { path: value.path, sha256: value.sha256 } : value;
-const freshConfirmation = new Set(['preview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'transferReview', 'withdrawConfirm', 'licenseTemplate', 'deleteRequestBranch', 'retryBranchCleanup', 'emergencyConfirm']);
+const freshConfirmation = new Set(['preview', 'contentPreview', 'rerunCandidate', 'waitCandidate', 'representation', 'transfer', 'transferReview', 'withdrawConfirm', 'licenseTemplate', 'deleteRequestBranch', 'retryBranchCleanup', 'emergencyConfirm']);
 
 export function unavailable(ui, code, details = {}) {
     ui.say('operationUnavailable', { code, ...details });
@@ -18,17 +18,18 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
     let counts = new Map();
     let sealed = false;
     const wrapped = { ...ui };
-    for (const method of ['ask', 'select', 'multiselect', 'confirm', 'password']) {
+    for (const method of ['ask', 'multiline', 'select', 'multiselect', 'confirm', 'password']) {
         wrapped[method] = async (key, ...args) => {
             if (method === 'password' || key === 'retrySubmission' || key === 'revokeIdentity') return ui[method](key, ...args);
             const index = cursor++;
             const count = counts.get(key) ?? 0;
             counts.set(key, count + 1);
             const field = `${key}:${count}`;
-            const options = method === 'ask' ? args[2] ?? {} : {};
+            const textInput = method === 'ask' || method === 'multiline';
+            const options = textInput ? args[2] ?? {} : {};
             const store = getStore();
             const scope = ['operation', 'project', 'profile', 'candidate'].includes(key) ? null : store?.folder ?? null;
-            const signature = [method, key, method === 'ask' || method === 'confirm' && freshConfirmation.has(key)
+            const signature = [method, key, textInput || method === 'confirm' && freshConfirmation.has(key)
                 ? null : method === 'select' ? args[0].map(selectionIdentity) : args[0], scope];
             if (options.identity !== undefined) signature.push(options.identity);
             const previous = answers[index];
@@ -37,7 +38,7 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
                 && index < replay && previous && isDeepStrictEqual(previous.signature, signature)) {
                 let valid = true;
                 if (method === 'select' && !args[0].some(value => isDeepStrictEqual(selectionIdentity(value), previous.value))) valid = false;
-                if (method === 'ask' && args[1]) {
+                if (textInput && args[1]) {
                     try { await args[1](previous.value); } catch { valid = false; }
                 }
                 if (valid) return method === 'select' ? args[0].find(value => isDeepStrictEqual(selectionIdentity(value), previous.value)) : previous.value;
@@ -46,7 +47,7 @@ export function navigation(ui, getStore = () => null, { history = [], onChange =
             const remembered = options.remember === false ? undefined
                 : previous?.field === field && previous.scope === scope && isDeepStrictEqual(previous.signature, signature)
                     ? previous.value : scope ? store?.answer(field) : undefined;
-            if (method === 'ask' && remembered !== undefined) args[0] = remembered;
+            if (textInput && remembered !== undefined) args[0] = remembered;
             if (method === 'select' && remembered !== undefined) {
                 args[2] = args[0].find(value => isDeepStrictEqual(selectionIdentity(value), remembered));
             }

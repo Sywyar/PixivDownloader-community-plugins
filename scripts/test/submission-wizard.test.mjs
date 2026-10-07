@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -402,7 +404,7 @@ test('恢复已拒绝的密钥确认时重新提问，解锁成功不会重放�
 });
 
 test('所有语言的原因与转移选项显示名称并返回原协议值，预览保留原始标识', async () => {
-    const catalog = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/catalogs.json'), 'utf8'));
+    const catalog = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/catalogs.json'), 'utf8'));
     for (const value of [...catalog.categories, ...catalog.tags, ...catalog.riskSignals]) {
         if (!['pixiv', 'smtp'].includes(value)) assert(Object.hasOwn(optionNames, value), value);
     }
@@ -601,7 +603,7 @@ test('名称占位值不能确认，合法语言简码保留而错误语言标�
 });
 
 test('更新保留其它语言与图片原始字节，并允许清空当前语言正文和主页', async () => {
-    const image = fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/images/static.png'));
+    const image = fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/images/static.png'));
     const digest = hash(image);
     const oldPath = `assets/101/example/2.3.4/${digest}.png`;
     const previous = { defaultLocale: 'en', displayName: { en: 'Old name', 'zh-CN': '名称' },
@@ -610,8 +612,9 @@ test('更新保留其它语言与图片原始字节，并允许清空当前语�
         icon: { path: oldPath, alt: { en: 'Icon', 'zh-CN': '图标' } } };
     const before = structuredClone(previous);
     const changes = new Map();
-    const market = await marketFields(null, {
-        ask: async (key, fallback) => ['description', 'homepage'].includes(key) ? '' : key === 'name' ? 'New name' : fallback,
+    const market = await marketFields(prepareSubmission(), {
+        text: key => key, say() {},
+        ask: async (key, fallback) => ['description', 'linkUrl'].includes(key) ? '' : key === 'name' ? 'New name' : fallback,
         select: async (key, values, _label, initial) => key === 'imageAction' ? 'keepImages' : initial ?? values[0],
         multiselect: async (_key, _values, initial) => initial,
     }, { accountId: '101' }, { pluginId: 'example', version: '2.3.5' }, changes, previous,
@@ -713,14 +716,15 @@ for (const marked of [true, false]) test(`真实入口在${marked ? '插件项�
 });
 
 test('市场默认语言跟随向导，首次显示名由开发者填写，已有市场信息继续作为建议', async () => {
+    const sdk = prepareSubmission();
     for (const locale of locales) {
         for (const previous of [undefined, { defaultLocale: 'en', displayName: { en: 'Existing name' }, summary: { en: 'Existing summary' } }]) {
             const defaults = new Map();
-            const ui = { locale, ask: async (key, fallback = '') => {
+            const ui = { locale, text: key => key, say() {}, ask: async (key, fallback = '') => {
                 defaults.set(key, fallback);
                 return fallback || ({ name: 'Entered name', summary: 'Entered summary' }[key] ?? '');
             }, select: async (_key, values) => values[0], multiselect: async () => [] };
-            const market = await marketFields(null, ui, {}, { displayName: 'plugin.name' }, new Map(), previous);
+            const market = await marketFields(sdk, ui, {}, { displayName: 'plugin.name' }, new Map(), previous);
             const expectedLocale = previous?.defaultLocale ?? locale;
             assert.equal(defaults.get('locale'), expectedLocale);
             assert.equal(defaults.get('name'), previous?.displayName.en ?? '');
@@ -736,7 +740,7 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     const project = path.join(sdk.workspace, 'project');
     fs.mkdirSync(path.join(project, 'nested'), { recursive: true });
     git(project, 'init');
-    const mit = fs.readFileSync(path.join(root, 'schemas/community/v1/licenses/MIT.txt'), 'utf8')
+    const mit = fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/licenses/MIT.txt'), 'utf8')
         .replace('<year>', '2020').replace('<copyright holders>', 'Example Authors');
     fs.writeFileSync(path.join(project, 'LICENSE'), 'root license');
     fs.writeFileSync(path.join(project, 'nested/LICENSE'), mit);
@@ -750,8 +754,8 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     assert.equal(license.expression, 'MIT');
     assert.deepEqual(license.files, [{ path: 'nested/LICENSE', size: Buffer.byteLength(mit), sha256: hash(Buffer.from(mit)) }]);
     await assert.rejects(licenseFields(sdk, { ...ui, ask: async () => '../outside' }, project), /LICENSE_COMMIT_REQUIRED/u);
-    const submission = JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/submission.json'), 'utf8'));
-    const image = path.join(root, 'schemas/community/v1/vectors/images/static.png');
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json'), 'utf8'));
+    const image = path.join(sdkResources, 'contracts/community/v1/vectors/images/static.png');
     const changes = new Map();
     submission.market = await marketFields(sdk, { select: async (_key, values) => values[0], say: () => {},
         multiselect: async (_key, values) => values.slice(0, 2),

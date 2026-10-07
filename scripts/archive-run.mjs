@@ -7,6 +7,7 @@ import { archivePath, buildArtifact } from './candidate.mjs';
 import { downloadCandidate, unpackCandidate } from './candidate-transfer.mjs';
 import { archiveCandidate } from './archive.mjs';
 import { storeArchiveProof } from './archive-proof.mjs';
+import { candidateBudget } from './market-assets.mjs';
 
 main(import.meta.url, async () => {
     if (process.env.GITHUB_EVENT_NAME !== 'workflow_run') throw new Error('ARCHIVE_WORKFLOW_REQUIRED');
@@ -29,7 +30,7 @@ main(import.meta.url, async () => {
     }
     if (!artifact) return;
     const sdk = prepareSubmission();
-    const maximum = 2 * sdk.invoke({ command: 'limits' }).maxArchiveBytes + 2 * API_BYTES;
+    const maximum = candidateBudget(sdk) + API_BYTES;
     if (!Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes > maximum) throw new Error('BUILD_ARTIFACT_SIZE');
     const file = path.join(sdk.workspace, 'handoff.zip');
     await downloadCandidate(`${prefix}/actions/artifacts/${id(artifact.id)}/zip`, file, maximum,

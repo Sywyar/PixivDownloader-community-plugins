@@ -5,6 +5,7 @@ import { hash } from './sdk.mjs';
 import { policy, API_BYTES } from './github.mjs';
 import { catalogId } from './platform.mjs';
 import { publisherPath } from './submission-check.mjs';
+import { publishedContent, publishedImage } from './market-assets.mjs';
 
 export const encoded = value => Buffer.from(JSON.stringify(value) + '\n');
 export const rawUrl = file => `https://raw.githubusercontent.com/${policy.repository}/${policy.defaultBranch}/${file}`;
@@ -68,13 +69,16 @@ export function generateState({ sdk, adapter, state, writes, communityKey, priva
         if (!manager) throw new Error('BINDING_MISSING');
         const restricted = releaseStatus(record, JSON.parse(revocations)) !== 'ACTIVE';
         const entry = groups.get(record.pluginId) ?? { pluginId: record.pluginId, packages: [] };
+        const contentBase = `https://github.com/${policy.repository}/releases/download/${formalTag(record)}/`;
         entry.market = { ...submission.market, author: record.owner.publisherId, sourceType: 'community', license: submission.license.expression,
-            homepageUrl: submission.source.repository, updatedTime: record.publishedAt };
+            updatedTime: record.publishedAt };
+        if (submission.market.icon?.asset) entry.market.icon = publishedImage(submission.market.icon, contentBase, raw(submission.market.icon.path));
+        if (submission.market.screenshots) entry.market.screenshots = submission.market.screenshots.map(image => image.asset ? publishedImage(image, contentBase, raw(image.path)) : image);
         entry.owner = manager.owner;
         entry.packages.push({ version: record.version, packageUrl: packageUrl(record), expectedSizeBytes: record.package.expectedSize,
             sha256: record.package.sha256, signature: record.communitySignature, requiredSdk: review.descriptor.requiredSdk,
             dependencies: review.descriptor.dependencies.map(dependency => dependency.pluginId + (dependency.requirement.present ? '@' + dependency.requirement.raw : '')),
-            releasedTime: record.publishedAt, deprecated: restricted,
+            releasedTime: record.publishedAt, deprecated: restricted, content: publishedContent(submission.content, contentBase),
             assuranceLevel: record.assuranceLevel, sourceCommit: record.sourceCommit, reviewRef: record.reviewRef, historicalOwner: record.owner });
         groups.set(record.pluginId, entry);
     }

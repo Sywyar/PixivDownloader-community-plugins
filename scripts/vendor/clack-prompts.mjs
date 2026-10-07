@@ -548,11 +548,30 @@ function wrapAnsi(string, columns, options) {
 // node_modules/@clack/core/dist/index.mjs
 var import_sisteransi = __toESM(require_src(), 1);
 import { ReadStream } from "node:tty";
-function findCursor(s, o, l2) {
+function findCursor(s, o2, l2) {
   if (!l2.some((r2) => !r2.disabled))
     return s;
-  const t2 = s + o, n3 = Math.max(l2.length - 1, 0), e = t2 < 0 ? n3 : t2 > n3 ? 0 : t2;
-  return l2[e]?.disabled ? findCursor(e, o < 0 ? -1 : 1, l2) : e;
+  const t2 = s + o2, n3 = Math.max(l2.length - 1, 0), e = t2 < 0 ? n3 : t2 > n3 ? 0 : t2;
+  return l2[e]?.disabled ? findCursor(e, o2 < 0 ? -1 : 1, l2) : e;
+}
+function findTextCursor(s, o2, l2, i2) {
+  const t2 = i2.split(`
+`);
+  let n3 = 0, e = s;
+  for (const r2 of t2) {
+    if (e <= r2.length)
+      break;
+    e -= r2.length + 1, n3++;
+  }
+  for (n3 = Math.max(0, Math.min(t2.length - 1, n3 + l2)), e = Math.min(e, t2[n3].length) + o2; e < 0 && n3 > 0; )
+    n3--, e += t2[n3].length + 1;
+  for (; e > t2[n3].length && n3 < t2.length - 1; )
+    e -= t2[n3].length + 1, n3++;
+  e = Math.max(0, Math.min(t2[n3].length, e));
+  let h2 = 0;
+  for (let r2 = 0; r2 < n3; r2++)
+    h2 += t2[r2].length + 1;
+  return h2 + e;
 }
 var a$1 = ["up", "down", "left", "right", "space", "enter", "cancel"];
 var t = [
@@ -632,13 +651,13 @@ function isCancel(e) {
   return e === CANCEL_SYMBOL;
 }
 function setRawMode(e, r2) {
-  const o = e;
-  o.isTTY && o.setRawMode(r2);
+  const o2 = e;
+  o2.isTTY && o2.setRawMode(r2);
 }
 function block({
   input: e = stdin,
   output: r2 = stdout,
-  overwrite: o = true,
+  overwrite: o2 = true,
   hideCursor: n3 = true,
   onCancel
 } = {}) {
@@ -655,7 +674,7 @@ function block({
       n3 && r2.write(import_sisteransi.cursor.show), onCancel ? onCancel() : process.exit(0);
       return;
     }
-    if (!o) return;
+    if (!o2) return;
     const i2 = a2 === "return" ? 0 : -1, m2 = a2 === "return" ? -1 : 0;
     l.moveCursor(r2, i2, m2, () => {
       l.clearLine(r2, 1, () => {
@@ -669,15 +688,15 @@ function block({
 }
 var getColumns = (e) => "columns" in e && typeof e.columns == "number" ? e.columns : 80;
 var getRows = (e) => "rows" in e && typeof e.rows == "number" ? e.rows : 20;
-function wrapTextWithPrefix(e, r2, o, n3 = o, s = o, t2) {
+function wrapTextWithPrefix(e, r2, o2, n3 = o2, s = o2, t2) {
   const f = getColumns(e ?? stdout);
-  return wrapAnsi(r2, f - o.length, {
+  return wrapAnsi(r2, f - o2.length, {
     hard: true,
     trim: false
   }).split(`
 `).map((c2, i2, m2) => {
     const d = t2 ? t2(c2, i2) : c2;
-    return i2 === 0 ? `${n3}${d}` : i2 === m2.length - 1 ? `${s}${d}` : `${o}${d}`;
+    return i2 === 0 ? `${n3}${d}` : i2 === m2.length - 1 ? `${s}${d}` : `${o2}${d}`;
   }).join(`
 `);
 }
@@ -712,8 +731,8 @@ var y = class {
     return isAccessible(this.opts.accessible);
   }
   constructor(t2, e = true) {
-    const { input: i2 = stdin, output: s = stdout, render: r2, signal: n3, ...o } = t2;
-    this.opts = o, this.onKeypress = this.onKeypress.bind(this), this.close = this.close.bind(this), this.render = this.render.bind(this), this._render = r2.bind(this), this._track = e, this._abortSignal = n3, this.input = i2, this.output = s;
+    const { input: i2 = stdin, output: s = stdout, render: r2, signal: n3, ...o2 } = t2;
+    this.opts = o2, this.onKeypress = this.onKeypress.bind(this), this.close = this.close.bind(this), this.render = this.render.bind(this), this._render = r2.bind(this), this._track = e, this._abortSignal = n3, this.input = i2, this.output = s;
   }
   /**
    * Unsubscribe all listeners
@@ -832,16 +851,16 @@ var y = class {
         const e = diffLines(this._prevFrame, t2), i2 = getRows(this.output);
         if (this.restoreCursor(), e) {
           const s = Math.max(0, e.numLinesAfter - i2), r2 = Math.max(0, e.numLinesBefore - i2);
-          let n3 = e.lines.find((o) => o >= s);
+          let n3 = e.lines.find((o2) => o2 >= s);
           if (n3 === void 0) {
             this._prevFrame = t2;
             return;
           }
           if (e.lines.length === 1) {
             this.output.write(import_sisteransi.cursor.move(0, n3 - r2)), this.output.write(import_sisteransi.erase.lines(1));
-            const o = t2.split(`
+            const o2 = t2.split(`
 `);
-            this.output.write(o[n3]), this._prevFrame = t2, this.output.write(import_sisteransi.cursor.move(0, o.length - n3 - 1));
+            this.output.write(o2[n3]), this._prevFrame = t2, this.output.write(import_sisteransi.cursor.move(0, o2.length - n3 - 1));
             return;
           } else if (e.lines.length > 1) {
             if (s < r2)
@@ -862,6 +881,101 @@ var y = class {
       }
       this.output.write(t2), this.state === "initial" && (this.state = "active"), this._prevFrame = t2;
     }
+  }
+};
+var o = /* @__PURE__ */ new Set(["up", "down", "left", "right"]);
+var h = class extends y {
+  #t = false;
+  #s;
+  focused = "editor";
+  get userInputWithCursor() {
+    if (this.state === "submit")
+      return this.userInput;
+    const t2 = this.userInput;
+    if (this.cursor >= t2.length)
+      return `${t2}\u2588`;
+    const s = t2.slice(0, this.cursor), r2 = t2.slice(this.cursor, this.cursor + 1), i2 = t2.slice(this.cursor + 1);
+    return r2 === `
+` ? `${s}\u2588
+${i2}` : `${s}${styleText("inverse", r2)}${i2}`;
+  }
+  get cursor() {
+    return this._cursor;
+  }
+  #r(t2) {
+    if (this.userInput.length === 0) {
+      this._setUserInput(t2);
+      return;
+    }
+    this._setUserInput(
+      this.userInput.slice(0, this.cursor) + t2 + this.userInput.slice(this.cursor)
+    );
+  }
+  #i(t2) {
+    const s = this.value ?? "";
+    switch (t2) {
+      case "up":
+        this._cursor = findTextCursor(this._cursor, 0, -1, s);
+        return;
+      case "down":
+        this._cursor = findTextCursor(this._cursor, 0, 1, s);
+        return;
+      case "left":
+        this._cursor = findTextCursor(this._cursor, -1, 0, s);
+        return;
+      case "right":
+        this._cursor = findTextCursor(this._cursor, 1, 0, s);
+        return;
+    }
+  }
+  _shouldSubmit(t2, s) {
+    if (this.#s)
+      return this.focused === "submit" ? true : (this.#r(`
+`), this._cursor++, false);
+    const r2 = this.#t;
+    return this.#t = true, r2 && this.cursor === this.userInput.length ? (this.userInput[this.cursor - 1] === `
+` && (this._setUserInput(
+      this.userInput.slice(0, this.cursor - 1) + this.userInput.slice(this.cursor)
+    ), this._cursor--), true) : (this.#r(`
+`), this._cursor++, false);
+  }
+  constructor(t2) {
+    const s = t2.initialUserInput ?? t2.initialValue;
+    super(
+      {
+        ...t2,
+        initialUserInput: s
+      },
+      false
+    ), s !== void 0 && (this._cursor = s.length), this.#s = t2.showSubmit ?? false, this.on("key", (r2, i2) => {
+      if (i2?.name && o.has(i2.name)) {
+        this.#t = false, this.#i(i2.name);
+        return;
+      }
+      if (r2 === "	" && this.#s) {
+        this.focused = this.focused === "editor" ? "submit" : "editor";
+        return;
+      }
+      if (i2?.name !== "return") {
+        if (this.#t = false, i2?.name === "backspace" && this.cursor > 0) {
+          this._setUserInput(
+            this.userInput.slice(0, this.cursor - 1) + this.userInput.slice(this.cursor)
+          ), this._cursor--;
+          return;
+        }
+        if (i2?.name === "delete" && this.cursor < this.userInput.length) {
+          this._setUserInput(
+            this.userInput.slice(0, this.cursor) + this.userInput.slice(this.cursor + 1)
+          );
+          return;
+        }
+        r2 && (this.#s && this.focused === "submit" && (this.focused = "editor"), this.#r(r2 ?? ""), this._cursor++);
+      }
+    }), this.on("userInput", (r2) => {
+      this._setValue(r2);
+    }), this.on("finalize", () => {
+      this.value || (this.value = t2.defaultValue), this.value === void 0 && (this.value = "");
+    });
   }
 };
 var a = class extends y {
@@ -928,8 +1042,8 @@ var u$1 = class u extends y {
     const t2 = this.userInput;
     if (this.cursor >= t2.length)
       return `${this.masked}${styleText(["inverse", "hidden"], "_")}`;
-    const s = this.masked, r2 = s.slice(0, this.cursor), i2 = s.slice(this.cursor, this.cursor + 1), o = s.slice(this.cursor + 1);
-    return `${r2}${styleText("inverse", i2)}${o}`;
+    const s = this.masked, r2 = s.slice(0, this.cursor), i2 = s.slice(this.cursor, this.cursor + 1), o2 = s.slice(this.cursor + 1);
+    return `${r2}${styleText("inverse", i2)}${o2}`;
   }
   clear() {
     this._clearUserInput();
@@ -954,7 +1068,7 @@ var n$1 = class n extends y {
   }
   constructor(e) {
     super(e, false), this.options = e.options;
-    const o = this.options.findIndex(({ value: s }) => s === e.initialValue), t2 = o === -1 ? 0 : o;
+    const o2 = this.options.findIndex(({ value: s }) => s === e.initialValue), t2 = o2 === -1 ? 0 : o2;
     this.cursor = this.options[t2]?.disabled ? findCursor(t2, 1, this.options) : t2, this.changeValue(), this.on("cursor", (s) => {
       switch (s) {
         case "left":
@@ -1007,7 +1121,7 @@ function isUnicodeSupported() {
 }
 var unicode = isUnicodeSupported();
 var isCI = () => process.env.CI === "true";
-var unicodeOr = (o, e) => unicode ? o : e;
+var unicodeOr = (o2, e) => unicode ? o2 : e;
 var S_STEP_ACTIVE = unicodeOr("\u25C6", "*");
 var S_STEP_CANCEL = unicodeOr("\u25A0", "x");
 var S_STEP_ERROR = unicodeOr("\u25B2", "x");
@@ -1033,8 +1147,8 @@ var S_INFO = unicodeOr("\u25CF", "\u2022");
 var S_SUCCESS = unicodeOr("\u25C6", "*");
 var S_WARN = unicodeOr("\u25B2", "!");
 var S_ERROR = unicodeOr("\u25A0", "x");
-var symbol = (o) => {
-  switch (o) {
+var symbol = (o2) => {
+  switch (o2) {
     case "initial":
     case "active":
       return styleText2("cyan", S_STEP_ACTIVE);
@@ -1048,8 +1162,8 @@ var symbol = (o) => {
       return styleText2("dim", S_STEP_ACTIVE);
   }
 };
-var symbolBar = (o) => {
-  switch (o) {
+var symbolBar = (o2) => {
+  switch (o2) {
     case "initial":
     case "active":
       return styleText2("cyan", S_BAR);
@@ -1061,8 +1175,8 @@ var symbolBar = (o) => {
       return styleText2("green", S_BAR);
   }
 };
-function formatInstructionFooter(o, e) {
-  const r2 = [`${e ? `${styleText2("cyan", S_BAR)}  ` : ""}${o.join(" \u2022 ")}`];
+function formatInstructionFooter(o2, e) {
+  const r2 = [`${e ? `${styleText2("cyan", S_BAR)}  ` : ""}${o2.join(" \u2022 ")}`];
   return e && r2.push(styleText2("cyan", S_BAR_END)), r2;
 }
 var I = (l2, e, w, p, b, C2 = false) => {
@@ -1103,7 +1217,7 @@ var limitOptions = ({
   d && g++, c2 && g++;
   const T = f + (d ? 1 : 0), y2 = W2 - (c2 ? 1 : 0);
   for (let t2 = T; t2 < y2; t2++) {
-    const n3 = e[t2], o = n3 ? w(n3, t2 === l2) : "", h2 = wrapAnsi(o, i2, {
+    const n3 = e[t2], o2 = n3 ? w(n3, t2 === l2) : "", h2 = wrapAnsi(o2, i2, {
       hard: true,
       trim: false
     }).split(`
@@ -1111,18 +1225,18 @@ var limitOptions = ({
     s.push(h2), g += h2.length;
   }
   if (g > v) {
-    let t2 = 0, n3 = 0, o = g;
+    let t2 = 0, n3 = 0, o2 = g;
     const h2 = l2 - T;
     let u4 = v;
-    const L = () => I(s, o, 0, h2, u4), E = () => I(
+    const L = () => I(s, o2, 0, h2, u4), E = () => I(
       s,
-      o,
+      o2,
       h2 + 1,
       s.length,
       u4,
       true
     );
-    d ? ({ lineCount: o, removals: t2 } = L(), o > u4 && (c2 || (u4 -= 1), { lineCount: o, removals: n3 } = E())) : (c2 || (u4 -= 1), { lineCount: o, removals: n3 } = E(), o > u4 && (u4 -= 1, { lineCount: o, removals: t2 } = L())), t2 > 0 && (d = true, s.splice(0, t2)), n3 > 0 && (c2 = true, s.splice(s.length - n3, n3));
+    d ? ({ lineCount: o2, removals: t2 } = L(), o2 > u4 && (c2 || (u4 -= 1), { lineCount: o2, removals: n3 } = E())) : (c2 || (u4 -= 1), { lineCount: o2, removals: n3 } = E(), o2 > u4 && (u4 -= 1, { lineCount: o2, removals: t2 } = L())), t2 > 0 && (d = true, s.splice(0, t2)), n3 > 0 && (c2 = true, s.splice(s.length - n3, n3));
   }
   const x = [];
   d && x.push(M);
@@ -1142,7 +1256,7 @@ var m = (i2, u4) => i2.split(`
 var multiselect = (i2) => {
   const u4 = (t2, a2) => {
     const r2 = t2.label ?? String(t2.value);
-    return a2 === "disabled" ? `${styleText2("gray", S_CHECKBOX_INACTIVE)} ${m(r2, (o) => styleText2(["strikethrough", "gray"], o))}${t2.hint ? ` ${styleText2("dim", `(${t2.hint ?? "disabled"})`)}` : ""}` : a2 === "active" ? `${styleText2("cyan", S_CHECKBOX_ACTIVE)} ${r2}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "selected" ? `${styleText2("green", S_CHECKBOX_SELECTED)} ${m(r2, (o) => styleText2("dim", o))}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "cancelled" ? `${m(r2, (o) => styleText2(["strikethrough", "dim"], o))}` : a2 === "active-selected" ? `${styleText2("green", S_CHECKBOX_SELECTED)} ${r2}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "submitted" ? `${m(r2, (o) => styleText2("dim", o))}` : `${styleText2("dim", S_CHECKBOX_INACTIVE)} ${m(r2, (o) => styleText2("dim", o))}`;
+    return a2 === "disabled" ? `${styleText2("gray", S_CHECKBOX_INACTIVE)} ${m(r2, (o2) => styleText2(["strikethrough", "gray"], o2))}${t2.hint ? ` ${styleText2("dim", `(${t2.hint ?? "disabled"})`)}` : ""}` : a2 === "active" ? `${styleText2("cyan", S_CHECKBOX_ACTIVE)} ${r2}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "selected" ? `${styleText2("green", S_CHECKBOX_SELECTED)} ${m(r2, (o2) => styleText2("dim", o2))}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "cancelled" ? `${m(r2, (o2) => styleText2(["strikethrough", "dim"], o2))}` : a2 === "active-selected" ? `${styleText2("green", S_CHECKBOX_SELECTED)} ${r2}${t2.hint ? ` ${styleText2("dim", `(${t2.hint})`)}` : ""}` : a2 === "submitted" ? `${m(r2, (o2) => styleText2("dim", o2))}` : `${styleText2("dim", S_CHECKBOX_INACTIVE)} ${m(r2, (o2) => styleText2("dim", o2))}`;
   }, d = i2.required ?? true, v = i2.showInstructions ?? true;
   return new a({
     options: i2.options,
@@ -1174,15 +1288,15 @@ ${styleText2(
         `${symbol(this.state)}  `
       ), r2 = `${t2 ? `${styleText2("gray", S_BAR)}
 ` : ""}${a2}
-`, o = this.value ?? [], p = (n3, l2) => {
+`, o2 = this.value ?? [], p = (n3, l2) => {
         if (n3.disabled)
           return u4(n3, "disabled");
-        const s = o.includes(n3.value);
+        const s = o2.includes(n3.value);
         return l2 && s ? u4(n3, "active-selected") : s ? u4(n3, "selected") : u4(n3, l2 ? "active" : "inactive");
       };
       switch (this.state) {
         case "submit": {
-          const n3 = this.options.filter(({ value: s }) => o.includes(s)).map((s) => u4(s, "submitted")).join(styleText2("dim", ", ")) || styleText2("dim", i2.emptyLabel ?? "none"), l2 = wrapTextWithPrefix(
+          const n3 = this.options.filter(({ value: s }) => o2.includes(s)).map((s) => u4(s, "submitted")).join(styleText2("dim", ", ")) || styleText2("dim", i2.emptyLabel ?? "none"), l2 = wrapTextWithPrefix(
             i2.output,
             n3,
             t2 ? `${styleText2("gray", S_BAR)}  ` : ""
@@ -1190,7 +1304,7 @@ ${styleText2(
           return `${r2}${l2}`;
         }
         case "cancel": {
-          const n3 = this.options.filter(({ value: s }) => o.includes(s)).map((s) => u4(s, "cancelled")).join(styleText2("dim", ", "));
+          const n3 = this.options.filter(({ value: s }) => o2.includes(s)).map((s) => u4(s, "cancelled")).join(styleText2("dim", ", "));
           if (n3.trim() === "")
             return `${r2}${styleText2("gray", S_BAR)}`;
           const l2 = wrapTextWithPrefix(
@@ -1251,16 +1365,16 @@ var log = {
     spacing: l2 = 1,
     withGuide: c2
   } = {}) => {
-    const t2 = [], o = c2 ?? settings.withGuide, f = o ? r2 : "", O = o ? `${e}  ` : "", u4 = o ? `${r2}  ` : "";
+    const t2 = [], o2 = c2 ?? settings.withGuide, f = o2 ? r2 : "", O = o2 ? `${e}  ` : "", u4 = o2 ? `${r2}  ` : "";
     for (let i2 = 0; i2 < l2; i2++)
       t2.push(f);
     const g = Array.isArray(s) ? s : s.split(`
 `);
     if (g.length > 0) {
       const [i2, ...y2] = g;
-      i2.length > 0 ? t2.push(`${O}${i2}`) : t2.push(o ? e : "");
+      i2.length > 0 ? t2.push(`${O}${i2}`) : t2.push(o2 ? e : "");
       for (const p of y2)
-        p.length > 0 ? t2.push(`${u4}${p}`) : t2.push(o ? r2 : "");
+        p.length > 0 ? t2.push(`${u4}${p}`) : t2.push(o2 ? r2 : "");
     }
     m2.write(`${t2.join(`
 `)}
@@ -1286,35 +1400,90 @@ var log = {
     log.message(s, { ...e, symbol: styleText2("red", S_ERROR) });
   }
 };
-var cancel = (o = "", t2) => {
+var cancel = (o2 = "", t2) => {
   const i2 = t2?.output ?? process.stdout, e = t2?.withGuide ?? settings.withGuide ? `${styleText2("gray", S_BAR_END)}  ` : "";
-  i2.write(`${e}${styleText2("red", o)}
+  i2.write(`${e}${styleText2("red", o2)}
 
 `);
 };
-var intro = (o = "", t2) => {
+var intro = (o2 = "", t2) => {
   const i2 = t2?.output ?? process.stdout, e = t2?.withGuide ?? settings.withGuide ? `${styleText2("gray", S_BAR_START)}  ` : "";
-  i2.write(`${e}${o}
+  i2.write(`${e}${o2}
 `);
 };
-var outro = (o = "", t2) => {
+var outro = (o2 = "", t2) => {
   const i2 = t2?.output ?? process.stdout, e = t2?.withGuide ?? settings.withGuide ? `${styleText2("gray", S_BAR)}
 ${styleText2("gray", S_BAR_END)}  ` : "";
-  i2.write(`${e}${o}
+  i2.write(`${e}${o2}
 
 `);
 };
-var W$1 = (o) => o;
-var C = (o, e, s) => {
+var multiline = (e) => new h({
+  validate: e.validate,
+  placeholder: e.placeholder,
+  defaultValue: e.defaultValue,
+  initialValue: e.initialValue,
+  showSubmit: e.showSubmit,
+  output: e.output,
+  signal: e.signal,
+  input: e.input,
+  render() {
+    const i2 = e?.withGuide ?? settings.withGuide, o2 = `${`${i2 ? `${styleText2("gray", S_BAR)}
+` : ""}${symbol(this.state)}  `}${e.message}
+`, m2 = e.placeholder && e.placeholder.length > 0 ? (
+      // biome-ignore lint/style/noNonNullAssertion: guarded by placeholder.length > 0
+      styleText2("inverse", e.placeholder[0]) + styleText2("dim", e.placeholder.slice(1))
+    ) : styleText2(["inverse", "hidden"], "_"), a2 = this.userInput ? this.userInputWithCursor : m2, l2 = this.value ?? "", c2 = e.showSubmit ? `
+  ${styleText2(this.focused === "submit" ? "cyan" : "dim", "[ " + (e.submitLabel ?? "submit") + " ]")}` : "";
+    switch (this.state) {
+      case "error": {
+        const n3 = `${styleText2("yellow", S_BAR)}  `, r2 = i2 ? wrapTextWithPrefix(e.output, a2, n3, void 0) : a2, u4 = styleText2("yellow", S_BAR_END);
+        return `${o2}${r2}
+${u4}  ${styleText2("yellow", this.error)}${c2}
+`;
+      }
+      case "submit": {
+        const n3 = `${styleText2("gray", S_BAR)}  `, r2 = i2 ? wrapTextWithPrefix(
+          e.output,
+          l2,
+          n3,
+          void 0,
+          void 0,
+          (u4) => styleText2("dim", u4)
+        ) : l2 ? styleText2("dim", l2) : "";
+        return `${o2}${r2}`;
+      }
+      case "cancel": {
+        const n3 = `${styleText2("gray", S_BAR)}  `, r2 = i2 ? wrapTextWithPrefix(
+          e.output,
+          l2,
+          n3,
+          void 0,
+          void 0,
+          (u4) => styleText2(["strikethrough", "dim"], u4)
+        ) : l2 ? styleText2(["strikethrough", "dim"], l2) : "";
+        return `${o2}${r2}`;
+      }
+      default: {
+        const n3 = i2 ? `${styleText2("cyan", S_BAR)}  ` : "", r2 = i2 ? styleText2("cyan", S_BAR_END) : "", u4 = i2 ? wrapTextWithPrefix(e.output, a2, n3) : a2;
+        return `${o2}${u4}
+${r2}${c2}
+`;
+      }
+    }
+  }
+}).prompt();
+var W$1 = (o2) => o2;
+var C = (o2, e, s) => {
   const a2 = {
     hard: true,
     trim: false
-  }, i2 = wrapAnsi(o, e, a2).split(`
+  }, i2 = wrapAnsi(o2, e, a2).split(`
 `), c2 = i2.reduce((n3, t2) => Math.max(dist_default2(t2), n3), 0), u4 = i2.map(s).reduce((n3, t2) => Math.max(dist_default2(t2), n3), 0), g = e - (u4 - c2);
-  return wrapAnsi(o, g, a2);
+  return wrapAnsi(o2, g, a2);
 };
-var note = (o = "", e = "", s) => {
-  const a2 = s?.output ?? process$1.stdout, i2 = s?.withGuide ?? settings.withGuide, c2 = s?.format ?? W$1, g = ["", ...C(o, getColumns(a2) - 6, c2).split(`
+var note = (o2 = "", e = "", s) => {
+  const a2 = s?.output ?? process$1.stdout, i2 = s?.withGuide ?? settings.withGuide, c2 = s?.format ?? W$1, g = ["", ...C(o2, getColumns(a2) - 6, c2).split(`
 `).map(c2), ""], n3 = dist_default2(e), t2 = Math.max(
     g.reduce((m2, F) => {
       const O = dist_default2(F);
@@ -1343,29 +1512,29 @@ var password = (r2) => new u$1({
   input: r2.input,
   output: r2.output,
   render() {
-    const e = r2.withGuide ?? settings.withGuide, o = `${e ? `${styleText2("gray", S_BAR)}
+    const e = r2.withGuide ?? settings.withGuide, o2 = `${e ? `${styleText2("gray", S_BAR)}
 ` : ""}${symbol(this.state)}  ${r2.message}
 `, c2 = this.userInputWithCursor, i2 = this.masked;
     switch (this.state) {
       case "error": {
         const s = e ? `${styleText2("yellow", S_BAR)}  ` : "", n3 = e ? `${styleText2("yellow", S_BAR_END)}  ` : "", l2 = i2 ?? "";
-        return r2.clearOnError && this.clear(), `${o.trim()}
+        return r2.clearOnError && this.clear(), `${o2.trim()}
 ${s}${l2}
 ${n3}${styleText2("yellow", this.error)}
 `;
       }
       case "submit": {
         const s = e ? `${styleText2("gray", S_BAR)}  ` : "", n3 = i2 ? styleText2("dim", i2) : "";
-        return `${o}${s}${n3}`;
+        return `${o2}${s}${n3}`;
       }
       case "cancel": {
         const s = e ? `${styleText2("gray", S_BAR)}  ` : "", n3 = i2 ? styleText2(["strikethrough", "dim"], i2) : "";
-        return `${o}${s}${n3}${i2 && e ? `
+        return `${o2}${s}${n3}${i2 && e ? `
 ${styleText2("gray", S_BAR)}` : ""}`;
       }
       default: {
         const s = e ? `${styleText2("cyan", S_BAR)}  ` : "", n3 = e ? styleText2("cyan", S_BAR_END) : "";
-        return `${o}${s}${c2}
+        return `${o2}${s}${c2}
 ${n3}
 `;
       }
@@ -1404,8 +1573,8 @@ var spinner = ({
 `);
     r2.length > 1 && n3.write(import_sisteransi2.cursor.up(r2.length - 1)), n3.write(import_sisteransi2.cursor.to(0)), n3.write(import_sisteransi2.erase.down());
   }, C2 = (e) => e.replace(/\.+$/, ""), _ = (e) => {
-    const r2 = (performance.now() - e) / 1e3, t2 = Math.floor(r2 / 60), o = Math.floor(r2 % 60);
-    return t2 > 0 ? `[${t2}m ${o}s]` : `[${o}s]`;
+    const r2 = (performance.now() - e) / 1e3, t2 = Math.floor(r2 / 60), o2 = Math.floor(r2 % 60);
+    return t2 > 0 ? `[${t2}m ${o2}s]` : `[${o2}s]`;
   }, N = I2.withGuide ?? settings.withGuide, P = (e = "") => {
     d = true, M = block({ input: I2.input, output: n3, onCancel: i2 }), s = C2(e), w = performance.now(), N && n3.write(`${styleText2("gray", S_BAR)}
 `);
@@ -1414,15 +1583,15 @@ var spinner = ({
       if (u4 && s === p)
         return;
       y2(), p = s;
-      const o = k(E[r2]);
+      const o2 = k(E[r2]);
       let v;
       if (u4)
-        v = `${o}  ${s}...`;
+        v = `${o2}  ${s}...`;
       else if (l2 === "timer")
-        v = `${o}  ${s} ${_(w)}`;
+        v = `${o2}  ${s} ${_(w)}`;
       else {
         const B = ".".repeat(Math.floor(t2)).slice(0, 3);
-        v = `${o}  ${s}${B}`;
+        v = `${o2}  ${s}${B}`;
       }
       const j = wrapAnsi(v, x, {
         hard: true,
@@ -1433,9 +1602,9 @@ var spinner = ({
   }, a2 = (e = "", r2 = 0, t2 = false) => {
     if (!d) return;
     d = false, clearInterval(T), y2();
-    const o = r2 === 0 ? styleText2("green", S_STEP_SUBMIT) : r2 === 1 ? styleText2("red", S_STEP_CANCEL) : styleText2("red", S_STEP_ERROR);
-    s = e ?? s, t2 || (l2 === "timer" ? n3.write(`${o}  ${s} ${_(w)}
-`) : n3.write(`${o}  ${s}
+    const o2 = r2 === 0 ? styleText2("green", S_STEP_SUBMIT) : r2 === 1 ? styleText2("red", S_STEP_CANCEL) : styleText2("red", S_STEP_ERROR);
+    s = e ?? s, t2 || (l2 === "timer" ? n3.write(`${o2}  ${s} ${_(w)}
+`) : n3.write(`${o2}  ${s}
 `)), H(), M();
   };
   return {
@@ -1461,12 +1630,12 @@ var SELECT_INSTRUCTIONS = [
   `${styleText2("dim", "\u2191/\u2193")} to navigate`,
   `${styleText2("dim", "Enter:")} confirm`
 ];
-var c = (t2, o) => t2.includes(`
+var c = (t2, o2) => t2.includes(`
 `) ? t2.split(`
-`).map((d) => o(d)).join(`
-`) : o(t2);
+`).map((d) => o2(d)).join(`
+`) : o2(t2);
 var select = (t2) => {
-  const o = (n3, m2) => {
+  const o2 = (n3, m2) => {
     if (n3 === void 0)
       return "";
     const s = n3.label ?? String(n3.value);
@@ -1502,7 +1671,7 @@ var select = (t2) => {
         case "submit": {
           const r2 = n3 ? `${styleText2("gray", S_BAR)}  ` : "", a2 = wrapTextWithPrefix(
             t2.output,
-            o(this.options[this.cursor], "selected"),
+            o2(this.options[this.cursor], "selected"),
             r2
           );
           return `${u4}${a2}`;
@@ -1510,7 +1679,7 @@ var select = (t2) => {
         case "cancel": {
           const r2 = n3 ? `${styleText2("gray", S_BAR)}  ` : "", a2 = wrapTextWithPrefix(
             t2.output,
-            o(this.options[this.cursor], "cancelled"),
+            o2(this.options[this.cursor], "cancelled"),
             r2
           );
           return `${u4}${a2}${n3 ? `
@@ -1527,7 +1696,7 @@ ${styleText2("gray", S_BAR)}` : ""}`;
             maxItems: t2.maxItems,
             columnPadding: r2.length,
             rowPadding: a2 + f,
-            style: (g, x) => o(g, g.disabled ? "disabled" : x ? "active" : "inactive")
+            style: (g, x) => o2(g, g.disabled ? "disabled" : x ? "active" : "inactive")
           }).join(`
 ${r2}`)}
 ${b}
@@ -1552,10 +1721,10 @@ var text = (t2) => new n2({
 `, d = t2.placeholder && t2.placeholder.length > 0 ? (
       // biome-ignore lint/style/noNonNullAssertion: guarded by placeholder.length > 0
       styleText2("inverse", t2.placeholder[0]) + styleText2("dim", t2.placeholder.slice(1))
-    ) : styleText2(["inverse", "hidden"], "_"), o = this.userInput ? this.userInputWithCursor : d, s = this.value ?? "";
+    ) : styleText2(["inverse", "hidden"], "_"), o2 = this.userInput ? this.userInputWithCursor : d, s = this.value ?? "";
     switch (this.state) {
       case "validating": {
-        const n3 = r2 ? `${styleText2("cyan", S_BAR)}  ` : "", i2 = r2 ? styleText2("cyan", S_BAR_END) : "", c2 = styleText2("dim", o), $ = styleText2("dim", "Validating...");
+        const n3 = r2 ? `${styleText2("cyan", S_BAR)}  ` : "", i2 = r2 ? styleText2("cyan", S_BAR_END) : "", c2 = styleText2("dim", o2), $ = styleText2("dim", "Validating...");
         return `${l2}${n3}${c2}
 ${i2}  ${$}
 `;
@@ -1563,7 +1732,7 @@ ${i2}  ${$}
       case "error": {
         const n3 = this.error ? `  ${styleText2("yellow", this.error)}` : "", i2 = r2 ? `${styleText2("yellow", S_BAR)}  ` : "", c2 = r2 ? styleText2("yellow", S_BAR_END) : "";
         return `${l2.trim()}
-${i2}${o}
+${i2}${o2}
 ${c2}${n3}
 `;
       }
@@ -1578,7 +1747,7 @@ ${i2}` : ""}`;
       }
       default: {
         const n3 = r2 ? `${styleText2("cyan", S_BAR)}  ` : "", i2 = r2 ? styleText2("cyan", S_BAR_END) : "";
-        return `${l2}${n3}${o}
+        return `${l2}${n3}${o2}
 ${i2}
 `;
       }
@@ -1592,6 +1761,7 @@ export {
   intro,
   isCancel,
   log,
+  multiline,
   multiselect,
   note,
   outro,

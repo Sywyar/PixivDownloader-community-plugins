@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -15,7 +17,7 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const sdk = prepareSubmission();
     const records = new Map();
     const state = { tree: records, raw: file => records.get(file) ?? null };
-    const vector = name => JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/structure', name + '.json')));
+    const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure', name + '.json')));
     const pair = crypto.generateKeyPairSync('ed25519');
     const privateBytes = Buffer.from(pair.privateKey.export({ type: 'pkcs8', format: 'pem' }));
     const communityKey = { keyId: crypto.randomUUID(), algorithm: 'Ed25519', publicKeySpkiBase64: pair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
@@ -27,7 +29,12 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const put = value => { const bytes = encoded(value), file = `records/${hash(bytes)}.json`; records.set(file, bytes); return { path: file, size: bytes.length, sha256: hash(bytes) }; };
     record.historicalPublisherRef = put(original);
     record.reviewRef = put(vector('review'));
-    record.submissionRef = put(JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/submission.json'))));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json')));
+    submission.market.links = [];
+    const text = Buffer.from('# Version documentation'), sha256 = hash(text), name = `content-${sha256}.md`;
+    submission.content = { readme: { en: { format: 'markdown', asset: { name, url: `https://example.org/${name}`,
+        mediaType: 'text/markdown', size: text.length, sha256 }, resources: {} } } };
+    record.submissionRef = put(submission);
     records.set('published/demo/2.3.4.json', encoded(record));
     records.set('publishers/101/example.json', encoded(original));
     records.set('plugin-bindings/demo.json', encoded({ schemaVersion: 1, pluginId: 'demo', owner: record.owner,
@@ -43,6 +50,10 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const catalog = JSON.parse(first.writes.get('generated/catalog.json'));
     assert.equal(first.result.sequence, 1);
     assert.equal(catalog.entries[0].packages[0].packageUrl, packageUrl(record));
+    assert.deepEqual(catalog.entries[0].market.links, []);
+    assert.equal(catalog.entries[0].packages[0].content.readme.en.asset.sha256, sha256);
+    assert.equal(catalog.entries[0].packages[0].content.readme.en.asset.url,
+        packageUrl(record).slice(0, packageUrl(record).lastIndexOf('/') + 1) + name);
     first.writes.forEach((bytes, file) => records.set(file, bytes));
     const immutable = new Map([...records].filter(([file]) => file.startsWith('generated/generations/1/')));
     const target = { accountId: '202', accountType: 'User', publisherId: 'next' };

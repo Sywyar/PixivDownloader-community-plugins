@@ -81,6 +81,13 @@ test('签发只接受主线祖先及实际匹配的 Git 普通文件，续签递
     const first = issueChannel({ directory, commit, key: spki, privateKey: pem, now, base: 'master' });
     const next = issueChannel({ directory, commit, previous: first, key: spki, privateKey: pem, now: now + 1, base: 'master' });
     assert.equal(channel.selectChannel(next, first, spki, now + 1).sequence, 2);
+    const sdk = JSON.parse(fs.readFileSync(new URL('../../tools/submission-files.json', import.meta.url), 'utf8')).sdk;
+    const manifestV2 = Buffer.from(JSON.stringify({ ...JSON.parse(manifest), schemaVersion: 2, sdk }));
+    fs.writeFileSync(path.join(directory, 'tools/submission-files.json'), manifestV2);
+    git('add', 'tools/submission-files.json'); git('commit', '-m', 'sdk reference');
+    const v2 = issueChannel({ directory, commit: git('rev-parse', 'HEAD'), previous: next, key: spki, privateKey: pem, now: now + 2, base: 'master' });
+    assert.equal(channel.selectChannel(v2, next, spki, now + 2).manifestSha256, crypto.createHash('sha256').update(manifestV2).digest('hex'));
+    assert.notEqual(channel.selectChannel(v2, next, spki, now + 2).manifestSha256, payload.manifestSha256);
     git('switch', '-c', 'other');
     fs.writeFileSync(path.join(directory, 'scripts/submit.mjs'), 'changed'); git('add', 'scripts/submit.mjs'); git('commit', '-m', 'changed');
     const other = git('rev-parse', 'HEAD');

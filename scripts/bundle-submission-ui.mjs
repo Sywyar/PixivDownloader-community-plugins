@@ -6,7 +6,7 @@ import { root } from './sdk.mjs';
 // 交付完整依赖闭包；入口只下载清单内的固定字节，不在用户机器安装 npm 包。
 const result = await build({
     absWorkingDir: root,
-    stdin: { contents: "export { intro, outro, cancel, text, password, select, multiselect, note, log, spinner, isCancel, SELECT_INSTRUCTIONS, MULTISELECT_INSTRUCTIONS } from '@clack/prompts';", resolveDir: root },
+    stdin: { contents: "export { intro, outro, cancel, text, multiline, password, select, multiselect, note, log, spinner, isCancel, SELECT_INSTRUCTIONS, MULTISELECT_INSTRUCTIONS } from '@clack/prompts';", resolveDir: root },
     bundle: true, platform: 'node', format: 'esm', target: 'node24',
     write: false, metafile: true, legalComments: 'inline',
     plugins: [{ name: 'submission-prompts', setup(builder) {
@@ -15,6 +15,7 @@ const result = await build({
             // 补充空选文案与加载取消回调；取消交回向导清理，不从第三方组件直接退出进程。
             const patches = file.includes(`${path.sep}prompts${path.sep}`) ? [
                 ['styleText("dim", "none")', 'styleText("dim", i.emptyLabel ?? "none")'],
+                ['"[ submit ]"', '"[ " + (e.submitLabel ?? "submit") + " ]"'],
                 ['M = block({ output: n })', 'M = block({ input: I.input, output: n, onCancel: i })'],
             ] : [
                 ['hideCursor: n = true\n', 'hideCursor: n = true,\n  onCancel\n'],

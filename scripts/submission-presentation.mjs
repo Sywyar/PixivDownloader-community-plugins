@@ -7,6 +7,9 @@ export function optionText(value, text) {
 }
 
 const labels = {
+    purpose: 'contentPurpose', locale: 'locale', format: 'contentFormat', asset: 'contentAttachment',
+    resources: 'contentImages', sourcePath: 'contentSourcePath', mediaType: 'contentMediaType',
+    content: 'contentDocuments', kind: 'linkPurpose', label: 'linkLabel', links: 'links',
     pluginId: 'plugin', publisherId: 'publisher', displayName: 'name', defaultLocale: 'locale', expression: 'license',
     projectDir: 'project', profileId: 'profile', privateFile: 'privateKey', publicFile: 'publicKey',
     package: 'artifact', source: 'sourceLabel', repository: 'repositoryLabel', commit: 'commitLabel',
@@ -29,7 +32,7 @@ const labels = {
 export function formatMetadata(value, text, depth = 0, field = '') {
     if (value === null || value === undefined) return text('none');
     if (typeof value === 'boolean') return text(value ? 'yes' : 'no');
-    if (typeof value !== 'object') return visible(['reasonCode', 'mode', 'role', 'accountType', 'executionMode', 'category', 'tags', 'signals', 'status', 'currentState', 'requestedState', 'publicationState', 'relationship', 'action'].includes(field)
+    if (typeof value !== 'object') return visible(['purpose', 'kind', 'reasonCode', 'mode', 'role', 'accountType', 'executionMode', 'category', 'tags', 'signals', 'status', 'currentState', 'requestedState', 'publicationState', 'relationship', 'action'].includes(field)
         ? optionText(value, text) : ['protection', 'branchCleanup', 'failureStep'].includes(field) ? text(value) : value);
     if (depth > 12) return text('details');
     return Object.entries(value).flatMap(([key, item]) => {
@@ -46,7 +49,7 @@ export function formatMetadata(value, text, depth = 0, field = '') {
 export function previewMetadata(preview) {
     const submission = preview.result?.submission;
     return { ...(submission ? { pluginId: submission.pluginId, version: submission.version, source: submission.source,
-        buildProfile: submission.buildProfile, license: submission.license, market: submission.market,
+        buildProfile: submission.buildProfile, license: submission.license, market: submission.market, content: submission.content,
         package: { url: submission.package.url, size: submission.package.expectedSize, sha256: submission.package.sha256 },
         owner: preview.result.owner, fingerprint: preview.result.publisherKeyFingerprint,
         riskDeclaration: preview.result.descriptor } : { result: preview.result }),

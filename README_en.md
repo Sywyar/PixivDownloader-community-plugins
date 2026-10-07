@@ -35,6 +35,8 @@ gh auth setup-git
 
 Configure Git's `user.name` and `user.email` for commits as well.
 
+The wizard downloads the public SDK pinned in its tool manifest, checks the archive and each resource against their sizes and SHA-256 values, and caches them. You do not need to install the SDK tool JAR separately. Later runs verify and reuse the cache. Wizard maintainers select the version; starting or resuming a submission does not switch to the latest SDK. SDK downloads use the proxy settings below.
+
 If a push reports `GIT_WORKFLOW_SCOPE_REQUIRED`, the credentials used by Git lack permission to write workflows. This can also happen when the submission branch includes workflow updates from the community's default branch. For GitHub CLI OAuth login credentials, run `gh auth refresh --hostname github.com --scopes workflow` in the same authentication environment, then continue in the wizard or save and exit. For a classic PAT, grant the `workflow` scope; for a fine-grained PAT or GitHub App, grant `Workflows: write`. Update the credentials actually used by Git.
 
 On Windows, package and source downloads use the system proxy unless `HTTPS_PROXY` is set in the terminal. Use `NO_PROXY` to select destinations that should connect directly. HTTP and HTTPS proxies are supported. Download errors include a code and failure stage to distinguish connection problems from file digest mismatches.
@@ -70,6 +72,20 @@ Long operations show temporary substeps that disappear when complete. Transient 
 Draft Releases remain available after Actions artifacts expire. The Draft holds only the latest candidate; if its archive is missing, the wizard can rerun CI for the current default-branch commit after confirmation. Fixed candidates from confirmed submissions remain available.
 
 The license step accepts existing files or creates a new file from a bundled template. Existing files are preserved. A recognized complete template preselects its SPDX identifier; combined licenses still require confirmation. After creating or changing a license, commit, push and wait for new CI.
+
+### Documents, images and links
+
+Choose repository, documentation and issue-reporting links, or add custom purposes. Links can be edited, removed or left entirely empty. Display links do not change source repository identity.
+
+The wizard looks for the plugin project's `CHANGELOG.md` in the candidate's fixed source commit. It extracts the exact version's level-two heading and level-three categories, such as `## [v8.2.6] - 2031.3.2`, `### Features` and `### Bug Fixes`. Missing or duplicate headings require another file, manual notes or explicit omission. The full changelog is a separate optional attachment.
+
+README is optional UTF-8 Markdown or HTML, selected from frozen source, a local file or multiline input. Enter adds a line; Tab then Enter submits. Documents use the selected default language and require preview confirmation. Relative images stay inside the selected root. External images require download confirmation, and unavailable images may be explicitly omitted.
+
+Repository documents retain a source URL bound to the frozen commit, which resolves relative links. Safe HTML anchors and Markdown headings support navigation within the document. External links open in a new window. Local files, direct input and older records without a source URL do not infer relative link destinations.
+
+After confirmation, original documents and images are staged in a `market-content-<plugin>-<version>` release in the source repository. The source candidate keeps its two-asset manifest. Community review verifies bytes, format, size and SHA-256, then publishes the content with the plugin package in the same community version release. Publication is incomplete until public downloads verify. Retries reuse matching attachments and reject changed bytes under the same name. The marketplace reads the selected version and displays HTML as a static document.
+
+Documents stay outside the plugin JAR and are not covered by its signature. Review references and the signed catalog bind document digests, which the client verifies again. Historical submissions, homepages and release notes remain readable; an explicit empty link list does not restore a previous homepage. Deployment requires pinning the matching new SDK release in the community tools. Local candidate tests do not prove online availability.
 
 ### 4. Wait for review
 

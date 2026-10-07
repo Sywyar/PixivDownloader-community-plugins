@@ -4,10 +4,12 @@ import { additions, errors, optionNames } from './submission-messages.mjs';
 import { visible, formatMetadata, previewMetadata, optionText } from './submission-presentation.mjs';
 import { toolDetails } from './tool-process.mjs';
 import { localFailureCode } from './submission-errors.mjs';
+import { contentMessages } from './submission-content-messages.mjs';
 export const locales = ['zh-CN', 'en-US', 'zh-Hant', 'ja-JP', 'ko-KR'];
 
 // 向导独立运行；文本按操作字段提供，不根据投稿 schema 生成表单。
 const messages = {
+    ...contentMessages,
     language: ['选择语言', 'Choose a language', '選擇語言', '言語を選択', '언어 선택'],
     navigation: ['↑/↓ 移动 · Enter 确认 · Esc 取消', '↑/↓ Move · Enter Select · Esc Cancel', '↑/↓ 移動 · Enter 確認 · Esc 取消', '↑/↓ 移動 · Enter 決定 · Esc キャンセル', '↑/↓ 이동 · Enter 선택 · Esc 취소'],
     multiNavigation: ['↑/↓ 移动 · 空格勾选 · Enter 确认 · Esc 取消', '↑/↓ Move · Space Toggle · Enter Confirm · Esc Cancel', '↑/↓ 移動 · 空白鍵勾選 · Enter 確認 · Esc 取消', '↑/↓ 移動 · Space 選択切替 · Enter 決定 · Esc キャンセル', '↑/↓ 이동 · Space 선택 전환 · Enter 확인 · Esc 취소'],
@@ -186,7 +188,7 @@ export async function terminal(input = process.stdin, output = process.stdout, o
             message: text(key) + '\n│  ' + text('formNavigation'), initialValue: visible(fallback),
             validate: async value => {
                 const candidate = actual(value);
-                if (!candidate && !['description', 'icon', 'screenshots', 'homepage'].includes(key)) return text('required');
+                if (!candidate && !['description', 'icon', 'screenshots', 'homepage', 'linkUrl'].includes(key)) return text('required');
                 if (['name', 'summary', 'display'].includes(key) && messages[key].includes(candidate)) return errors.FIELD_PLACEHOLDER[index];
                 try { await validate?.(candidate); } catch (error) { return errorText(error); }
             },
@@ -207,6 +209,14 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         });
         return options[selected];
     };
+    const multiline = async (key, fallback = '', validate) => prompt(prompts.multiline, {
+        message: text(key) + '\n│  ' + text('multilineNavigation'), initialValue: fallback,
+        showSubmit: true, submitLabel: text('confirmAction'),
+        validate: async value => {
+            if (!value?.trim()) return text('required');
+            try { await validate?.(value); } catch (error) { return errorText(error); }
+        },
+    });
     const multiselect = async (key, options, initialValues = []) => {
         prompts.MULTISELECT_INSTRUCTIONS.splice(0, prompts.MULTISELECT_INSTRUCTIONS.length, text('multiNavigation') + ' · ' + text('formNavigation'));
         const selected = await prompt(prompts.multiselect, {
@@ -227,6 +237,10 @@ export async function terminal(input = process.stdin, output = process.stdout, o
             if (!await select('confirmSummary', [false, true], accepted => text(accepted ? 'confirmAction' : 'cancelAction'))) return false;
             prompts.note(formatMetadata(previewMetadata(value), text), text('details'), common);
             say(key);
+        } else if (key === 'contentPreview') {
+            const { contentText, ...metadata } = value;
+            say(key, metadata);
+            prompts.note(String(contentText).split(/\r?\n/u).map(line => visible(line)).join('\n'), text('contentPreview'), common);
         } else say(key, value);
         // 默认拒绝；必须主动切换选项并回车，普通输入与连续回车不会授权操作。
         for (;;) {
@@ -287,5 +301,5 @@ export async function terminal(input = process.stdin, output = process.stdout, o
         close();
         throw error;
     }
-    return { locale: locales[index], resume, signal: controller.signal, ask, say, select, multiselect, confirm, task, activity, text, errorText, password, close };
+    return { locale: locales[index], resume, signal: controller.signal, ask, multiline, say, select, multiselect, confirm, task, activity, text, errorText, password, close };
 }

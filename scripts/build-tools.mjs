@@ -3,7 +3,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { download } from './download.mjs';
 import { API_BYTES, API_TIMEOUT } from './github.mjs';
-import { root } from './sdk.mjs';
+import { root, sdkResource } from './sdk.mjs';
 import { buildPolicy } from './build-sandbox.mjs';
 
 // 构建只接收实际使用的工具身份；扫描器升级不改变构建输入。
@@ -17,11 +17,11 @@ export function buildToolchain(sdk) {
 export function copyBuildScripts(directory) {
     fs.mkdirSync(path.join(directory, 'scripts'));
     fs.mkdirSync(path.join(directory, 'tools'));
-    for (const name of ['sdk.mjs', 'github.mjs', 'submission-errors.mjs', 'repository-policy.json', 'build-profile.mjs']) {
+    for (const name of ['github.mjs', 'submission-errors.mjs', 'repository-policy.json', 'build-profile.mjs']) {
         fs.copyFileSync(path.join(root, 'scripts', name), path.join(directory, 'scripts', name));
     }
     for (const name of ['build-model.mjs', 'community-model.gradle']) {
-        fs.copyFileSync(path.join(root, 'tools', name), path.join(directory, 'tools', name));
+        fs.copyFileSync(sdkResource('tools/' + name), path.join(directory, 'tools', name));
     }
 }
 

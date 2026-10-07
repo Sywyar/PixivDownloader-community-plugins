@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import channel from '../tools/submission-channel.cjs';
+import { validateSdk } from './sdk-resources.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const launcher = path.join(root, 'tools/submit.ps1');
@@ -34,7 +35,8 @@ export function runtimeManifest(directory, commit, base = 'refs/remotes/origin/m
     const bytes = blob('tools/submission-files.json');
     if (bytes.length > 65536) throw new Error('CHANNEL_MANIFEST_INVALID');
     const manifest = JSON.parse(bytes);
-    if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.files) || !manifest.files.length || manifest.files.length > 256) throw new Error('CHANNEL_MANIFEST_INVALID');
+    if (![1, 2].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || !manifest.files.length || manifest.files.length > 256) throw new Error('CHANNEL_MANIFEST_INVALID');
+    if (manifest.schemaVersion === 2) validateSdk(manifest.sdk);
     const seen = new Set();
     let total = 0;
     for (const file of manifest.files) {

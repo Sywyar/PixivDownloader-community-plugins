@@ -6,9 +6,11 @@ import { publisherPath } from './submission-check.mjs';
 import { encoded, formalTag, packageName } from './apply-generation.mjs';
 import { archiveAdmission, publicationEnvironment } from './apply-context.mjs';
 import { list, prefix } from './github.mjs';
+import { verifyCandidateMarket } from './market-assets.mjs';
 
 export function publishVersion({ sdk, adapter, state, version, pr, context, admission, inputs, communityKey, privateBytes, appliedAt, call }) {
     const checked = version.checked, submission = checked.submission;
+    verifyCandidateMarket(version.candidate, checked);
     const before = state.published(submission.pluginId).find(record => record.value.version === submission.version);
     if (before) {
         if (before.value.package.sha256 !== checked.package.sha256) throw new Error('VERSION_DIGEST_CONFLICT');

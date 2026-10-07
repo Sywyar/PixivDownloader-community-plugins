@@ -12,6 +12,9 @@ export function prepareSubmission(directory = root) {
 }
 
 export function submissionAdapter(sdk, directory = root) {
+    if (!fs.existsSync(path.join(sdk.workspace, 'runtime/BOOT-INF/classes/top/sywyar/pixivdownload/sdk/community/submission/MarketDocumentFiles.class'))) {
+        throw new Error('SDK_UPGRADE_REQUIRED');
+    }
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath,
         '-d', path.join(sdk.workspace, 'runtime'), ...['CommunitySubmission.java', 'CommunitySource.java']
             .map(name => path.join(directory, 'tools', name))]);

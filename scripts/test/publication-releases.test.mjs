@@ -1,3 +1,5 @@
+import { ensureSdk } from '../sdk-resources.mjs';
+const sdkResources = ensureSdk().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -42,8 +44,9 @@ function archiveFixture(t) {
         throw new Error('Unexpected request ' + endpoint);
     };
     const fetch = (url, file, max, expected) => {
-        assert.equal(url, `https://github.com/${policy.repository}/releases/download/${release.tag_name}/package.jar`);
-        return download(`${prefix}/releases/assets/701`, file, max, expected);
+        const asset = assets.find(asset => url === `https://github.com/${policy.repository}/releases/download/${release.tag_name}/${encodeURIComponent(asset.name)}`);
+        assert(asset);
+        return download(`${prefix}/releases/assets/${asset.id}`, file, max, expected);
     };
     return { workspace, bodies, assets, release, upload, download, fetch, call, writes: () => writes, loseResponse: () => { losePatch = true; } };
 }
@@ -85,7 +88,7 @@ test('候选提升为正式 Release 后响应丢失可恢复，原资产和签�
 test('已合并整代状态驱动 Release 更新，响应丢失回读且只读检查不写入', async t => {
     const f = archiveFixture(t), sdk = prepareSubmission(), current = 'b'.repeat(40), records = new Map();
     const source = 'a'.repeat(40), head = 'c'.repeat(40), generated = 'd'.repeat(40);
-    const vector = name => JSON.parse(fs.readFileSync(path.join(root, 'schemas/community/v1/vectors/structure', name + '.json')));
+    const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure', name + '.json')));
     const put = (file, value) => { const bytes = encoded(value); records.set(file, bytes); return { path: file, size: bytes.length, sha256: hash(bytes) }; };
     const record = vector('published'), review = vector('review');
     record.reviewRef = put('records/' + 'a'.repeat(64) + '.json', review);

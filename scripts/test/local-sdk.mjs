@@ -10,10 +10,19 @@ import { runWizard as wizard } from '../submit.mjs';
 export function prepareSubmission() {
     const sdk = prepareSdk();
     const classes = process.env.COMMUNITY_TEST_SDK_CLASSES;
-    if (classes) {
-        if (classes.split(path.delimiter).some(directory => !fs.statSync(directory).isDirectory())) throw new Error('TEST_SDK_CLASSES_INVALID');
+    const candidateJar = process.env.COMMUNITY_TEST_SDK_JAR;
+    if (candidateJar) {
+        if (!fs.lstatSync(candidateJar).isFile()) throw new Error('TEST_SDK_JAR_INVALID');
+        sdk.run('jar', ['--extract', '--file', path.resolve(candidateJar), 'BOOT-INF/classes', 'BOOT-INF/lib'], path.join(sdk.workspace, 'runtime'));
+        const libraries = path.join(sdk.workspace, 'runtime/BOOT-INF/lib');
+        const contract = fs.readdirSync(libraries).filter(name => /^pixivdownload-community-contract-.*\.jar$/u.test(name));
+        if (contract.length !== 1) throw new Error('TEST_SDK_JAR_INVALID');
+        sdk.run('jar', ['--extract', '--file', path.join(libraries, contract[0]), 'community'], path.join(sdk.workspace, 'runtime/BOOT-INF/classes'));
+    }
+    if (classes || candidateJar) {
+        if (classes?.split(path.delimiter).some(directory => !fs.statSync(directory).isDirectory())) throw new Error('TEST_SDK_CLASSES_INVALID');
         // 各适配器闭包使用同一已解包目录，确保投稿、审核和执行都验证同一候选。
-        for (const directory of classes.split(path.delimiter)) fs.cpSync(directory,
+        for (const directory of classes?.split(path.delimiter) ?? []) fs.cpSync(directory,
             path.join(sdk.workspace, 'runtime/BOOT-INF/classes'), { recursive: true });
         const resources = path.join(sdk.workspace, 'runtime/BOOT-INF/classes/community/v1');
         const manifest = fs.readFileSync(path.join(resources, 'bundle-manifest.json'));

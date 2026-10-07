@@ -342,7 +342,7 @@ try {
     }
     if ((File-Digest $manifestFile 65536) -ne $ManifestSha256) { throw 'BOOTSTRAP_MANIFEST_CHANGED' }
     $manifest = [Text.UTF8Encoding]::new($false, $true).GetString((Read-Bounded $manifestFile 65536)) | ConvertFrom-Json
-    if ($manifest.schemaVersion -ne 1 -or $manifest.files.Count -lt 1 -or $manifest.files.Count -gt 256) { throw 'BOOTSTRAP_MANIFEST_INVALID' }
+    if ($manifest.schemaVersion -notin @(1, 2) -or $manifest.files.Count -lt 1 -or $manifest.files.Count -gt 256) { throw 'BOOTSTRAP_MANIFEST_INVALID' }
     $cache = [IO.Path]::Combine($cacheBase, $ManifestSha256.Substring(0, 16))
     Assert-PlainPath $cache
     [IO.Directory]::CreateDirectory($cache) | Out-Null
@@ -376,6 +376,16 @@ try {
         }
     }
     if (-not $seen.ContainsKey('scripts/submit.mjs')) { throw 'BOOTSTRAP_ENTRY_MISSING' }
+    if ($manifest.schemaVersion -eq 2) {
+        # The pinned runtime reads SDK dependencies from these signed manifest bytes.
+        $runtimeManifest = [IO.Path]::Combine($cache, 'tools', 'submission-files.json')
+        Assert-PlainPath $runtimeManifest
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($runtimeManifest)) | Out-Null
+        $manifestBytes = Read-Bounded $manifestFile 65536
+        if (Test-Path -LiteralPath $runtimeManifest) {
+            if ((File-Digest $runtimeManifest 65536) -ne $ManifestSha256) { throw 'BOOTSTRAP_MANIFEST_CHANGED' }
+        } else { [IO.File]::WriteAllBytes($runtimeManifest, $manifestBytes) }
+    }
     $verified = & node @verifyArgs
     if ($LASTEXITCODE -ne 0) { throw 'BOOTSTRAP_CHANNEL_REJECTED' }
     Write-Progress -Id 1 -Activity $BootstrapMessages.activity -Completed
