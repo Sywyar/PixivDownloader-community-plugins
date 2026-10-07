@@ -19,10 +19,8 @@ export function git(args) {
 export function protectedSource(commit, current, readGit = git) {
     sha(commit); sha(current);
     readGit(['merge-base', '--is-ancestor', commit, current]);
-    for (const name of surface) {
-        if (readGit(['rev-parse', commit + ':' + name]) !== readGit(['rev-parse', current + ':' + name])) {
-            throw new Error('WORKFLOW_SOURCE_CHANGED');
-        }
+    if (readGit(['ls-tree', commit, '--', ...surface]) !== readGit(['ls-tree', current, '--', ...surface])) {
+        throw new Error('WORKFLOW_SOURCE_CHANGED');
     }
 }
 

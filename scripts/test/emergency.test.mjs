@@ -158,7 +158,7 @@ test('准入跨 job 数据仅接受同一次可信执行，证据原字节校验
     assert.deepEqual(restoreVersions(frozen, context, sdk), rows);
     assert.equal(restoreVersions(frozen, { ...context, current: 'b'.repeat(40) }, sdk, () => 'unchanged'), null);
     assert.throws(() => restoreVersions(frozen, { ...context, current: 'b'.repeat(40) }, sdk,
-        args => args[0] === 'rev-parse' ? args[1] : ''), /WORKFLOW_SOURCE_CHANGED/);
+        args => args[0] === 'merge-base' ? '' : args[1]), /WORKFLOW_SOURCE_CHANGED/);
     assert.throws(() => restoreVersions(frozen, { ...context, run: { id: '72', run_attempt: 2 } }, sdk), /GATE_TRANSFER_CHANGED/);
     const changed = JSON.parse(frozen); changed.evidence[0].bytes = Buffer.from('changed!').toString('base64');
     assert.throws(() => restoreVersions(bytes(changed), context, sdk), /GATE_EVIDENCE_CHANGED/);

@@ -132,7 +132,7 @@ test('来源和路径边界拒绝候选执行器、错误身份、混合动作�
     assert.throws(() => execution(decisionPath, { ...env, GITHUB_REF: 'refs/heads/candidate' }, call, readGit));
     state.run.head_sha = 'c'.repeat(40);
     assert.throws(() => trustedRun(71, 1, decisionPath, current, call,
-        args => args[0] === 'rev-parse' ? args[1] : ''), /SOURCE_CHANGED/);
+        args => args[0] === 'merge-base' ? '' : args[1]), /SOURCE_CHANGED/);
     state.run.head_sha = current;
     for (const field of ['event', 'path', 'head_branch']) {
         const old = state.run[field]; state.run[field] = 'candidate';
@@ -278,7 +278,7 @@ test('真实 SDK 归约表单和 artifact，并由 App 发布器拒绝陈旧事�
     assert(reopened.labels.includes('state:ready'));
     state.run.head_sha = 'e'.repeat(40);
     const changedSource = await publish(7, context, prepared, call, call,
-        args => args[0] === 'rev-parse' ? args[1] : '');
+        args => args[0] === 'merge-base' ? '' : args[1]);
     assert.equal(changedSource.error, undefined);
     assert(changedSource.labels.includes('review:pending'));
     assert(!changedSource.labels.includes('state:ready'));

@@ -339,8 +339,8 @@
     },
     {
       "path": "scripts/platform.mjs",
-      "size": 13210,
-      "sha256": "3f741b8bc50cf079fd4868bff7786128c5fdd87ac32eb40ac55fb39b9b41435a"
+      "size": 13164,
+      "sha256": "738e859e77c1f56f5bc13049912a508eb8ab650ad885cc1c72b5b33c2ef53146"
     },
     {
       "path": "scripts/project.mjs",
