@@ -6,6 +6,14 @@ Submit a PixivDownloader plugin for review here. Push your public source to GitH
 
 After review, a maintainer generates publication data in the original request PR. Merging it triggers the community Release update. A source candidate Release or a community Draft under review does not grant community admission.
 
+## Open-source admission
+
+This official community repository accepts only open-source plugins. Every submitted version must:
+
+- Provide the complete source and build inputs corresponding to its commit and package in a public, non-archived GitHub repository. The community must be able to rebuild and compare package bytes. A publicly downloadable JAR, ZIP or Release alone is insufficient.
+- Include a license that meets the [OSI Open Source Definition](https://opensource.org/osd), such as MIT, and the required copyright notices. Publicly visible code without a qualifying license does not meet this policy.
+- Provide licensing that covers the submitted code and artifact and is compatible with its dependencies. Passing SPDX expression, license-file and digest checks only validates declarations and evidence. Maintainers still review custom licenses, combined licenses and compatibility.
+
 ## Submissions and version management
 
 ### 1. Push the source and wait for CI
