@@ -5,7 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
-import { execution, notificationExecution, gatePath } from '../platform.mjs';
+import { execution, notificationExecution, protectedSource, gatePath } from '../platform.mjs';
 import { publicationExecution } from '../apply-context.mjs';
 import { statusExecution } from '../status-execution.mjs';
 import { notify } from '../community-gate.mjs';
@@ -17,7 +17,7 @@ const notifications = [
     ['community-publication', 'push', (...args) => publicationExecution('finalize-notify', ...args)],
 ];
 
-function fixture(t, workflow, event) {
+function fixture(t, workflow, event, schemas = true) {
     fs.mkdirSync(path.join(root, 'target'), { recursive: true });
     const directory = fs.mkdtempSync(path.join(root, 'target/notification-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -25,7 +25,7 @@ function fixture(t, workflow, event) {
         env: { ...process.env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test',
             GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' } }).trim();
     git(['init', '-q']);
-    for (const file of ['.github/workflows/test.yml', 'scripts/test.mjs', 'tools/test.txt', 'schemas/test.json', 'package.json']) {
+    for (const file of ['.github/workflows/test.yml', 'scripts/test.mjs', 'tools/test.txt', ...(schemas ? ['schemas/test.json'] : []), 'package.json']) {
         fs.mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
         fs.writeFileSync(path.join(directory, file), '{}\n');
     }
@@ -59,6 +59,23 @@ function fixture(t, workflow, event) {
     };
     return f;
 }
+
+test('保护路径同时缺失时仍核对来源，新增、删除和修改保护内容均拒绝', t => {
+    const f = fixture(t, 'community-publication', 'push', false);
+    protectedSource(f.source, f.current, f.git);
+    assert.equal(publicationExecution('finalize', f.env, endpoint => endpoint === `${prefix}/branches/${policy.defaultBranch}`
+        ? { commit: { sha: f.source } } : f.call(endpoint), f.git).current, f.source);
+    const blob = f.git(['hash-object', '-w', '--stdin'], '{"changed":true}\n');
+    f.git(['update-index', '--add', '--cacheinfo', '100644', blob, 'schemas/test.json']);
+    const added = f.git(['commit-tree', f.git(['write-tree']), '-p', f.current], 'Add protected path\n');
+    assert.throws(() => protectedSource(f.current, added, f.git), /WORKFLOW_SOURCE_CHANGED/);
+    f.git(['update-index', '--force-remove', 'schemas/test.json']);
+    const removed = f.git(['commit-tree', f.git(['write-tree']), '-p', added], 'Remove protected path\n');
+    assert.throws(() => protectedSource(added, removed, f.git), /WORKFLOW_SOURCE_CHANGED/);
+    f.git(['update-index', '--cacheinfo', '100644', blob, 'scripts/test.mjs']);
+    const changed = f.git(['commit-tree', f.git(['write-tree']), '-p', removed], 'Change protected content\n');
+    assert.throws(() => protectedSource(removed, changed, f.git), /WORKFLOW_SOURCE_CHANGED/);
+});
 
 test('通知及串行集成允许未改变保护面的主线推进，其余执行器保持精确主线绑定', t => {
     for (const [workflow, event, check] of notifications) {
