@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "sdk": {
-    "version": "1.0.0-rc.15",
-    "sourceCommit": "037b716b25b22eab3f1d8f6dd72b3a055d50124c",
+    "version": "1.1.0",
+    "sourceCommit": "14aae5b2f47f789318bb70f547a00ce2b554341e",
     "archive": {
-      "file": "PixivDownloader-Plugin-SDK-1.0.0-rc.15.zip",
-      "size": 34627397,
-      "sha256": "55816d235a85972bb3a9136cf2d9ecf03c34bf190bdbcae6384ae5b30659d802"
+      "file": "PixivDownloader-Plugin-SDK-1.1.0.zip",
+      "size": 36949628,
+      "sha256": "0d7baec1a869b5ac416a66cd8adc293e66ee062b1d4b4d54a8f37f8d5f8adad1"
     },
     "files": [
       {
         "path": "contracts/community/v1/bundle-manifest.json",
-        "size": 7679,
-        "sha256": "0dcd51c2c4c5af0981a230560c9fc4e4e254bebde803d762c144d058ab5d50ab"
+        "size": 7673,
+        "sha256": "515776ecaeaabbab9015f365e1ebfe184f51f24df553e4841c3dd01713e52670"
       },
       {
         "path": "contracts/community/v1/catalogs.json",
@@ -21,8 +21,8 @@
       },
       {
         "path": "contracts/community/v1/community.schema.json",
-        "size": 69916,
-        "sha256": "a9668f84a10caa65c48cc91a004f2d94e6d685890f495201a32023d3a8adfac7"
+        "size": 75546,
+        "sha256": "e41a621747d7aa8b8a39e4f2f3c6c78bc43dc544ad1cabd6822379c727cccc4e"
       },
       {
         "path": "contracts/community/v1/licenses/0BSD.txt",
@@ -241,8 +241,8 @@
       },
       {
         "path": "tools/community-contract.json",
-        "size": 385,
-        "sha256": "460612ca4b593f41c49451a0a55b3cb64119e9be8b3a95659e02ef9e20b9f62b"
+        "size": 379,
+        "sha256": "13771ce81fca04223c4bcf522b992a216c2baa40b902bce0ad94e0e5ffd6888a"
       },
       {
         "path": "tools/community-model.gradle",
@@ -251,8 +251,8 @@
       },
       {
         "path": "tools/sdk-tools.jar",
-        "size": 15466209,
-        "sha256": "56483e11e6ac8f978a3c6db82cc498cda8561ed935850d87031e8368462c6a1f"
+        "size": 16348592,
+        "sha256": "41c78e4e0dbf8a5a59297a61e34b7c95ca5192829203a47ea16efc95b269d7ea"
       }
     ]
   },

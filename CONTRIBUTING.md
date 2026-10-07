@@ -128,7 +128,7 @@ SSH 私钥最多 16 KiB，只传给受保护的分支写入步骤。执行器使
 
 追加提交前中断，可针对未变化的原 head 重试；已经追加时，填写当前生成 head。若只有主线数据推进或准备结果过期，流程先验证旧回执与完整树，再从原请求和最新主线重新生成。生成提交保留原审核 head 和应用主线为父节点；恢复时还保留上一生成提交，始终快进，不强推。原请求、归属、密钥、规则、父链或生成字节变化仍会阻断。续签请求绑定整代摘要，过期后须重新创建续签请求。已合并请求的 Release 收尾失败，可在 `master` 手动运行 **Publish merged community state**；同名异字节资产拒绝覆盖，重跑不执行旧状态写入。
 
-维护 SDK 时，须先发行包含 `CommunityPr.hasGeneratedParents` 的不可变工具包，再更新本仓库的 SDK 锁与原始分发文件。旧工具会在编译执行适配器时停止，不能在不支持合并父链验证的工具上生成或合并新结果。本地回归可通过测试专用 `COMMUNITY_TEST_SDK_CLASSES` 指定候选 classes；生产入口不接受此覆盖。
+维护 SDK 时，须选择包含 `CommunityPr.hasGeneratedParents` 的公开不可变发行，并通过 `sdk-release.mjs --version` 更新 `tools/submission-files.json` 中的 SDK 引用。旧工具会在编译执行适配器时停止，不能在不支持合并父链验证的工具上生成或合并新结果。本地回归可通过测试专用 `COMMUNITY_TEST_SDK_CLASSES` 指定候选 classes；生产入口不接受此覆盖。
 
 YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引用的管理者下架；社区独立限制继续保留。REVOKE 没有恢复操作。换钥把旧密钥标记为 RETIRED，保留历史包验证；泄露密钥须先完成紧急声明，不能通过换钥解除封禁。确需撤销历史包时另行提出版本撤销请求。
 
