@@ -1,1 +1,1 @@
-{"formatVersion":1,"algorithm":"Ed25519","keyId":"community-release-b1cbdc37-b767-49fe-8f84-3b85bfde33b4","value":"OWzOhOR3dtru2VfOaTmGW4vttQ4BRNAW/BC1YPA2bOnkBHD42KWS4Y6BDct/7wRQbCBApAxVgKqvSxdJ7RatCQ=="}
+{"formatVersion":1,"algorithm":"Ed25519","keyId":"community-release-b1cbdc37-b767-49fe-8f84-3b85bfde33b4","value":"vfns45o7+WvQHMWsOvoexz8+B0wOuezHtXMY6LSMcOJXw10G0OVzRamrGcsGl50sM6K1pP6Eu1dzk5nBXSOmDQ=="}
