@@ -232,3 +232,28 @@ test('读取逐请求自动重试后只恢复失败请求，手动轮次累加�
     }, { wait() {}, retry: error => { assert.equal(error.retryRound, ++prompts); assert.equal(error.attempts, 3); return true; } });
     assert.equal(await run(), 'created'); assert.deepEqual([writes, reads, prompts], [7, 7, 2]);
 });
+
+test('只读 GraphQL 的自动与手动重试共享外层截止时间，不延长源码阶段预算', () => {
+    let time = 0, calls = 0, recoveries = 0;
+    const timeouts = [];
+    const close = requestRecovery((error, round) => {
+        assert.equal(round, 1); assert.equal(error.attempts, 3);
+        assert.equal(error.method, 'POST'); assert.equal(error.totalAttempts, 3);
+        recoveries++; time += 1000;
+        return true;
+    });
+    try {
+        assert.throws(() => githubRequest(timeout => {
+            calls++; timeouts.push(timeout);
+            time += calls <= 3 ? 1000 : timeout;
+            throw Object.assign(new Error('private'), { code: 'ETIMEDOUT' });
+        }, { method: 'POST', readOnly: true, now: () => time, wait: delay => { time += delay; },
+            timeout: 60000, deadline: 10000 }), {
+            message: 'GITHUB_TIMEOUT', github: true, retryable: false, recoverable: false,
+        });
+        assert.deepEqual(timeouts, [10000, 8000, 5000, 3000]);
+        assert.deepEqual([calls, recoveries, time], [4, 1, 10000]);
+        assert.throws(() => githubRequest(() => assert.fail('deadline already spent'),
+            { now: () => time, deadline: 10000 }), { message: 'GITHUB_TIMEOUT', recoverable: false });
+    } finally { close(); }
+});

@@ -8,7 +8,7 @@ import { failureCode, failureDetails, locales, localizedText } from '../submissi
 import { errors } from '../submission-messages.mjs';
 import { formatMetadata } from '../submission-presentation.mjs';
 import { observe } from '../submission-progress.mjs';
-import { prepareSdk } from '../sdk.mjs';
+import { prepareSdk } from './local-sdk.mjs';
 
 test('Java 三个入口逐一检查最低版本，旧 JDK 不进入解包和编译', () => {
     for (const rejected of ['java', 'javac', 'jar']) {

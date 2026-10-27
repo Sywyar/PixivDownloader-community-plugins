@@ -23,7 +23,7 @@ import top.sywyar.pixivdownload.sdk.community.project.CommunityPaths;
 import top.sywyar.pixivdownload.sdk.community.review.*;
 import top.sywyar.pixivdownload.sdk.community.directory.*;
 
-/** 受保护执行器的薄适配：状态归约、字节合同和签名编码全部复用固定 SDK。 */
+/** 受保护执行器的薄适配：社区持有状态归约，共享技术依赖持有字节合同和签名编码。 */
 public final class CommunityApply {
     private static final int MAX_BYTES = 32 * 1024 * 1024;
     private static final ObjectMapper JSON = new ObjectMapper();

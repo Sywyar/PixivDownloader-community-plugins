@@ -22,6 +22,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -32,14 +33,64 @@ jobs:
           java-version: '17'
           verify-signature: true
       - run: node --test scripts/test/submission-channel.test.mjs scripts/test/submission-bootstrap.test.mjs
-  sign:
+      - name: Verify merged source and its signed channel manifest
+        run: node --input-type=module -e "import { runtimeManifest } from './scripts/submission-channel.mjs'; runtimeManifest(process.cwd(), process.env.RUNTIME_COMMIT);"
+        env:
+          RUNTIME_COMMIT: ${{ inputs.runtime_commit }}
+  build:
     needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      artifact: ${{ steps.bundle.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.runtime_commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: '24'
+      - uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          verify-signature: true
+      - name: Acquire pinned technical dependencies
+        run: node scripts/foundation-resources.mjs fetch .
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Verify source manifest and governance behavior
+        run: |
+          node scripts/submission-manifest.mjs
+          node scripts/test-governance.mjs
+          node --test --test-concurrency=2 scripts/test/foundation.test.mjs scripts/test/sdk.test.mjs scripts/test/apply-generation.test.mjs scripts/test/apply-version.test.mjs scripts/test/transfer-publication.test.mjs
+      - name: Build independent community distribution
+        run: |
+          node scripts/community-tools.mjs "$RUNNER_TEMP/community-tools"
+          git rev-parse HEAD > "$RUNNER_TEMP/community-tools/source-commit.txt"
+          tar -czf "$RUNNER_TEMP/community-tools.tar.gz" -C "$RUNNER_TEMP/community-tools" .
+      - id: bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: community-tools
+          path: ${{ runner.temp }}/community-tools.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+  sign:
+    needs: build
     if: >-
       github.repository_id == '1347624983' && github.repository_owner_id == '83223374' &&
       github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -49,6 +100,14 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact }}
+          path: ${{ runner.temp }}/community-tools
+          merge-multiple: true
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: ${{ runner.temp }}/community-tools/community-tools.tar.gz
       - name: Sign the merged runtime after environment approval
         run: node scripts/submission-channel.mjs issue "$RUNTIME_COMMIT" "$RUNNER_TEMP/submission-channel.json"
         env:

@@ -2,50 +2,63 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { API_BYTES, main, sha } from './github.mjs';
+import { API_BYTES, main } from './github.mjs';
 import { observe } from './submission-progress.mjs';
 import { checkJavaTools, runTool, toolJson } from './tool-process.mjs';
-import { ensureSdk } from './sdk-resources.mjs';
-export { sdkResource } from './sdk-resources.mjs';
+import { buildCommunityTools } from './community-tools.mjs';
+import { fileMatches, plainPath } from './foundation-resources.mjs';
+export { foundationResource as sdkResource } from './foundation-resources.mjs';
 
 export const root = fileURLToPath(new URL('../', import.meta.url));
 export const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
-export function verifyTool(directory = root) {
-    const ready = ensureSdk(directory);
-    const lock = ready.sdk;
-    const metadataBytes = fs.readFileSync(path.join(ready.directory, 'tools/community-contract.json'));
-    const metadata = JSON.parse(metadataBytes.toString('utf8'));
-    if (metadata.sourceCommit !== sha(lock.sourceCommit) || metadata.tool.path !== 'tools/sdk-tools.jar') throw new Error('SDK_SOURCE_MISMATCH');
-    const tool = path.join(ready.directory, metadata.tool.path);
-    if (!fs.lstatSync(tool).isFile() || fs.statSync(tool).size !== metadata.tool.size
-        || hash(fs.readFileSync(tool)) !== metadata.tool.sha256) throw new Error('SDK_TOOL_HASH_MISMATCH');
-    return { lock, metadata, resources: ready.directory };
+export function prepareSdk(directory = root) {
+    const prepared = prepareSdkRuntime(directory);
+    try {
+        prepared.invoke('verify');
+        return prepared;
+    } catch (error) {
+        plainPath(prepared.workspace);
+        fs.rmSync(prepared.workspace, { recursive: true });
+        throw error;
+    }
 }
 
-export function prepareSdk(directory = root) {
+function prepareSdkRuntime(directory = root) {
     observe('checkingJava', '', () => checkJavaTools());
-    const { lock, resources } = observe('verifyingTools', '', () => verifyTool(directory));
+    const built = observe('verifyingTools', '', () => buildCommunityTools(directory));
     const target = path.join(directory, 'target');
-    fs.mkdirSync(target, { recursive: true });
-    if (!fs.lstatSync(target).isDirectory()) throw new Error('SDK_WORKSPACE_INVALID');
+    plainPath(target);
     const workspace = fs.mkdtempSync(path.join(target, 'community-'));
-    fs.mkdirSync(path.join(workspace, 'tools'));
-    for (const name of ['sdk-tools.jar', 'community-contract.json', 'build-model.mjs', 'community-model.gradle']) fs.copyFileSync(path.join(resources, 'tools', name), path.join(workspace, 'tools', name));
-    fs.cpSync(path.join(resources, 'contracts/community/v1'), path.join(workspace, 'contracts/community/v1'), { recursive: true });
-    const classes = path.join(workspace, 'runtime');
-    fs.mkdirSync(classes);
-    // JVM 默认将统一日志写入 stdout；合同 JSON 独占 stdout，诊断转入 stderr。
-    const run = (command, args, cwd = workspace, input) => observe('tool_' + command, '', () => runTool(command,
-        command === 'java' ? ['-Xlog:all=off:stdout', '-Xlog:all=warning:stderr', ...args] : args, {
-        cwd, input,
-    }).stdout);
-    run('jar', ['--extract', '--file', path.join(workspace, 'tools/sdk-tools.jar'), 'BOOT-INF/classes', 'BOOT-INF/lib'], classes);
-    const classpath = [path.join(classes, 'BOOT-INF/classes'), path.join(classes, 'BOOT-INF/lib/*'), classes].join(path.delimiter);
-    run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', classpath, '-d', classes, path.join(directory, 'tools/CommunityReview.java')]);
-    const invoke = command => observe('checkingContract', '', () => toolJson(run('java', ['-cp', classpath, 'CommunityReview', workspace, lock.sourceCommit, command])));
-    invoke('verify');
-    return { workspace, invoke, run, classpath, resources, sdkIdentity: { version: lock.version, sha256: lock.archive.sha256 } };
+    try {
+        fs.mkdirSync(path.join(workspace, 'tools'));
+        const jar = path.join(workspace, 'tools', built.tool.path);
+        fs.copyFileSync(built.jar, jar);
+        for (const name of ['build-model.mjs', 'community-model.gradle']) fs.copyFileSync(
+            path.join(built.foundation.directory, 'tools', name), path.join(workspace, 'tools', name));
+        fs.cpSync(path.join(built.foundation.directory, 'resources/community/v1'),
+            path.join(workspace, 'contracts/community/v1'), { recursive: true });
+        const classes = path.join(workspace, 'runtime');
+        fs.mkdirSync(classes);
+        const classpath = [jar, ...built.libraries, classes].join(path.delimiter);
+        // 每次执行重验实际字节；不把投稿代码加入 classpath。
+        const run = (command, args, cwd = workspace, input) => observe('tool_' + command, '', () => {
+            if (!fileMatches(jar, built.tool)) throw new Error('COMMUNITY_TOOL_MISSING');
+            for (let i = 0; i < built.libraries.length; i++) {
+                if (!fileMatches(built.libraries[i], built.foundation.lock.libraries[i])) throw new Error('FOUNDATION_RESOURCE_MISSING');
+            }
+            return runTool(command, command === 'java'
+                ? ['-Xlog:all=off:stdout', '-Xlog:all=warning:stderr', ...args] : args, { cwd, input }).stdout;
+        });
+        const invoke = command => observe('checkingContract', '', () => toolJson(run('java',
+            ['-cp', classpath, 'CommunityReview', workspace, built.identity.sourceSha256, command])));
+        return { workspace, invoke, run, classpath, resources: built.foundation.directory,
+            toolIdentity: built.identity };
+    } catch (error) {
+        plainPath(workspace);
+        fs.rmSync(workspace, { recursive: true });
+        throw error;
+    }
 }
 
 export function evidence(workspace, value) {

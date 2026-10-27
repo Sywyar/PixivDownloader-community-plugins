@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
-import { prepareSdk, root } from '../sdk.mjs';
+import { root } from '../sdk.mjs';
+import { prepareSdk } from './local-sdk.mjs';
 import { archivedCandidates } from '../archive-read.mjs';
 import { candidateSlot } from '../candidate.mjs';
 import { prefix, policy } from '../github.mjs';
@@ -23,6 +24,20 @@ public class WorkflowJson {
 }`, 'utf8');
     sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath, '-d', path.join(sdk.workspace, 'runtime'), source]);
     const read = file => JSON.parse(sdk.run('java', ['-cp', sdk.classpath, 'WorkflowJson', path.join(root, '.github/workflows', file + '.yml')]));
+    const ci = read('ci'), tests = ci.jobs.tests;
+    assert.deepEqual(ci.permissions, { contents: 'read' });
+    assert.deepEqual(tests.permissions ?? ci.permissions, { contents: 'read' });
+    const fetchIndex = tests.steps.findIndex(step => step.run === 'node scripts/foundation-resources.mjs fetch .');
+    const javaIndex = tests.steps.findIndex(step => step.run === 'node scripts/test-governance.mjs');
+    const nodeIndex = tests.steps.findIndex(step => step.run === 'npm test');
+    assert(fetchIndex >= 0 && javaIndex > fetchIndex && nodeIndex > javaIndex);
+    assert.deepEqual(tests.steps[fetchIndex].env, { GH_TOKEN: '${{ github.token }}' });
+    assert.equal(tests.steps[fetchIndex].if, undefined);
+    assert.equal(tests.steps[javaIndex].if, undefined);
+    for (const scope of [ci, ...Object.values(ci.jobs), ...tests.steps.filter((_, i) => i !== fetchIndex), ...ci.jobs.bootstrap.steps]) {
+        for (const key of ['GH_TOKEN', 'GITHUB_TOKEN']) assert.equal(scope.env?.[key], undefined);
+        assert.equal(scope['continue-on-error'], undefined);
+    }
     // 实际条件和输出选择共同决定是否通知；空数组不能因为字符串非空而启动作业。
     for (const [name, stages] of [['community-gate', ['gate']], ['community-status', ['store']],
         ['community-review-complete', ['preflight', 'store']], ['community-publication', ['finalize']]]) {
@@ -42,6 +57,7 @@ public class WorkflowJson {
     const inspect = { contents: 'write', actions: 'read', 'pull-requests': 'read' };
     const notify = { contents: 'read', actions: 'read', 'pull-requests': 'write' };
     const commands = {
+        'foundation-resources.mjs fetch .': { contents: 'read' },
         'community-emergency.mjs': { contents: 'write', actions: 'write', 'pull-requests': 'write' },
         'community-emergency.mjs notify': notify,
         'community-gate.mjs prepare': inspect,
@@ -171,7 +187,9 @@ public class WorkflowJson {
     const cleanup = read('community-candidate-cleanup');
     const emergency = read('community-emergency');
     const reviewEvent = read('community-review-event'), automatic = read('community-status');
-    assert(automatic.on.workflow_run.workflows.includes(reviewEvent.name));
+    assert.deepEqual(automatic.on.workflow_run.workflows,
+        [build.name, reviewEvent.name, archive.name, read('community-review-decision').name]);
+    assert.deepEqual(read('community-renewal').on.schedule, [{ cron: '23 4 * * *' }]);
     assert.deepEqual(automatic.on.workflow_run.types, ['completed']);
     assert.deepEqual(reviewEvent.permissions, {});
     assert.deepEqual(reviewEvent.on.pull_request_review.types, ['submitted', 'edited', 'dismissed']);

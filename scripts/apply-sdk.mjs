@@ -1,12 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { root, hash } from './sdk.mjs';
+import { hash } from './sdk.mjs';
 import { API_BYTES } from './github.mjs';
 import { toolJson } from './tool-process.mjs';
 
-export function applySdk(sdk, directory = root) {
-    sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath, '-d', path.join(sdk.workspace, 'runtime'),
-        path.join(directory, 'tools/CommunityApply.java')]);
+export function applySdk(sdk) {
     const workspace = fs.mkdtempSync(path.join(sdk.workspace, 'apply-'));
     const records = new Map();
     const archive = (value, name) => {

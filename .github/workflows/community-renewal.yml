@@ -1,7 +1,7 @@
 name: Renew community revocations
 on:
   schedule:
-    - cron: '23 4 * * 1'
+    - cron: '23 4 * * *'
   workflow_dispatch:
 permissions:
   contents: read

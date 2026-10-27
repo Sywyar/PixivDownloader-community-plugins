@@ -2,40 +2,11 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { policy, prefix } from '../github.mjs';
-import { submissionAdapter } from '../submission-sdk.mjs';
-import { hash, prepareSdk } from '../sdk.mjs';
+import { prepareSubmission } from '../submission-sdk.mjs';
 import { runWizard as wizard } from '../submit.mjs';
 
-// 仅供开发回归：生产入口始终验证固定发行物，不接受本地 classpath 覆盖。
-export function prepareSubmission() {
-    const sdk = prepareSdk();
-    const classes = process.env.COMMUNITY_TEST_SDK_CLASSES;
-    const candidateJar = process.env.COMMUNITY_TEST_SDK_JAR;
-    if (candidateJar) {
-        if (!fs.lstatSync(candidateJar).isFile()) throw new Error('TEST_SDK_JAR_INVALID');
-        sdk.run('jar', ['--extract', '--file', path.resolve(candidateJar), 'BOOT-INF/classes', 'BOOT-INF/lib'], path.join(sdk.workspace, 'runtime'));
-        const libraries = path.join(sdk.workspace, 'runtime/BOOT-INF/lib');
-        const contract = fs.readdirSync(libraries).filter(name => /^pixivdownload-community-contract-.*\.jar$/u.test(name));
-        if (contract.length !== 1) throw new Error('TEST_SDK_JAR_INVALID');
-        sdk.run('jar', ['--extract', '--file', path.join(libraries, contract[0]), 'community'], path.join(sdk.workspace, 'runtime/BOOT-INF/classes'));
-    }
-    if (classes || candidateJar) {
-        if (classes?.split(path.delimiter).some(directory => !fs.statSync(directory).isDirectory())) throw new Error('TEST_SDK_CLASSES_INVALID');
-        // 各适配器闭包使用同一已解包目录，确保投稿、审核和执行都验证同一候选。
-        for (const directory of classes?.split(path.delimiter) ?? []) fs.cpSync(directory,
-            path.join(sdk.workspace, 'runtime/BOOT-INF/classes'), { recursive: true });
-        const resources = path.join(sdk.workspace, 'runtime/BOOT-INF/classes/community/v1');
-        const manifest = fs.readFileSync(path.join(resources, 'bundle-manifest.json'));
-        fs.cpSync(resources, path.join(sdk.workspace, 'contracts/community/v1'), { recursive: true });
-        // 只更新隔离测试副本的合同描述；固定发行 JAR 的摘要检查仍然执行。
-        const metadataFile = path.join(sdk.workspace, 'tools/community-contract.json');
-        const metadata = JSON.parse(fs.readFileSync(metadataFile, 'utf8'));
-        metadata.sdkVersion = JSON.parse(manifest).toolchain.sdk;
-        metadata.manifestSha256 = hash(manifest);
-        fs.writeFileSync(metadataFile, JSON.stringify(metadata) + '\n');
-    }
-    return submissionAdapter(sdk);
-}
+export { prepareSdk } from '../sdk.mjs';
+export { prepareSubmission } from '../submission-sdk.mjs';
 
 // 普通流程测试使用真实空状态文档；紧急流程测试自己提供封禁树。
 export function withEmergencyState(call = endpoint => { throw new Error('UNEXPECTED_TEST_REQUEST: ' + endpoint); }) {

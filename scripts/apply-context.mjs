@@ -8,7 +8,7 @@ import { execution, notificationExecution, git, pull, prValue, reviewers, facts,
 import { evaluate, hash } from './sdk.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { publicationPath } from './archive-proof.mjs';
-import { authorizeStatus, signedStatusAuthority } from './status-authorization.mjs';
+import { authorizeStatus, signedStatusAuthority, automaticRequestEligible, automaticAuthorization, authorizationPassed } from './status-authorization.mjs';
 import { statusEnvironment } from './status-execution.mjs';
 export { publicationPath };
 
@@ -104,10 +104,9 @@ export function currentAdmission(number, sdk, context, version, call = api, read
     const confirmation = () => requireTransferReview(version.checked, pull(number, reviewCall), reviewCall, version.transferRepresentations);
     const ownerReview = confirmation();
     const input = collect(), result = evaluate(sdk, input);
-    if (!result.validationPassed || !result.riskPassed
-        || !(result.authorization === 'SIGNED_OWNER' && result.human.status !== 'CHANGES_REQUESTED'
-            || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status))) throw new Error('PUBLICATION_REVIEW_REQUIRED');
-    if (context.automatic && result.authorization !== 'SIGNED_OWNER') throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
+    if (!result.validationPassed || !result.riskPassed || !authorizationPassed(result)) throw new Error('PUBLICATION_REVIEW_REQUIRED');
+    if (context.automatic && (!automaticRequestEligible(version.checked) || version.statusManualReason
+        || !automaticAuthorization(version.checked.operation, result.authorization))) throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     if (fingerprint(input) !== fingerprint(collect())) throw new Error('REVIEW_FACTS_CHANGED');
     if (!isDeepStrictEqual(ownerReview, confirmation())) throw new Error('REVIEW_FACTS_CHANGED');
     emergency?.unchanged();

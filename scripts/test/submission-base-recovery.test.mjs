@@ -1,5 +1,5 @@
-import { ensureSdk } from '../sdk-resources.mjs';
-const sdkResources = ensureSdk().directory;
+import { ensureFoundation } from '../foundation-resources.mjs';
+const sdkResources = ensureFoundation().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,7 +19,7 @@ for (const change of ['unrelated', 'binding', 'account', 'continuous', 'diverged
         const priorExit = process.exitCode;
         t.after(() => { process.exitCode = priorExit; fs.rmSync(home, { recursive: true }); });
         const sdk = prepareSubmission();
-        const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, `contracts/community/v1/vectors/structure/${name}.json`), 'utf8'));
+        const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, `resources/community/v1/vectors/structure/${name}.json`), 'utf8'));
         const encode = value => Buffer.from(JSON.stringify(value));
         const binding = vector('binding'), published = vector('published');
         const files = new Map([

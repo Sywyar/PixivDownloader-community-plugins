@@ -15,6 +15,18 @@ export const signedStatusEligible = checked => signedOwnerOperations.includes(ch
             && checked.from.accountId !== checked.to.accountId
         : checked.owner?.accountType === 'User' && checked.owner.accountId === checked.pr?.user.id);
 
+export const automaticRequestEligible = checked => checked && !checked.recoveryRequired
+    && !checked.organizationRepresentationRequired?.length
+    && (['FIRST_RELEASE', 'UPDATE', 'RENEWAL'].includes(checked.operation) || signedStatusEligible(checked));
+
+export const automaticAuthorization = (operation, authorization) => authorization === 'POLICY_RENEWAL'
+    ? operation === 'RENEWAL' : authorization === 'SIGNED_OWNER' ? signedOwnerOperations.includes(operation)
+        : authorization === 'HUMAN_REVIEW' && ['FIRST_RELEASE', 'UPDATE'].includes(operation);
+
+export const authorizationPassed = result => result.human.status !== 'CHANGES_REQUESTED'
+    && (['SIGNED_OWNER', 'POLICY_RENEWAL'].includes(result.authorization)
+        || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status));
+
 export const recipientApprovalPath = checked => `ownership-transfers/${checked.pluginId}/${checked.requestId}/approvals/to/${checked.to.accountId}.json`;
 
 // 只有请求文件来自投稿分支，其余管理状态始终读取当前受保护主线。

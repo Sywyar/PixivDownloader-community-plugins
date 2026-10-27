@@ -5,7 +5,7 @@ import { mergeStatus, STATUS_CHECK_WAIT_MS } from '../status-merge.mjs';
 import { policy, prefix } from '../github.mjs';
 import { statusPath } from '../archive-proof.mjs';
 import crypto from 'node:crypto';
-import { statusState, signedStatusEligible } from '../status-authorization.mjs';
+import { statusState, signedStatusEligible, automaticRequestEligible, automaticAuthorization, authorizationPassed } from '../status-authorization.mjs';
 import { hash } from '../sdk.mjs';
 
 const base = 'a'.repeat(40), head = 'b'.repeat(40), merged = 'c'.repeat(40);
@@ -97,12 +97,42 @@ test('自动合并复用所有者凭据、等待绑定 App 检查并恢复合并
         assert(title.includes(operation));
         assert(title.includes(operation === 'KEY_ROTATION' ? '发布者 example' : operation === 'OWNERSHIP_TRANSFER' ? 'demo' : 'example / demo-v2.3.4-rc.2'));
         if (operation === 'OWNERSHIP_TRANSFER') assert(title.includes('previous') && title.includes('next'));
-        assert.equal(f.writes.filter(row => row.endpoint.endsWith('community-publication.yml/dispatches')).length, failure === 'protected' ? 0 : 1);
+        assert.equal(f.writes.filter(row => row.endpoint.endsWith('community-publication.yml/dispatches')).length, 0);
         assert.equal(f.refreshed, 1);
         assert.deepEqual(result.projection, { number: 7, head, state: f.pr.state, merged: f.pr.merged,
             requestInfo: { 'zh-CN': '已验证', 'en-US': 'verified request' } });
         assert(!f.writes.some(row => row.endpoint.endsWith('community-gate.yml/dispatches')));
     }
+});
+
+test('人工 Approve 和策略续签都保留最终 Gate 与重新核对授权', async () => {
+    for (const [authorization, operation] of [['HUMAN_REVIEW', 'FIRST_RELEASE'], ['HUMAN_REVIEW', 'UPDATE'], ['POLICY_RENEWAL', 'RENEWAL']]) {
+        const f = fixture();
+        Object.assign(f.completion.receipt, { authorization, operation });
+        let evaluations = 0;
+        f.options.admission = () => { evaluations++; };
+        assert.equal((await mergeStatus(f.context, {}, 7, head, f.options)).merged, true);
+        assert.equal(evaluations, 2);
+        assert.equal(f.writes.length, 1);
+        const changed = fixture();
+        Object.assign(changed.completion.receipt, { authorization, operation });
+        changed.options.admission = () => { throw new Error('REVIEW_FACTS_CHANGED'); };
+        await assert.rejects(mergeStatus(changed.context, {}, 7, head, changed.options), /REVIEW_FACTS_CHANGED/);
+        assert.equal(changed.writes.length, 0);
+    }
+    for (const authorization of ['POLICY_RENEWAL', 'SIGNED_OWNER', 'untrusted']) {
+        assert.equal(automaticAuthorization('FIRST_RELEASE', authorization), false);
+    }
+    for (const operation of ['YANK', 'UNYANK', 'REVOKE', 'KEY_ROTATION', 'OWNERSHIP_TRANSFER']) {
+        assert.equal(automaticAuthorization(operation, 'HUMAN_REVIEW'), false);
+    }
+    for (const patch of [{ recoveryRequired: true }, { organizationRepresentationRequired: ['202'] }]) {
+        assert.equal(Boolean(automaticRequestEligible({ operation: 'UPDATE', ...patch })), false);
+    }
+    for (const authorization of ['HUMAN_REVIEW', 'SIGNED_OWNER', 'POLICY_RENEWAL']) {
+        assert.equal(authorizationPassed({ authorization, human: { status: 'CHANGES_REQUESTED' } }), false);
+    }
+    assert.equal(authorizationPassed({ authorization: 'HUMAN_REVIEW', human: { status: 'PENDING' } }), false);
 });
 
 test('人工审核合并核验本次 release 批准；主线推进不改原审核 head，拒绝仍阻断', async () => {
@@ -158,7 +188,7 @@ test('缺少凭据、错误身份、人工拒绝、head 改变和失败检查均
     }
 });
 
-test('自动运行只接受静态检查或原生 Review 唤醒和无人工审批的 master 环境', () => {
+test('自动运行只接受可信检查、审核、归档和裁决唤醒，以及受保护的 master 环境', () => {
     const f = fixture();
     const run = { id: 71, repository: { id: policy.repositoryId }, status: 'completed', conclusion: 'success',
         path: '.github/workflows/submission-check.yml', display_title: 'Submission PR #7' };
@@ -178,7 +208,15 @@ test('自动运行只接受静态检查或原生 Review 唤醒和无人工审批
     run.display_title = 'Unrelated comment';
     assert.throws(() => statusInputs(f.context, { workflow_run: { id: 71 } }, call), /STATUS_TRIGGER_INVALID/);
     run.display_title = 'Review PR #7';
-    assert.equal(statusEnvironment(f.context, {}, call).authorization, 'SIGNED_OWNER');
+    assert.equal(statusEnvironment(f.context, {}, call).authorization, undefined);
+    for (const [path, title] of [['community-archive', 'Archive Submission PR #7'],
+        ['community-review-decision', `Community decision PR #7 head ${head}`]]) {
+        run.path = `.github/workflows/${path}.yml`; run.display_title = title;
+        assert.equal(statusInputs(f.context, { workflow_run: { id: 71 } }, call).expectedHeadSha, head);
+        run.conclusion = 'failure';
+        assert.throws(() => statusInputs(f.context, { workflow_run: { id: 71 } }, call), /STATUS_TRIGGER_INVALID/);
+        run.conclusion = 'success';
+    }
     run.path = '.github/workflows/untrusted.yml';
     assert.throws(() => statusInputs(f.context, { workflow_run: { id: 71 } }, call), /STATUS_TRIGGER_INVALID/);
     environment.can_admins_bypass = true;

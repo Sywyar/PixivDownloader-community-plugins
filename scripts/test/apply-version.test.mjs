@@ -1,5 +1,6 @@
-import { ensureSdk } from '../sdk-resources.mjs';
-const sdkResources = ensureSdk().directory;
+import { ensureFoundation } from '../foundation-resources.mjs';
+import { verifyLegacyReviews } from './legacy-reader.mjs';
+const sdkResources = ensureFoundation().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -17,8 +18,9 @@ import { scanBuild } from '../build-evidence.mjs';
 import { encoded, packageName } from '../apply-generation.mjs';
 import { hash, root } from '../sdk.mjs';
 import { policy, prefix } from '../github.mjs';
+import { statusPath } from '../archive-proof.mjs';
 
-test('真实签名包经审核合并后公开候选 Release，同版本重放不产生写入', async () => {
+for (const withContent of [false, true]) test(`普通 Approve 签发、发布及重放保留原字节（市场文档：${withContent}）`, async () => {
     const sdk = prepareSubmission(), sign = signingTool(sdk), adapter = applySdk(sdk);
     const records = new Map();
     const state = { tree: records, raw: file => records.get(file) ?? null,
@@ -40,20 +42,20 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
     const bytes = fs.readFileSync(artifact), inspected = sdk.invoke({ command: 'inspect', file: artifact });
     const signature = path.join(sdk.workspace, 'publisher-signature.json');
     sign('artifact', '--artifact', artifact, '--plugin-id', 'example-minimal', '--version', '2.3.4', '--key-id', key.keyId, '--private-key', privateFile, '--out', signature);
-    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json')));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/submission.json')));
     submission.package = { ...submission.package, expectedSize: bytes.length, sha256: hash(bytes), signature: JSON.parse(fs.readFileSync(signature)) };
     const contentFiles = new Map();
-    submission.content = {};
-    submission.market.links = [];
-    for (const [kind, format, text] of [['readme', 'html', '<h1>Usage</h1><script>blocked()</script>'],
+    if (withContent) { submission.content = {}; submission.market.links = []; }
+    else { delete submission.content; delete submission.market.links; }
+    for (const [kind, format, text] of withContent ? [['readme', 'html', '<h1>Usage</h1><script>blocked()</script>'],
         ['releaseNotes', 'markdown', '## [v2.3.4]\n### Features\n- Current feature'],
-        ['changelog', 'markdown', '## [v2.3.4]\n### Features\n- Current feature\n## [v2.3.3]\n- Previous feature']]) {
+        ['changelog', 'markdown', '## [v2.3.4]\n### Features\n- Current feature\n## [v2.3.3]\n- Previous feature']] : []) {
         const bytes = Buffer.from(text), sha256 = hash(bytes), name = `content-${sha256}.${format === 'html' ? 'html' : 'md'}`;
         contentFiles.set(name, bytes); fs.writeFileSync(path.join(sdk.workspace, name), bytes);
         submission.content[kind] = { en: { format, asset: { name, url: `https://example.org/content/${name}`,
             mediaType: `text/${format}`, size: bytes.length, sha256 }, resources: {} } };
     }
-    const contentAssets = sdk.invoke({ command: 'content', value: submission.content, root: sdk.workspace, locale: 'en' });
+    const contentAssets = withContent ? sdk.invoke({ command: 'content', value: submission.content, root: sdk.workspace, locale: 'en' }) : [];
     const submissionPath = 'submissions/101/example-minimal/2.3.4.json'; records.set(submissionPath, encoded(submission));
     const owner = { accountId: '101', accountType: 'User', publisherId: 'example' };
     const originalAssets = [{ id: 601, name: packageName({ ...submission, owner }), size: bytes.length,
@@ -65,15 +67,19 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
     const pr = { number: 7, state: 'open', merged: false, draft: false, merge_commit_sha: null, user: { id: 101, type: 'User' }, changed_files: 1,
         head: { sha: 'a'.repeat(40), repo: { id: 401, full_name: 'example/fork' } }, base: { sha: current, ref: policy.defaultBranch, repo: { id: policy.repositoryId } } };
     const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };
-    const context = { current, run: { id: 91, run_attempt: 1, event: 'workflow_dispatch', triggering_actor: reviewer } };
+    const context = { automatic: true, current, run: { id: 91, run_attempt: 1, event: 'workflow_run', path: statusPath, triggering_actor: reviewer } };
+    let reviewState = 'APPROVED';
     const call = withEmergencyState(withRepositoryFiles(withRepositoryFiles(endpoint => {
         const route = endpoint.replace(/([?&])per_page=100/u, '');
         if (route === `${prefix}/pulls/7`) return pr;
         if (route === `${prefix}/pulls/7/files`) return [[{ filename: submissionPath, status: 'added', sha: 'd'.repeat(40) }]];
         if (route === `${prefix}/collaborators?affiliation=all`) return [[reviewer]];
-        if (route === `${prefix}/pulls/7/reviews`) return [[{ id: 91, user: reviewer, state: 'APPROVED', commit_id: pr.head.sha,
+        if (route === `${prefix}/pulls/7/reviews`) return [[{ id: 91, user: reviewer, state: reviewState, commit_id: pr.head.sha,
             submitted_at: '2026-01-01T00:00:00Z', pull_request_url: `https://api.github.com/${prefix}/pulls/7` }]];
         if (route.startsWith(`${prefix}/actions/workflows/community-review-decision.yml/runs?`)) return [{ workflow_runs: [], total_count: 0 }];
+        if (route === `${prefix}/environments/community-status`) return { id: 9, can_admins_bypass: false,
+            deployment_branch_policy: { custom_branch_policies: true }, protection_rules: [] };
+        if (route === `${prefix}/environments/community-status/deployment-branch-policies`) return [{ branch_policies: [{ type: 'branch', name: 'master' }], total_count: 1 }];
         if (route === `${prefix}/environments/release`) return { id: 8, can_admins_bypass: false, deployment_branch_policy: { custom_branch_policies: true },
             protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer }] }] };
         if (route === `${prefix}/environments/release/deployment-branch-policies`) return [{ branch_policies: [{ id: 9, type: 'branch', name: 'master' }], total_count: 1 }];
@@ -95,9 +101,19 @@ test('真实签名包经审核合并后公开候选 Release，同版本重放不
             ...[...contentFiles].map(([path, bytes]) => ({ path, size: bytes.length, sha256: hash(bytes) }))] },
         report: JSON.parse(fs.readFileSync(path.join(sdk.workspace, scan.riskReportRef.path))) };
     const admission = currentAdmission(7, sdk, context, version, call, () => '');
+    assert.equal(admission.result.authorization, 'HUMAN_REVIEW');
+    for (const rejected of ['COMMENTED', 'CHANGES_REQUESTED']) {
+        reviewState = rejected;
+        assert.throws(() => currentAdmission(7, sdk, context, version, call, () => ''), /PUBLICATION_REVIEW_REQUIRED/);
+    }
+    reviewState = 'APPROVED';
+    reviewer.role_name = 'read';
+    assert.throws(() => currentAdmission(7, sdk, context, version, call, () => ''), /PUBLICATION_REVIEW_REQUIRED/);
+    reviewer.role_name = 'admin';
     const options = { sdk, adapter, state, version, pr, context, admission, inputs: { recoveryApproved: false }, communityKey, privateBytes, appliedAt, call };
     const originalRecords = new Map(records);
     const result = publishVersion(options);
+    await verifyLegacyReviews(sdk, result.writes, { withContent });
     assert.equal(result.published.assuranceLevel, 'SOURCE_REVIEWED');
     assert.equal(result.published.sourceCommit, submission.source.commit);
     assert.equal(result.release.id, '501'); assert.equal(result.release.packageSha256, hash(bytes));

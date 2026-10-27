@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { policy, prefix } from '../github.mjs';
-import { prepareSdk, evaluate, hash, evidence, readDecisionArtifact } from '../sdk.mjs';
+import { evaluate, hash, evidence, readDecisionArtifact } from '../sdk.mjs';
 import { trustedRun, execution, classify, facts, decisionPath, gatePath } from '../platform.mjs';
 import { createDecision, attachDecisions, loadDecisions } from '../decisions.mjs';
 import { publish, notify, gateRequests, preparedVersion, freezeVersions, restoreVersions } from '../community-gate.mjs';
 import { renewalBranch, renewalFile } from '../community-renewal.mjs';
-import { prepareSubmission, withEmergencyState, withRepositoryFiles } from './local-sdk.mjs';
+import { prepareSdk, prepareSubmission, withEmergencyState, withRepositoryFiles } from './local-sdk.mjs';
 
 const head = 'a'.repeat(40), current = 'b'.repeat(40);
 test('主线汇总不读取开放 PR，审核事件只重新检查关联请求', () => {
@@ -185,23 +186,37 @@ test('目标事件要求受保护执行上下文，投稿 head 和关闭后的�
     assert.equal(state.writes.length, 0);
 });
 
-test('续签机器人请求必须取得真实维护者批准，仍等待手动完成审核', async () => {
-    const sdk = prepareSdk(), { state, call, readGit, context } = fixture();
+test('纯续签按固定策略准入，维护者拒绝与伪造机器人仍阻断', async () => {
+    const sdk = prepareSdk(), { state, call: native, readGit, context } = fixture();
     state.pr.user = { id: 41898282, type: 'Bot' };
     state.pr.head.ref = renewalBranch;
-    state.files = [{ filename: renewalFile, status: 'added' }];
-    const version = { checked: { operation: 'RENEWAL', requestSha256: 'd'.repeat(64),
+    const encode = value => Buffer.from(JSON.stringify(value) + '\n');
+    const nextUpdate = new Date(Date.now() + 86400000).toISOString();
+    const revocations = encode({ schemaVersion: 1, repositoryId: 'pixivdownloader-community', sequence: 2, nextUpdate, entries: [] });
+    const generation = encode({ sequence: 3, revocations: { path: 'generated/generations/3/revocations.json', size: revocations.length, sha256: hash(revocations) } });
+    const request = encode({ schemaVersion: 1, operation: 'RENEWAL', generation: 3,
+        generationSha256: hash(generation), revocationsSha256: hash(revocations), nextUpdate, baseSha: current });
+    const records = new Map([['revocations.json', revocations], ['generated/current.json', generation]]);
+    const call = withRepositoryFiles(native, policy.repository, new Map([[current, records],
+        [head, new Map([...records, [renewalFile, request]])]]));
+    state.files = [{ filename: renewalFile, status: 'added',
+        sha: crypto.createHash('sha1').update(Buffer.from(`blob ${request.length}\0`)).update(request).digest('hex') }];
+    const version = { checked: { operation: 'RENEWAL', requestSha256: hash(request),
         pr: { head, base: current, user: { id: '41898282' } } } };
     const resolve = async () => version;
     const pending = await publish(7, context, sdk, call, call, readGit, resolve);
     assert.equal(pending.error, undefined);
-    assert.equal([...state.checks.values()].at(-2).status, 'queued');
-    state.reviews = [{ id: 31, user: state.owner, commit_id: head, state: 'APPROVED',
-        submitted_at: '2025-01-01T00:00:00Z', pull_request_url: 'https://api.github.com/' + prefix + '/pulls/7' }];
-    const approved = await publish(7, context, sdk, call, call, readGit, resolve);
-    assert.equal(approved.error, undefined);
+    assert(pending.labels.includes('authorization:policy-renewal'));
+    assert(!pending.labels.includes('review:pending'));
+    assert(!pending.labels.includes('review:approved'));
     assert.equal([...state.checks.values()].at(-2).conclusion, 'success');
     assert.equal([...state.checks.values()].at(-1).status, 'queued');
+    state.reviews = [{ id: 31, user: state.owner, commit_id: head, state: 'CHANGES_REQUESTED',
+        submitted_at: '2025-01-01T00:00:00Z', pull_request_url: 'https://api.github.com/' + prefix + '/pulls/7' }];
+    const vetoed = await publish(7, context, sdk, call, call, readGit, resolve);
+    assert.equal(vetoed.error, undefined);
+    assert.equal([...state.checks.values()].at(-2).conclusion, 'failure');
+    assert.equal([...state.checks.values()].at(-1).conclusion, 'failure');
     assert.equal(classify(state.pr, state.files), 'renewal');
     state.pr.user.id = 1;
     assert.equal((await publish(7, context, sdk, call, call, readGit, resolve).catch(error => ({ error: error.message }))).error, 'PR_TARGET_INVALID');

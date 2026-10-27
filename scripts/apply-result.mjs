@@ -8,7 +8,7 @@ import { git, pull, protectedSource } from './platform.mjs';
 import { downloadCandidate, uploadCandidate } from './candidate-transfer.mjs';
 import { verifyPublicationProof } from './archive-proof.mjs';
 import { readBlob, repositoryTree, stateReader, requestTree } from './submission-github.mjs';
-import { signedOwnerOperations } from './status-authorization.mjs';
+import { automaticAuthorization } from './status-authorization.mjs';
 import { reference, hydrateReceipt, originalReceipt, readReferencedBlob, receiptProofs, legacyPath, verifyBytes } from './receipt-storage.mjs';
 import { writeReviewBranch } from './review-branch.mjs';
 
@@ -35,7 +35,7 @@ export function resultPath(file) {
 }
 
 export function makeReceipt({ requestId, operation, pr, current, run, writes, state, releases, appliedAt, reviewContext, inputFiles, recordOnly = false, authorization, previousHead }) {
-    if (authorization !== undefined && (authorization !== 'SIGNED_OWNER' || !signedOwnerOperations.includes(operation) || recordOnly)) throw new Error('APPLY_RECEIPT_INVALID');
+    if (authorization !== undefined && (!automaticAuthorization(operation, authorization) || recordOnly)) throw new Error('APPLY_RECEIPT_INVALID');
     if (previousHead && (operation === 'RENEWAL' || [pr.head.sha, current].includes(previousHead))) throw new Error('APPLY_RECEIPT_INVALID');
     const files = [...writes].filter(([file, bytes]) => !state.raw(file)?.equals(bytes)).sort(([a], [b]) => a.localeCompare(b)).map(([file, bytes]) => {
         if (!resultPath(file) || file === receiptPath(requestId)) throw new Error('APPLY_WRITE_FORBIDDEN');
@@ -277,7 +277,7 @@ export async function appendReviewCommit(receipt, pointer, call = api, { wait = 
         for (const file of receipt.inputFiles) tree.push({ path: file.filename, mode: '100644', type: 'blob', sha: inputs.get(file.filename).sha });
     }
     const subject = requestSubject(receipt);
-    const message = `chore(community): ${receipt.authorization === 'SIGNED_OWNER' ? '处理已签名的' : '完成'} ${receipt.operation} 请求${receipt.authorization === 'SIGNED_OWNER' ? '' : '审核'}：${subject}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
+    const message = `chore(community): 处理 ${receipt.operation} 请求：${subject}\n\n- 固定请求 ${receipt.requestId}\n- 追加已验证的清单、签名和状态数据`;
     const identity = { name: 'Community review', email: `${policy.repositoryOwnerId}+${policy.repository.split('/')[0]}@users.noreply.github.com`, date: receipt.appliedAt };
     const commit = { sha: writeBranch(pr, { base: receipt.integratedBase ? receipt.baseSha : receipt.headSha,
         parents: generatedParents(receipt), writes, entries: tree, message, identity, unchanged: () => {

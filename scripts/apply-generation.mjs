@@ -26,11 +26,37 @@ export function releaseStatus(record, revocations) {
     return matches.some(entry => entry.action === 'REVOKED') ? 'REVOKED' : matches.some(entry => entry.action === 'YANKED') ? 'YANKED' : 'ACTIVE';
 }
 
-export function generateState({ sdk, adapter, state, writes, communityKey, privateBytes, appliedAt, nextUpdate, decision }) {
+export function generateState({ sdk, adapter, state, writes, communityKey, privateBytes, appliedAt, nextUpdate, decision, renewal = false }) {
+    if (renewal && writes.size) throw new Error('RENEWAL_CONTENT_CHANGED');
     const raw = file => writes.get(file) ?? state.raw(file);
     const json = file => { const bytes = raw(file); return bytes ? JSON.parse(bytes.toString('utf8')) : null; };
     const reference = ref => { const bytes = raw(ref.path); if (!bytes || bytes.length !== ref.size || hash(bytes) !== ref.sha256) throw new Error('GENERATION_REFERENCE_CHANGED'); return bytes; };
     const previous = json('generated/current.json');
+    let renewedEntry;
+    if (renewal) {
+        if (!previous) throw new Error('RENEWAL_BASE_INVALID');
+        const archive = ref => { adapter.archive(reference(ref), ref.path); return ref; };
+        const directory = JSON.parse(reference(previous.directory));
+        const directoryBase = previous.directory.path.slice(0, previous.directory.path.lastIndexOf('/') + 1);
+        const shards = directory.shards.map(shard => {
+            if (!/^shards\/[a-f0-9]{64}\.json$/u.test(shard.url)) throw new Error('RENEWAL_BASE_INVALID');
+            return archive({ path: directoryBase + shard.url, size: shard.size, sha256: shard.sha256 });
+        });
+        const entries = shards.flatMap(ref => JSON.parse(reference(ref)).entries);
+        if (entries.length !== 1 || entries[0].repositoryId !== catalogId) throw new Error('RENEWAL_BASE_INVALID');
+        renewedEntry = entries[0];
+        for (const [file, ref] of [['generated/catalog.json', previous.catalog], ['revocations.json', previous.revocations],
+            ['generated/repository.json', previous.descriptor]]) {
+            if (!raw(file)?.equals(reference(ref))) throw new Error('RENEWAL_CONTENT_CHANGED');
+        }
+        adapter.invoke({ command: 'verify-generation', communityKey, repositoryId: catalogId,
+            directory: archive(previous.directory), directorySignature: previous.directorySignature, rootUrl: rawUrl(previous.directory.path),
+            shards, catalog: archive(previous.catalog), catalogSignature: json(previous.catalog.path + '.sig'),
+            revocations: archive(previous.revocations), revocationSignature: json(previous.revocations.path + '.sig') });
+        const revocations = json('revocations.json');
+        if (!(Date.parse(appliedAt) > Date.parse(revocations.generatedTime))
+            || !(Date.parse(nextUpdate) > Date.parse(revocations.nextUpdate))) throw new Error('RENEWAL_TIME_INVALID');
+    }
     const sequence = (previous?.sequence ?? 0) + 1;
     if (!Number.isSafeInteger(sequence)) throw new Error('GENERATION_SEQUENCE_EXHAUSTED');
     const originalKey = json('generated/community-key.json');
@@ -55,10 +81,12 @@ export function generateState({ sdk, adapter, state, writes, communityKey, priva
     const currentRevocations = json('revocations.json');
     const revocationSequence = currentRevocations?.sequence ?? 0;
     const changedRestrictions = !isDeepStrictEqual(restrictions, json('revocations/restrictions.json') ?? []);
+    if (renewal && changedRestrictions) throw new Error('RENEWAL_CONTENT_CHANGED');
     const fresh = writes.has('revocations.json') && currentRevocations?.generatedTime === appliedAt && !changedRestrictions;
     const resultingSequence = revocationSequence + (fresh ? 0 : 1);
     const revocations = fresh ? raw('revocations.json') : Buffer.from(adapter.invoke({ command: 'revocations',
         repositoryId: catalogId, sequence: resultingSequence, appliedAt, nextUpdate, restrictions }).bytes, 'base64');
+    if (renewal && !isDeepStrictEqual(JSON.parse(revocations).entries, currentRevocations.entries)) throw new Error('RENEWAL_CONTENT_CHANGED');
     writes.set('revocations.json', revocations);
     writes.set('revocations/restrictions.json', encoded(restrictions));
     const groups = new Map();
@@ -86,7 +114,9 @@ export function generateState({ sdk, adapter, state, writes, communityKey, priva
     const put = (name, bytes) => { const file = `${directory}/${name}`; const ref = adapter.archive(bytes, file); writes.set(file, bytes); return ref; };
     const sign = (kind, ref, seq) => adapter.invoke({ command: 'sign', kind, communityKey, repositoryId: catalogId,
         document: ref, ...(seq ? { sequence: seq } : {}) }, privateBytes);
-    const catalog = put('catalog.json', encoded({ schemaVersion: '1', generatedTime: appliedAt, entries: [...groups.values()] }));
+    const entries = [...groups.values()];
+    if (renewal && !isDeepStrictEqual(entries, json('generated/catalog.json').entries)) throw new Error('RENEWAL_CONTENT_CHANGED');
+    const catalog = put('catalog.json', encoded({ schemaVersion: '1', generatedTime: appliedAt, entries }));
     const catalogSignature = encoded(sign('manifest', catalog));
     put('catalog.json.sig', catalogSignature);
     writes.set('generated/catalog.json', writes.get(catalog.path));
@@ -101,12 +131,15 @@ export function generateState({ sdk, adapter, state, writes, communityKey, priva
         trustedKeys: [{ keyId: communityKey.keyId, algorithm: communityKey.algorithm, publicKeySpkiBase64: communityKey.publicKeySpkiBase64,
             state: communityKey.state, publisher: communityKey.publisher, trustLabel: communityKey.trustLabel }] }));
     writes.set('generated/repository.json', writes.get(descriptor.path));
+    if (renewal && descriptor.sha256 !== previous.descriptor.sha256) throw new Error('RENEWAL_CONTENT_CHANGED');
     const keyFingerprint = hash(Buffer.from(communityKey.publicKeySpkiBase64, 'base64'));
-    const generated = adapter.invoke({ command: 'directory', repositoryId: catalogId, sequence, appliedAt, entries: [{
+    const entry = {
         repositoryId: catalogId, descriptorUrl: rawUrl('generated/repository.json'), descriptorSha256: descriptor.sha256,
         publisher: { accountId: policy.repositoryOwnerId, accountType: 'User', publisherId: 'community' }, publisherLoginSnapshot: policy.repository.split('/')[0],
         certificationRef: decision, certifiedKeys: [{ keyId: communityKey.keyId, spkiSha256: keyFingerprint }], status: 'IDENTITY_VERIFIED',
-        firstReviewedAt: previous?.firstReviewedAt ?? appliedAt, lastReviewedAt: appliedAt, directorySequence: sequence, githubRepositoryId: policy.repositoryId }] });
+        firstReviewedAt: previous?.firstReviewedAt ?? appliedAt, lastReviewedAt: appliedAt, directorySequence: sequence, githubRepositoryId: policy.repositoryId };
+    const generated = adapter.invoke({ command: 'directory', repositoryId: catalogId, sequence, appliedAt,
+        entries: [renewal ? { ...renewedEntry, directorySequence: sequence } : entry] });
     let directoryRef;
     for (const [name, value] of Object.entries(generated)) { const ref = put(name, Buffer.from(value, 'base64')); if (name === 'directory.json') directoryRef = ref; }
     const directorySignature = sign('directory', directoryRef, sequence);

@@ -21,6 +21,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Acquire pinned technical dependencies
+        run: node scripts/foundation-resources.mjs fetch .
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Verify governance rules
+        run: node scripts/test-governance.mjs
       - run: npm test
       - name: Verify build isolation
         run: node --test scripts/build-sandbox-integration.test.mjs scripts/build-egress.test.mjs

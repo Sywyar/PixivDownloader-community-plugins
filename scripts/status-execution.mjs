@@ -11,15 +11,17 @@ export function statusExecution(mode, env = process.env, call = api, readGit) {
 export function statusInputs(context, payload, call = api) {
     if (context.run.event === 'workflow_dispatch') return {
         prNumber: Number(id(payload.inputs?.prNumber)), expectedHeadSha: sha(payload.inputs?.expectedHeadSha),
-        reason: 'Signed owner request', recoveryApproved: false, organizationRepresentations: '' };
+        reason: 'Authorized community request', recoveryApproved: false, organizationRepresentations: '' };
     const run = call(`${prefix}/actions/runs/${id(payload.workflow_run?.id)}`);
     if (id(run.repository.id) !== policy.repositoryId || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('STATUS_TRIGGER_INVALID');
     const pattern = { '.github/workflows/submission-check.yml': /^Submission PR #([1-9][0-9]*)$/u,
-        '.github/workflows/community-review-event.yml': /^Review PR #([1-9][0-9]*)$/u }[run.path];
+        '.github/workflows/community-review-event.yml': /^Review PR #([1-9][0-9]*)$/u,
+        '.github/workflows/community-archive.yml': /^Archive Submission PR #([1-9][0-9]*)$/u,
+        '.github/workflows/community-review-decision.yml': /^Community decision PR #([1-9][0-9]*) head [a-f0-9]{40}$/u }[run.path];
     const match = pattern?.exec(run.display_title ?? '');
     if (!match) throw new Error('STATUS_TRIGGER_INVALID');
     const pr = pull(match[1], call);
-    return { prNumber: pr.number, expectedHeadSha: sha(pr.head.sha), reason: 'Signed owner request',
+    return { prNumber: pr.number, expectedHeadSha: sha(pr.head.sha), reason: 'Authorized community request',
         recoveryApproved: false, organizationRepresentations: '' };
 }
 
@@ -28,7 +30,7 @@ export function statusEnvironment(context, inputs, call = api) {
         || inputs.recoveryApproved || inputs.organizationRepresentations) throw new Error('STATUS_EXECUTION_INVALID');
     const environment = automaticEnvironment(call);
     return { runId: id(context.run.id), runAttempt: context.run.run_attempt, sourceCommit: context.current,
-        inputs, environment, run: context.run, authorization: 'SIGNED_OWNER' };
+        inputs, environment, run: context.run };
 }
 
 export function automaticEnvironment(call = api) {

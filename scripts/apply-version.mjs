@@ -28,7 +28,8 @@ export function publishVersion({ sdk, adapter, state, version, pr, context, admi
     if (!publisher || publisher.sha256 !== checked.publisherSha256) throw new Error('PUBLISHER_CHANGED');
     const publisherRef = adapter.archive(publisher.bytes);
     archiveAdmission(adapter, sdk, admission.input);
-    const approval = adapter.archive(publicationEnvironment(context, inputs, call));
+    const approval = adapter.archive({ ...publicationEnvironment(context, inputs, call),
+        authorization: admission.result.authorization, humanReview: admission.result.human.approval });
     const p = submission.pluginId, v = submission.version, scan = version.candidate.scan;
     const review = { schemaVersion: 1, owner: checked.owner, ownerLoginSnapshot: publisher.value.githubAccount.loginAtRegistration,
         pluginId: p, version: v, packageSize: checked.package.size, packageSha256: checked.package.sha256, submissionRef,

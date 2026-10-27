@@ -23,16 +23,21 @@ export function githubRequest(work, options = {}) {
     for (let round = 1; ; round++) {
         try { return githubRequestRound(work, options); }
         catch (error) {
-            if ((options.method ?? 'GET') !== 'GET' || !recoverableRequest(error) || error.message === 'GITHUB_NOT_FOUND') throw error;
+            if ((options.now ?? Date.now)() >= (options.deadline ?? Infinity)) {
+                throw Object.assign(error, { retryable: false, recoverable: false });
+            }
+            if (!(options.readOnly ?? (options.method ?? 'GET') === 'GET')
+                || !recoverableRequest(error) || error.message === 'GITHUB_NOT_FOUND') throw error;
             error.totalAttempts = totalAttempts += error.attempts ?? 0;
             if (!retryRequest(error, round)) throw new Error('WIZARD_SAVE');
         }
     }
 }
 
-function githubRequestRound(work, { method = 'GET', timeout = API_TIMEOUT, now = Date.now,
+function githubRequestRound(work, { method = 'GET', readOnly = method === 'GET', timeout = API_TIMEOUT,
+    deadline: operationDeadline = Infinity, now = Date.now,
     wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
-    const deadline = now() + timeout;
+    const deadline = Math.min(now() + timeout, operationDeadline);
     for (let attempt = 1; ; attempt++) {
         const remaining = deadline - now();
         if (remaining <= 0) throw Object.assign(new Error('GITHUB_TIMEOUT'), { github: true, retryable: true, method, attempts: attempt - 1 });
@@ -41,7 +46,7 @@ function githubRequestRound(work, { method = 'GET', timeout = API_TIMEOUT, now =
             if (['CANCELLED', 'WIZARD_SAVE'].includes(error.message)) throw error;
             const failure = Object.assign(githubFailure(error), { method, attempts: attempt });
             const delay = attempt * 1000;
-            if (method !== 'GET' || !failure.retryable
+            if (!readOnly || !failure.retryable
                 || attempt >= 3 || now() + delay >= deadline) throw failure;
             observe('retryingGithub', `${attempt + 1}/3`, () => wait(delay));
         }
