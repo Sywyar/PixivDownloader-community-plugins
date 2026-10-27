@@ -17,7 +17,7 @@ import top.sywyar.pixivdownload.sdk.community.project.CommunityPaths;
 import top.sywyar.pixivdownload.sdk.community.scan.PluginRiskScanner;
 import top.sywyar.pixivdownload.sdk.community.scan.PluginScanEvidence;
 
-/** 固定 SDK 的静态扫描适配器；不把投稿 JAR 放入 JVM classpath。 */
+/** 社区静态扫描入口；不把投稿 JAR 放入 JVM classpath。 */
 public final class CommunityScan {
     private static final int MAXIMUM = 32 * 1024 * 1024;
 

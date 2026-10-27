@@ -4,12 +4,14 @@ import { root, evidence, hash } from './sdk.mjs';
 import { buildPolicy } from './build-sandbox.mjs';
 import { fileDifference } from './build-files.mjs';
 import { toolJson } from './tool-process.mjs';
+import { governanceSources } from './community-tools.mjs';
 
 // 扫描基础依赖、社区适配及前序证据解析共同决定报告；它们变化时仍可复用原构建包。
 export function scanInputs(directory = root) {
     return ['tools/foundation-lock.json', 'scripts/community-tools.mjs', 'scripts/foundation-resources.mjs', 'tools/CommunityScan.java', 'scripts/build-evidence.mjs',
         'scripts/submission-build.mjs', 'scripts/sdk.mjs', 'scripts/tool-process.mjs', 'scripts/build-files.mjs',
-        'scripts/submission-check.mjs', 'scripts/submission-github.mjs']
+        'scripts/submission-check.mjs', 'scripts/submission-github.mjs',
+        ...governanceSources(directory).filter(file => file.startsWith('tools/governance/'))]
         .map(file => ({ path: file, sha256: hash(fs.readFileSync(path.join(directory, file))) }));
 }
 

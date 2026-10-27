@@ -72,7 +72,7 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 
 换 head 不会清除原生 Request changes。撤销 review 必须能从原生事件取得操作者和理由。候选 PR 中的代码不会被特权检查或裁决入口执行；入口读取受保护默认分支的固定版本，再核对原生 run、attempt、当前权限和证据字节。签发前后均重读当前事实；GitHub 多次 API 写入并非原子操作，失败时会尝试撤销本次检查。
 
-`tools/governance/src/main/java/` 持有审核准入、人工裁决、换钥、所有权转移、状态处置、紧急声明及发布记录生成。版本由 `tools/governance/version.json` 独立管理。`tools/foundation-lock.json` 只固定主仓库技术源码的 commit、路径与摘要，以及 Maven Central 依赖的路径、长度和摘要；不下载完整 SDK，也不要求克隆或构建主程序。共享合同、签名、解析、扫描和构建模型仍使用原实现。更新纯治理规则只修改本仓库并提升工具版本；更新技术依赖时另行审阅锁文件及其实际来源。
+`tools/governance/src/main/java/` 持有审核准入、人工裁决、换钥、所有权转移、状态处置、紧急声明、发布记录生成，以及社区扫描、扫描证据和投稿校验。版本由 `tools/governance/version.json` 独立管理。`tools/foundation-lock.json` 固定主仓库共享合同、签名、包解析和构建模型的源码 commit、路径与摘要，以及 Maven Central 依赖的路径、长度和摘要；不下载完整 SDK，也不要求克隆或构建主程序。社区规则与扫描实现只在本仓库维护；更新技术依赖时另行审阅锁文件及其实际来源。
 
 准备 Node 24、JDK 17 或更新版本和已登录的 GitHub CLI 后，在本仓库执行 `node scripts/community-tools.mjs target/community-tools`，得到独立 JAR、依赖、源码、许可证和 `community-tools.json` 摘要清单。输出目录必须不存在。基础依赖保存在 `target/foundation/`，每次执行复验；每进程只复用从已核验源码构建的工具，退出回收临时构建目录。运行 `node scripts/test-governance.mjs` 验证 Java 治理规则，运行 `npm test` 验证社区流程。
 
