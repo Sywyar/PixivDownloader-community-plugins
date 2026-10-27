@@ -1,5 +1,5 @@
-import { ensureSdk } from '../sdk-resources.mjs';
-const sdkResources = ensureSdk().directory;
+import { ensureFoundation } from '../foundation-resources.mjs';
+const sdkResources = ensureFoundation().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -88,7 +88,7 @@ test('候选提升为正式 Release 后响应丢失可恢复，原资产和签�
 test('已合并整代状态驱动 Release 更新，响应丢失回读且只读检查不写入', async t => {
     const f = archiveFixture(t), sdk = prepareSubmission(), current = 'b'.repeat(40), records = new Map();
     const source = 'a'.repeat(40), head = 'c'.repeat(40), generated = 'd'.repeat(40);
-    const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure', name + '.json')));
+    const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/structure', name + '.json')));
     const put = (file, value) => { const bytes = encoded(value); records.set(file, bytes); return { path: file, size: bytes.length, sha256: hash(bytes) }; };
     const record = vector('published'), review = vector('review');
     record.reviewRef = put('records/' + 'a'.repeat(64) + '.json', review);
@@ -246,6 +246,17 @@ test('结果归档绑定受保护签发来源及原始字节，工具升级不�
     assert.deepEqual(verify(file, bundle, current, readGit), certificate);
     fs.writeFileSync(file, encoded({ ...result.value, operation: 'UPDATE', authorization: 'SIGNED_OWNER' }));
     assert.throws(() => verify(file, bundle, current, readGit), /APPLY_RECEIPT_INVALID/);
+    for (const [operation, authorization] of [['UPDATE', 'HUMAN_REVIEW'], ['FIRST_RELEASE', 'HUMAN_REVIEW'], ['RENEWAL', 'POLICY_RENEWAL']]) {
+        fs.writeFileSync(file, encoded({ ...result.value, operation, authorization }));
+        assert.deepEqual(verify(file, bundle, current, readGit), certificate);
+        certificate.buildTrigger = 'pull_request';
+        assert.throws(() => verify(file, bundle, current, readGit), /ARCHIVE_ATTESTATION_SOURCE_INVALID/);
+        certificate.buildTrigger = 'workflow_run';
+    }
+    for (const [operation, authorization] of [['UPDATE', 'POLICY_RENEWAL'], ['RENEWAL', 'HUMAN_REVIEW'], ['RENEWAL', 'untrusted']]) {
+        fs.writeFileSync(file, encoded({ ...result.value, operation, authorization }));
+        assert.throws(() => verify(file, bundle, current, readGit), /APPLY_RECEIPT_INVALID/);
+    }
     assert.throws(() => makeReceipt({ ...result.value, current: source, pr: { number: 3, state: 'open', merged: false, draft: false, head: { sha: 'c'.repeat(40) }, base: { sha: source } }, run: { id: 7, run_attempt: 1 },
         writes: new Map([['tools/sdk-tools.jar', Buffer.from('replacement')]]), state: { raw: () => null } }), /APPLY_WRITE_FORBIDDEN/);
 });

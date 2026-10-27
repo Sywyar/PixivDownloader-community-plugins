@@ -4,7 +4,7 @@
 
 Submit a PixivDownloader plugin for review here. Push your public source to GitHub, wait for the candidate CI to pass, then run the wizard from your source project. You do not need to clone this repository or write submission files by hand.
 
-After review, a maintainer generates publication data in the original request PR. Merging it triggers the community Release update. A source candidate Release or a community Draft under review does not grant community admission.
+For an ordinary version submission, a maintainer's Approve on the current head starts protected processing. The workflow waits for technical checks and candidate archival, generates publication data, verifies Gate checks and merges the PR, then updates the community Release. Requests requiring explicit authority follow the [contribution guide](CONTRIBUTING.md). A source candidate Release or a community Draft under review does not grant community admission.
 
 ## Open-source admission
 
@@ -35,7 +35,7 @@ gh auth setup-git
 
 Configure Git's `user.name` and `user.email` for commits as well.
 
-The wizard downloads the public SDK pinned in its tool manifest, checks the archive and each resource against their sizes and SHA-256 values, and caches them. You do not need to install the SDK tool JAR separately. Later runs verify and reuse the cache. Wizard maintainers select the version; starting or resuming a submission does not switch to the latest SDK. SDK downloads use the proxy settings below.
+The wizard uses tools maintained independently in the community repository. On first use, it fetches pinned technical dependencies, verifies their sizes and SHA-256 digests, and compiles the tools. Later runs verify and reuse the dependency cache without downloading the complete SDK. Source reads use GitHub CLI; dependency downloads use the proxy settings below.
 
 If a push reports `GIT_WORKFLOW_SCOPE_REQUIRED`, the credentials used by Git lack permission to write workflows. This can also happen when the submission branch includes workflow updates from the community's default branch. For GitHub CLI OAuth login credentials, run `gh auth refresh --hostname github.com --scopes workflow` in the same authentication environment, then continue in the wizard or save and exit. For a classic PAT, grant the `workflow` scope; for a fine-grained PAT or GitHub App, grant `Workflows: write`. Update the credentials actually used by Git.
 
@@ -85,7 +85,7 @@ Repository documents retain a source URL bound to the frozen commit, which resol
 
 After confirmation, original documents and images are staged in a `market-content-<plugin>-<version>` release in the source repository. The source candidate keeps its two-asset manifest. Community review verifies bytes, format, size and SHA-256, then publishes the content with the plugin package in the same community version release. Publication is incomplete until public downloads verify. Retries reuse matching attachments and reject changed bytes under the same name. The marketplace reads the selected version and displays HTML as a static document.
 
-Documents stay outside the plugin JAR and are not covered by its signature. Review references and the signed catalog bind document digests, which the client verifies again. Historical submissions, homepages and release notes remain readable; an explicit empty link list does not restore a previous homepage. Deployment requires pinning the matching new SDK release in the community tools. Local candidate tests do not prove online availability.
+Documents stay outside the plugin JAR and are not covered by its signature. Review references and the signed catalog bind document digests, which the client verifies again. Historical submissions, homepages and release notes remain readable; an explicit empty link list does not restore a previous homepage. Community tools validate market documents and include their references in the review records.
 
 ### 4. Wait for review
 

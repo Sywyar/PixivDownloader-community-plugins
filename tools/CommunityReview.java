@@ -17,26 +17,34 @@ import top.sywyar.pixivdownload.sdk.community.review.ReviewAdmission;
 import top.sywyar.pixivdownload.sdk.community.review.ReviewDecision;
 import top.sywyar.pixivdownload.sdk.community.review.ReviewPolicy;
 
-/** 将已核实的平台事实交给固定 SDK；合同与状态归约仍由 SDK 实现。 */
+/** 将已核实的平台事实交给社区治理实现；数据格式与技术验证使用固定基础合同。 */
 public final class CommunityReview {
     private static final int MAX_BYTES = 32 * 1024 * 1024;
     public record Dismissal(String actorAccountId, String reason, Reference evidence) { }
     public record Review(String id, String githubRepositoryId, long prNumber, CommunityValues.Account reviewer,
                          String headSha, HumanReviews.NativeState state, String submittedAt, Reference evidence, Dismissal dismissal) { }
     public record Decision(Reference evidence, ReviewDecision.Execution execution) { }
+    public record Renewal(Reference request, Reference generation, Reference revocations) { }
     public record Input(ReviewAdmission.Snapshot before, ReviewAdmission.Snapshot after, ReviewAdmission.Validation validation,
                         String publisherId, ReviewPolicy policy, List<Review> reviews, List<Decision> decisions,
-                        Reference report, PluginRiskDeclaration declaration, List<Reference> evidence, Reference statusAudit) { }
+                        Reference report, PluginRiskDeclaration declaration, List<Reference> evidence, Reference statusAudit,
+                        Renewal renewal) { }
 
     public static void main(String[] args) throws Exception {
         Utf8ConsoleStreams.install();
         if (args.length != 3) throw new IllegalArgumentException("COMMUNITY_ARGUMENTS");
         Path workspace = Path.of(args[0]);
-        byte[] metadata = Files.readAllBytes(workspace.resolve("tools/community-contract.json"));
-        var distribution = CommunityBundle.verifyDistribution(workspace,
-                new Evidence(Reference.of("tools/community-contract.json", metadata), metadata), args[1]);
+        CommunityBundle.verifyCopy(workspace.resolve("contracts/community/v1"));
+        com.fasterxml.jackson.databind.JsonNode identity;
+        try (var stream = CommunityReview.class.getResourceAsStream("/META-INF/community-tools.json")) {
+            if (stream == null) throw new IllegalArgumentException("COMMUNITY_IDENTITY_MISSING");
+            identity = CommunityJson.strictTree(stream.readNBytes(4097), 4096);
+        }
+        if (!identity.path("sourceSha256").asText().equals(args[1])) {
+            throw new IllegalArgumentException("COMMUNITY_SOURCE_MISMATCH");
+        }
         if (args[2].equals("verify")) {
-            System.out.println(new String(CommunityJson.encode(distribution), java.nio.charset.StandardCharsets.UTF_8));
+            System.out.println(identity);
             return;
         }
         if (args[2].equals("artifact")) {
@@ -88,6 +96,11 @@ public final class CommunityReview {
                 MAX_BYTES, input.declaration, evidence);
         if (input.statusAudit != null) result = ReviewAdmission.authorizeStatus(result,
                 CommunityJson.parse(CommunityJson.Kind.AUDIT, CommunityValues.requireEvidence(input.statusAudit, evidence).bytes()));
+        if (input.renewal != null) result = ReviewAdmission.authorizeRenewal(result,
+                new ReviewAdmission.Renewal(input.after.pr(), input.after.inputSha256(),
+                        CommunityValues.requireEvidence(input.renewal.request, evidence),
+                        CommunityValues.requireEvidence(input.renewal.generation, evidence),
+                        CommunityValues.requireEvidence(input.renewal.revocations, evidence)));
         System.out.println(new String(CommunityJson.encode(result), java.nio.charset.StandardCharsets.UTF_8));
     }
 }

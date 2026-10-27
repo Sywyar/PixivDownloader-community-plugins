@@ -8,16 +8,10 @@ import { toolJson } from './tool-process.mjs';
 
 // 执行器只调用受保护的适配器；投稿包从不进入 JVM classpath。
 export function prepareSubmission(directory = root) {
-    return submissionAdapter(prepareSdk(directory), directory);
+    return submissionAdapter(prepareSdk(directory));
 }
 
-export function submissionAdapter(sdk, directory = root) {
-    if (!fs.existsSync(path.join(sdk.workspace, 'runtime/BOOT-INF/classes/top/sywyar/pixivdownload/sdk/community/submission/MarketDocumentFiles.class'))) {
-        throw new Error('SDK_UPGRADE_REQUIRED');
-    }
-    sdk.run('javac', ['--release', '17', '-encoding', 'UTF-8', '-cp', sdk.classpath,
-        '-d', path.join(sdk.workspace, 'runtime'), ...['CommunitySubmission.java', 'CommunitySource.java']
-            .map(name => path.join(directory, 'tools', name))]);
+export function submissionAdapter(sdk) {
     const inputFile = path.join(sdk.workspace, 'submission-input.json');
     const steps = { projects: 'project', path: 'checkingPath', field: 'checkingField', candidate: 'readingCandidate',
         source: 'checkingSource', inspect: 'inspecting', image: 'checkingImages', licenses: 'checkingLicense', license: 'checkingLicense' };

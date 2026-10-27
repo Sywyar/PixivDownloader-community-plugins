@@ -1,5 +1,5 @@
-import { ensureSdk } from '../sdk-resources.mjs';
-const sdkResources = ensureSdk().directory;
+import { ensureFoundation } from '../foundation-resources.mjs';
+const sdkResources = ensureFoundation().directory;
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -62,7 +62,8 @@ function consoleStreams() {
     return { input, output, rendered: () => rendered, key: async value => { await setImmediate(); input.write(value); } };
 }
 
-for (const reason of ['network', 'login', 'credentials', 'workflow']) for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内处理${reason}故障并选择${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
+for (const reason of ['network', 'foundation', 'login', 'credentials', 'workflow']) for (const outcome of ['retry', 'save', 'save-key', 'cancel']) test(`真实终端在线程内处理${reason}故障并选择${outcome}，不阻塞输入且不重放完成步骤`, { timeout: 15000 }, async t => {
+    const network = ['network', 'foundation'].includes(reason);
     const originalCI = process.env.CI; process.env.CI = 'false';
     t.after(() => { if (originalCI === undefined) delete process.env.CI; else process.env.CI = originalCI; });
     const tty = consoleStreams();
@@ -72,6 +73,7 @@ for (const reason of ['network', 'login', 'credentials', 'workflow']) for (const
         import { workerTerminal } from ${JSON.stringify(new URL('../submission-terminal.mjs', import.meta.url).href)};
         import { observe } from ${JSON.stringify(new URL('../submission-progress.mjs', import.meta.url).href)};
         import { githubRequest } from ${JSON.stringify(new URL('../submission-github.mjs', import.meta.url).href)};
+        import { readSourceBatch } from ${JSON.stringify(new URL('../foundation-resources.mjs', import.meta.url).href)};
         import { requestRecovery, retryStep } from ${JSON.stringify(new URL('../submission-retry.mjs', import.meta.url).href)};
         import { gitFailure } from ${JSON.stringify(new URL('../submission-errors.mjs', import.meta.url).href)};
         const ui = await workerTerminal(parentPort, workerData.cancelled);
@@ -84,6 +86,12 @@ for (const reason of ['network', 'login', 'credentials', 'workflow']) for (const
                     if (++attempts <= 2) throw gitFailure({ status: 1,
                         stderr: 'refusing to allow an OAuth App to create or update workflow without workflow scope' }, 'push');
                 });
+                else if (workerData.reason === 'foundation') readSourceBatch(
+                    { sourceCommit: 'a'.repeat(40) }, [{ path: 'module/Test.java', size: 4,
+                        sha256: '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' }], Date.now() + 60000, () => {
+                        if (++attempts <= 6) throw Object.assign(new Error('private output'), { code: 'ETIMEDOUT' });
+                        return JSON.stringify({ data: { repository: { f0: { byteSize: 4, isBinary: false, text: 'test' } } } });
+                    });
                 else githubRequest(() => observe('readingGitObjects', '', () => {
                     if (++attempts <= (workerData.reason === 'network' ? 6 : 2)) throw Object.assign(new Error('private output'),
                         workerData.reason === 'network' ? { stderr: 'unexpected EOF' }
@@ -103,25 +111,25 @@ for (const reason of ['network', 'login', 'credentials', 'workflow']) for (const
         assert(tty.rendered().includes(text), text + '\n' + tty.rendered());
     };
     await until(localizedText('en-US', 'language')); await tty.key('\x1b[B\r');
-    await until(localizedText('en-US', reason === 'network' ? 'retryCurrentStep' : reason === 'workflow' ? 'gitPermissionRecovery' : 'authenticationRecovery'));
+    await until(localizedText('en-US', network ? 'retryCurrentStep' : reason === 'workflow' ? 'gitPermissionRecovery' : 'authenticationRecovery'));
     if (reason === 'workflow') {
         await until(localizedText('en-US', 'continueAfterAuthorization'));
         await until('gh auth refresh --hostname github.com --scopes workflow');
-    } else if (reason !== 'network') {
+    } else if (!network) {
         await until(localizedText('en-US', 'checkAuthentication'));
         await until(errors[reason === 'login' ? 'GITHUB_AUTH_REQUIRED' : 'GITHUB_AUTH_INVALID'][locales.indexOf('en-US')]);
     }
     await until(localizedText('en-US', 'retryRoundLabel') + ': 1');
-    assert(tty.rendered().includes(localizedText('en-US', reason === 'workflow' ? 'git_push' : 'readingGitObjects')));
+    assert(tty.rendered().includes(localizedText('en-US', reason === 'workflow' ? 'git_push' : reason === 'foundation' ? 'verifyingTools' : 'readingGitObjects')));
     if (outcome === 'retry') {
         await tty.key('\r');
         await until(localizedText('en-US', 'retryRoundLabel') + ': 2');
-        await until(localizedText('en-US', 'totalAttemptsLabel') + ': ' + (reason === 'network' ? 6 : 2));
+        await until(localizedText('en-US', 'totalAttemptsLabel') + ': ' + (network ? 6 : 2));
         await tty.key('\r');
-        assert.deepEqual(await result, { before: 1, attempts: reason === 'network' ? 7 : 3, after: 1, error: undefined });
+        assert.deepEqual(await result, { before: 1, attempts: network ? 7 : 3, after: 1, error: undefined });
     } else {
         await tty.key(outcome === 'save-key' ? '\x13' : outcome === 'save' ? '\x1b[B\r' : '\x1b');
-        assert.deepEqual(await result, { before: 1, attempts: reason === 'network' ? 3 : 1, after: 0, error: outcome.startsWith('save') ? 'WIZARD_SAVE' : 'CANCELLED' });
+        assert.deepEqual(await result, { before: 1, attempts: network ? 3 : 1, after: 0, error: outcome.startsWith('save') ? 'WIZARD_SAVE' : 'CANCELLED' });
     }
     assert(!tty.rendered().includes('private output'));
     assert(!tty.rendered().includes('private token'));
@@ -404,7 +412,7 @@ test('恢复已拒绝的密钥确认时重新提问，解锁成功不会重放�
 });
 
 test('所有语言的原因与转移选项显示名称并返回原协议值，预览保留原始标识', async () => {
-    const catalog = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/catalogs.json'), 'utf8'));
+    const catalog = JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/catalogs.json'), 'utf8'));
     for (const value of [...catalog.categories, ...catalog.tags, ...catalog.riskSignals]) {
         if (!['pixiv', 'smtp'].includes(value)) assert(Object.hasOwn(optionNames, value), value);
     }
@@ -603,7 +611,7 @@ test('名称占位值不能确认，合法语言简码保留而错误语言标�
 });
 
 test('更新保留其它语言与图片原始字节，并允许清空当前语言正文和主页', async () => {
-    const image = fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/images/static.png'));
+    const image = fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/images/static.png'));
     const digest = hash(image);
     const oldPath = `assets/101/example/2.3.4/${digest}.png`;
     const previous = { defaultLocale: 'en', displayName: { en: 'Old name', 'zh-CN': '名称' },
@@ -740,7 +748,7 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     const project = path.join(sdk.workspace, 'project');
     fs.mkdirSync(path.join(project, 'nested'), { recursive: true });
     git(project, 'init');
-    const mit = fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/licenses/MIT.txt'), 'utf8')
+    const mit = fs.readFileSync(path.join(sdkResources, 'resources/community/v1/licenses/MIT.txt'), 'utf8')
         .replace('<year>', '2020').replace('<copyright holders>', 'Example Authors');
     fs.writeFileSync(path.join(project, 'LICENSE'), 'root license');
     fs.writeFileSync(path.join(project, 'nested/LICENSE'), mit);
@@ -754,8 +762,8 @@ test('许可证按所选工程建议并确认，市场字段与图片由固定 S
     assert.equal(license.expression, 'MIT');
     assert.deepEqual(license.files, [{ path: 'nested/LICENSE', size: Buffer.byteLength(mit), sha256: hash(Buffer.from(mit)) }]);
     await assert.rejects(licenseFields(sdk, { ...ui, ask: async () => '../outside' }, project), /LICENSE_COMMIT_REQUIRED/u);
-    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json'), 'utf8'));
-    const image = path.join(sdkResources, 'contracts/community/v1/vectors/images/static.png');
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/submission.json'), 'utf8'));
+    const image = path.join(sdkResources, 'resources/community/v1/vectors/images/static.png');
     const changes = new Map();
     submission.market = await marketFields(sdk, { select: async (_key, values) => values[0], say: () => {},
         multiselect: async (_key, values) => values.slice(0, 2),

@@ -9,7 +9,7 @@ import { versionContext } from './version-review.mjs';
 import { gatePath, execution, notificationExecution, facts, fingerprint, event, pull, prValue, classify, protectedSource } from './platform.mjs';
 import { attachDecisions, loadDecisions } from './decisions.mjs';
 import { finalizeReleases } from './publication-releases.mjs';
-import { authorizeStatus } from './status-authorization.mjs';
+import { authorizeStatus, authorizationPassed, automaticRequestEligible, automaticAuthorization } from './status-authorization.mjs';
 import { authorizeEmergencyKeys } from './emergency-authorization.mjs';
 import { reviewedRequestCall } from './apply-result.mjs';
 import { readRequestInfo, updateComment, notifyRequestInfo } from './community-comments.mjs';
@@ -31,8 +31,7 @@ export function appliedProjection(pr, files, result) {
 
 function conclusions(result) {
     return [result.validationPassed, result.riskPassed,
-        result.authorization === 'SIGNED_OWNER' && result.human.status !== 'CHANGES_REQUESTED'
-            || ['APPROVED', 'SELF_APPROVED'].includes(result.human.status), result.flow === 'READY'];
+        authorizationPassed(result), result.flow === 'READY'];
 }
 
 export async function publish(number, context, prepared, call = api, write = api, readGit, resolveVersion = versionContext, readApplication = finalizeReleases) {
@@ -86,7 +85,7 @@ export async function publish(number, context, prepared, call = api, write = api
         if (fingerprint(before) !== fingerprint(after)) throw new Error('REVIEW_FACTS_CHANGED');
         const states = conclusions(result).map(value => value ? 'success' : 'failure');
         emergency?.unchanged();
-        if (result.human.status === 'PENDING' && result.authorization !== 'SIGNED_OWNER') states[2] = 'pending';
+        if (result.human.status === 'PENDING' && !authorizationPassed(result)) states[2] = 'pending';
         if (!pr.draft && (version && !version.completion || states[2] === 'pending') && states[0] === 'success' && states[1] === 'success'
             && states[2] !== 'failure') states[3] = 'pending';
         if (ownerReview && ownerReview.status !== 'APPROVED') states[3] = ownerReview.status === 'PENDING' ? 'pending' : 'failure';
@@ -101,7 +100,8 @@ export async function publish(number, context, prepared, call = api, write = api
                     ? 'requires human verification for GitHub organization IDs ' + version.checked.organizationRepresentationRequired.join(', ') : 'not applicable')
                 + '\n\nPending archive: ' + version.url + '\n\nThis draft is not publication or SOURCE_REVIEWED.'
                 : '\n\nPlugin scan: not applicable to this operation.')
-            + (version && !version.completion ? result.authorization === 'SIGNED_OWNER'
+            + (version && !version.completion ? automaticRequestEligible(version.checked) && !version.statusManualReason
+                && automaticAuthorization(version.checked.operation, result.authorization)
                 ? '\n\nWaiting for protected automatic request preparation and exact-head checks.'
                 : '\n\nWaiting for a maintainer to run Complete community review for this exact head.' : '')
             + (version?.statusManualReason ? '\n\nCommunity restrictions require human review before restoring this version.' : '')
@@ -128,7 +128,7 @@ export async function publish(number, context, prepared, call = api, write = api
         if (states[3] !== 'success') {
             const ready = labels.indexOf('state:ready');
             if (ready >= 0) labels.splice(ready, 1);
-            if (result.authorization !== 'SIGNED_OWNER' && !labels.includes('review:pending')) labels.push('review:pending');
+            if (states[2] === 'pending' && !labels.includes('review:pending')) labels.push('review:pending');
         }
         // 维护合并没有目录应用动作；只有发布执行器能显示 awaiting-apply/completed。
         if (!version && result.snapshot.state === 'MERGED') labels.splice(labels.indexOf('state:awaiting-apply'), 1);

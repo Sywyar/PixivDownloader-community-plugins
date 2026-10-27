@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { api, id, sha, list, policy, prefix, repository, API_BYTES, API_TIMEOUT } from './github.mjs';
 import { root, hash, evidence } from './sdk.mjs';
-import { renewalAuthor, renewalFile } from './community-renewal.mjs';
+import { renewalAuthor, renewalFile, checkRenewal } from './community-renewal.mjs';
+import { repositoryTree, readBlob } from './submission-github.mjs';
 
 export const decisionPath = '.github/workflows/community-review-decision.yml';
 export const gatePath = '.github/workflows/community-gate.yml';
@@ -179,17 +180,26 @@ export function facts(number, prepared, current, call = api, versionContext = nu
         state: pr.merged ? 'MERGED' : pr.state === 'open' ? 'OPEN' : 'CLOSED', draft: pr.draft, scan: report ? {
             runId: report.runId, runAttempt: report.runAttempt, scannerVersion: report.scannerVersion, rulesSha256: report.rulesSha256,
             conclusion: report.status === 'COMPLETE' ? 'SUCCESS' : 'FAILURE' } : null, apply: null };
+    let renewal;
+    if (checked?.operation === 'RENEWAL') {
+        if (checkRenewal(pr, files, current, call).requestSha256 !== checked.requestSha256) throw new Error('VERSION_FACTS_CHANGED');
+        const base = repositoryTree(policy.repository, current, call);
+        const head = repositoryTree(policy.repository, pr.head.sha, call);
+        renewal = { request: add(readBlob(policy.repository, head.get(renewalFile), call)),
+            generation: add(readBlob(policy.repository, base.get('generated/current.json'), call)),
+            revocations: add(readBlob(policy.repository, base.get('revocations.json'), call)) };
+    }
     return { before: snapshot, after: structuredClone(snapshot),
         validation: { conclusion: 'SUCCESS', publisherId: id(policy.gateApp.id), headSha: snapshot.pr.headSha,
             baseSha: snapshot.pr.baseSha, inputSha256: snapshot.inputSha256, bindingSha256: snapshot.bindingSha256,
             policySha256: snapshot.policySha256 }, publisherId: id(policy.gateApp.id), policy: reviewPolicy,
         reviews, decisions: [], report: versionContext?.candidate?.scan.riskReportRef ?? null,
-        declaration: version?.descriptor.riskDeclaration ?? { present: false, signals: [] }, evidence: references };
+        declaration: version?.descriptor.riskDeclaration ?? { present: false, signals: [] }, evidence: references, renewal };
 }
 
 export function fingerprint(input) {
     return hash(Buffer.from(JSON.stringify({ snapshot: input.after, policy: input.policy,
-        reviews: input.reviews, decisions: input.decisions, statusAudit: input.statusAudit })));
+        reviews: input.reviews, decisions: input.decisions, statusAudit: input.statusAudit, renewal: input.renewal })));
 }
 
 export function event() {

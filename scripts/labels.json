@@ -100,6 +100,11 @@
     "description": "当前个人管理者的活动密钥已授权版本状态操作；不代表人工审核"
   },
   {
+    "name": "authorization:policy-renewal",
+    "color": "0e8a16",
+    "description": "纯续签延续现有业务状态与人工审核证据；不代表新的人工审核"
+  },
+  {
     "name": "flow:recovery",
     "color": "d4c5f9",
     "description": "当前动作进入已定义的密钥/所有权恢复路径"

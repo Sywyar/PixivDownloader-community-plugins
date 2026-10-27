@@ -3,10 +3,12 @@ import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { main } from './github.mjs';
 import { root, hash } from './sdk.mjs';
-import { validateSdk } from './sdk-resources.mjs';
+import { governanceSources } from './community-tools.mjs';
+import { foundationLock } from './foundation-resources.mjs';
 
-export function submissionManifest(directory = root, sdk = JSON.parse(fs.readFileSync(path.join(directory, 'tools/submission-files.json'), 'utf8')).sdk) {
-    validateSdk(sdk);
+export function submissionManifest(directory = root) {
+    const foundation = foundationLock(directory);
+    const version = JSON.parse(fs.readFileSync(path.join(directory, 'tools/governance/version.json'), 'utf8')).version;
     const selected = new Set();
     const visit = relative => {
         if (selected.has(relative)) return;
@@ -22,14 +24,14 @@ export function submissionManifest(directory = root, sdk = JSON.parse(fs.readFil
     };
     visit('scripts/submit.mjs');
     selected.add('scripts/repository-policy.json');
-    for (const name of ['CommunityReview.java', 'CommunitySubmission.java', 'CommunitySource.java', 'SdkArchive.java']) selected.add('tools/' + name);
+    for (const file of [...governanceSources(directory), 'tools/governance/version.json', 'tools/foundation-lock.json']) selected.add(file);
     const files = [...selected].sort().map(relative => {
         const file = path.join(directory, relative);
         if (!fs.lstatSync(file).isFile()) throw new Error('SUBMISSION_RESOURCE_INVALID');
         const bytes = fs.readFileSync(file);
         return { path: relative, size: bytes.length, sha256: hash(bytes) };
     });
-    return { schemaVersion: 2, sdk, files };
+    return { schemaVersion: 2, tool: { version, foundationSha256: foundation.sha256 }, files };
 }
 
 main(import.meta.url, () => {

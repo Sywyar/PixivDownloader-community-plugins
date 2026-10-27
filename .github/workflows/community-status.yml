@@ -1,13 +1,13 @@
-name: Apply signed owner request
-run-name: 'Signed owner request ${{ github.event.workflow_run.display_title || format(''PR #{0} head {1}'', inputs.prNumber, inputs.expectedHeadSha) }}'
+name: Apply authorized community request
+run-name: 'Community request ${{ github.event.workflow_run.display_title || format(''PR #{0} head {1}'', inputs.prNumber, inputs.expectedHeadSha) }}'
 on:
   workflow_run:
-    workflows: [Submission static check, Community review event]
+    workflows: [Submission static check, Community review event, Community candidate archive, Community review decision]
     types: [completed]
   workflow_dispatch:
     inputs:
       prNumber:
-        description: Signed version status, routine key rotation or ownership transfer PR number
+        description: Approved version, signed owner request or policy renewal PR number
         required: true
         type: string
       expectedHeadSha:

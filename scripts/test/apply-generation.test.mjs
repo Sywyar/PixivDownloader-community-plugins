@@ -1,5 +1,5 @@
-import { ensureSdk } from '../sdk-resources.mjs';
-const sdkResources = ensureSdk().directory;
+import { ensureFoundation } from '../foundation-resources.mjs';
+const sdkResources = ensureFoundation().directory;
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -17,7 +17,7 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const sdk = prepareSubmission();
     const records = new Map();
     const state = { tree: records, raw: file => records.get(file) ?? null };
-    const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/structure', name + '.json')));
+    const vector = name => JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/structure', name + '.json')));
     const pair = crypto.generateKeyPairSync('ed25519');
     const privateBytes = Buffer.from(pair.privateKey.export({ type: 'pkcs8', format: 'pem' }));
     const communityKey = { keyId: crypto.randomUUID(), algorithm: 'Ed25519', publicKeySpkiBase64: pair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64'),
@@ -29,7 +29,7 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const put = value => { const bytes = encoded(value), file = `records/${hash(bytes)}.json`; records.set(file, bytes); return { path: file, size: bytes.length, sha256: hash(bytes) }; };
     record.historicalPublisherRef = put(original);
     record.reviewRef = put(vector('review'));
-    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'contracts/community/v1/vectors/submission.json')));
+    const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/submission.json')));
     submission.market.links = [];
     const text = Buffer.from('# Version documentation'), sha256 = hash(text), name = `content-${sha256}.md`;
     submission.content = { readme: { en: { format: 'markdown', asset: { name, url: `https://example.org/${name}`,
@@ -39,11 +39,11 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     records.set('publishers/101/example.json', encoded(original));
     records.set('plugin-bindings/demo.json', encoded({ schemaVersion: 1, pluginId: 'demo', owner: record.owner,
         effectiveRequestId: null, updatedAt: '2026-01-01T00:00:00Z' }));
-    const generation = (day, nextUpdate = '2026-02-01T00:00:00Z') => {
+    const generation = (day, nextUpdate = '2026-02-01T00:00:00Z', renewal = false) => {
         const adapter = applySdk(sdk), writes = new Map();
         const decision = adapter.archive({ approved: true, day });
         const result = generateState({ sdk, adapter, state, writes, communityKey, privateBytes,
-            appliedAt: `2026-01-0${day}T00:00:00Z`, nextUpdate, decision });
+            appliedAt: `2026-01-0${day}T00:00:00Z`, nextUpdate, decision, renewal });
         return { adapter, writes, result };
     };
     const first = generation(2);
@@ -59,6 +59,7 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const target = { accountId: '202', accountType: 'User', publisherId: 'next' };
     records.set('plugin-bindings/demo.json', encoded({ schemaVersion: 1, pluginId: 'demo', owner: target,
         effectiveRequestId: 'a'.repeat(64), updatedAt: '2026-01-03T00:00:00Z' }));
+    assert.throws(() => generation(3, '2026-02-02T00:00:00Z', true), /RENEWAL_CONTENT_CHANGED/);
     const moved = generation(3);
     const movedCatalog = JSON.parse(moved.writes.get('generated/catalog.json'));
     assert.deepEqual(movedCatalog.entries[0].owner, target);
@@ -68,6 +69,7 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const active = { ...original.signingKeys[0], keyId: crypto.randomUUID(), publicKeySpkiBase64: communityKey.publicKeySpkiBase64, state: 'ACTIVE' };
     original.signingKeys[0].state = 'REVOKED'; original.signingKeys.push(active);
     records.set('publishers/101/example.json', encoded(original));
+    assert.throws(() => generation(4, '2026-02-02T00:00:00Z', true), /RENEWAL_CONTENT_CHANGED/);
     const revoked = generation(4);
     const document = JSON.parse(revoked.writes.get('revocations.json'));
     assert.equal(releaseStatus(record, document), 'REVOKED');
@@ -85,11 +87,17 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     assert.throws(() => generateState({ sdk, adapter, state, writes: new Map(), communityKey: { ...communityKey, keyId: 'changed' }, privateBytes,
         appliedAt: '2026-01-05T00:00:00Z', nextUpdate: '2026-02-01T00:00:00Z' }), /COMMUNITY_ROOT_CHANGED/);
     revoked.writes.forEach((bytes, file) => records.set(file, bytes));
-    const refreshed = generation(5, '2026-02-04T00:00:00Z');
+    const refreshed = generation(5, '2026-02-04T00:00:00Z', true);
     assert.equal(refreshed.result.sequence, revoked.result.sequence + 1);
     const renewed = JSON.parse(refreshed.writes.get('revocations.json'));
     assert.equal(renewed.nextUpdate, '2026-02-04T00:00:00Z'); assert.deepEqual(renewed.entries, document.entries);
     assert.equal(releaseStatus(record, renewed), 'REVOKED');
+    const directoryEntry = generated => JSON.parse([...generated.writes].find(([file]) => file.includes('/shards/'))[1]).entries[0];
+    assert.deepEqual(directoryEntry(refreshed), { ...directoryEntry(revoked), directorySequence: refreshed.result.sequence });
+    assert.deepEqual(JSON.parse(refreshed.writes.get('generated/catalog.json')).entries,
+        JSON.parse(revoked.writes.get('generated/catalog.json')).entries);
+    assert.ok([...refreshed.writes.keys()].every(file => !/^(?:published|publishers|plugin-bindings|audits|reviews)\//u.test(file)));
+    assert.throws(() => generation(5, document.nextUpdate, true), /RENEWAL_TIME_INVALID/);
     refreshed.writes.forEach((bytes, file) => records.set(file, bytes));
     for (const [file, bytes] of immutable) assert.deepEqual(records.get(file), bytes);
     const reviewer = { id: policy.repositoryOwnerId, type: 'User', role_name: 'admin' };

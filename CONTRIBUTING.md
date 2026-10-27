@@ -1,6 +1,6 @@
 # 贡献说明
 
-版本投稿通过静态检查、隔离重建、风险复核与人工审核后，由维护者手动完成审核。工作流将清单和签名追加到原投稿 PR；全部准入检查通过并合并后，自动发布已核验的社区候选。仓库所有者从本仓库分支提交工具、规则和文档维护 PR。普通投稿者通过自己的 fork 投稿，不授予本仓库 Write、Maintain 或 Admin 权限；社区所有者使用本仓库内的投稿分支。投稿与工具维护须分开提交，不能在同一 PR 中修改投稿数据及其检查器。
+版本投稿取得当前 head 的有效人工审核后，自动等待静态检查、隔离重建与风险复核。工作流将清单和签名追加到原投稿 PR；全部准入检查通过并合并后，自动发布已核验的社区候选。仓库所有者从本仓库分支提交工具、规则和文档维护 PR。普通投稿者通过自己的 fork 投稿，不授予本仓库 Write、Maintain 或 Admin 权限；社区所有者使用本仓库内的投稿分支。投稿与工具维护须分开提交，不能在同一 PR 中修改投稿数据及其检查器。
 
 每次投稿固定源码 commit、版本和包摘要。发布者换钥、YANK、UNYANK、REVOKE 和所有权转移使用各自的请求路径，不能夹带在普通版本更新中。已发布记录保留历史字节。
 
@@ -18,7 +18,7 @@
 
 ## 维护者
 
-维护工作通过独立 PR 进行。社区 Schema、签名和审核语义来自固定 SDK 工具与合同资源，不能在分发副本中修改。
+维护工作通过独立 PR 进行。审核与治理规则由本仓库维护；共享 Schema、签名和技术验证使用摘要固定的上游实现，不能在缓存或分发副本中修改。
 
 投稿者按 [PowerShell 向导说明](README.md#投稿与版本管理) 推送源码，等待候选 CI 通过后选择版本投稿；管理操作使用同一入口。向导只在完整预览得到确认且当前事实复核成功后公开源码候选并创建投稿 PR；原生身份与静态检查仍由社区端独立取得和计算。
 
@@ -58,7 +58,7 @@
 
 PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未合并关闭显示 `state:closed`；维护 PR 合并后显示 `state:merged`。投稿和管理请求合并后，等待执行时显示 `state:awaiting-apply`，结果及 Release 回读完成后显示 `state:completed`，回读失败时显示 `state:apply-failed`。重新打开的 PR 按当前 head、工作流来源和审核证据重新计算准入。
 
-需要使用当前受保护工具重新核对时，在默认分支运行 **Submission static check** 并填写 PR 编号。构建作业保持只读；没有 Draft 读取权限时执行隔离重建，不为复用缓存授予写权限。旧 run 的 rerun 仍使用原工作流来源，不能代替当前代码的重算。SDK 工具必须包含扫描器且符合固定锁，缺少时失败。
+需要使用当前受保护工具重新核对时，在默认分支运行 **Submission static check** 并填写 PR 编号。构建作业保持只读；没有 Draft 读取权限时执行隔离重建，不为复用缓存授予写权限。旧 run 的 rerun 仍使用原工作流来源，不能代替当前代码的重算。社区工具必须包含扫描器且符合固定依赖锁，缺少时失败。
 
 更新版本需要与上次审核包比较。若旧包已撤销并迁入技术 Draft，独立的 **Prepare reviewed baseline** 作业用受保护主线代码和 Contents write token 读取原包，不运行投稿源码。包通过同一次运行的一天期 artifact 交给只读构建作业，再按已审核记录核对大小和摘要；交接缺失或字节变化会阻断扫描。
 
@@ -68,15 +68,19 @@ PR 关闭后，Gate 更新终态标签和摘要，保留已有准入检查。未
 
 自审、Gate 和完成审核预检通过本次运行的 `GITHUB_TOKEN` 读取草稿。这些受保护作业显式申请 `contents: write`，固定执行主线代码，不执行投稿源码，也不需要投稿者提供令牌。草稿可见性以 Release API 的实际响应为准，不用仓库角色字段推断令牌权限。列表请求返回 HTTP 401 或 403 时报告 `CANDIDATE_ARCHIVE_READ_FORBIDDEN`；未找到完整、已验证的候选时保持等待，同时提示检查归档是否完成及令牌能否读取 Draft。空列表不能证明候选不存在，也不会授予准入。
 
-扫描身份同时绑定 SDK 工具包、社区扫描适配器和证据生成代码的原始摘要。任何一项变化都会使旧扫描报告失效；构建输入未变时复用原包重新扫描，准入检查在取得当前扫描证据前保持阻断。
+扫描身份同时绑定技术依赖锁、工具构建与获取代码、社区扫描适配器和证据生成代码的原始摘要。任何一项变化都会使旧扫描报告失效；构建输入未变时复用原包重新扫描，准入检查在取得当前扫描证据前保持阻断。
 
 换 head 不会清除原生 Request changes。撤销 review 必须能从原生事件取得操作者和理由。候选 PR 中的代码不会被特权检查或裁决入口执行；入口读取受保护默认分支的固定版本，再核对原生 run、attempt、当前权限和证据字节。签发前后均重读当前事实；GitHub 多次 API 写入并非原子操作，失败时会尝试撤销本次检查。
 
-`tools/submission-files.json` 同时固定向导代码和 SDK 依赖：SDK 版本、来源 commit、公开 Release ZIP，以及工具 JAR、合同资源和构建脚本的大小与 SHA-256。向导和 CI 共用下载入口，首次使用时从该发行下载，校验后保存到 `target/sdk/`；每次使用重新核对缓存字节。社区 Git 不保存 SDK 分发副本，也不在运行时选择 `latest`。合同、验签和审核归约仍由主仓库维护。
+`tools/governance/src/main/java/` 持有审核准入、人工裁决、换钥、所有权转移、状态处置、紧急声明及发布记录生成。版本由 `tools/governance/version.json` 独立管理。`tools/foundation-lock.json` 只固定主仓库技术源码的 commit、路径与摘要，以及 Maven Central 依赖的路径、长度和摘要；不下载完整 SDK，也不要求克隆或构建主程序。共享合同、签名、解析、扫描和构建模型仍使用原实现。更新纯治理规则只修改本仓库并提升工具版本；更新技术依赖时另行审阅锁文件及其实际来源。
 
-升级时运行 `node scripts/sdk-release.mjs --version <已公开的SDK版本>`。命令核对指定 Release 的公开状态和 ZIP 摘要，从实际归档生成资源清单，不修改 SDK 发行物。运行回归后通过维护 PR 提交清单；向导代码变化时使用 `node scripts/submission-manifest.mjs --write` 重算代码摘要，保留原 SDK 引用。新运行版本合入主线后，按下文签发和更新工具渠道，公开启动器才会选用它。未公开的本地候选只用于隔离测试，不能写入正式清单。
+准备 Node 24、JDK 17 或更新版本和已登录的 GitHub CLI 后，在本仓库执行 `node scripts/community-tools.mjs target/community-tools`，得到独立 JAR、依赖、源码、许可证和 `community-tools.json` 摘要清单。输出目录必须不存在。基础依赖保存在 `target/foundation/`，每次执行复验；每进程只复用从已核验源码构建的工具，退出回收临时构建目录。运行 `node scripts/test-governance.mjs` 验证 Java 治理规则，运行 `npm test` 验证社区流程。
 
-发布者签名 CLI 使用同一 SDK 内的签名模块，提供密钥初始化、密码加密、公钥导出和操作请求签名，向导也可读取已有明文私钥。密钥路径和身份按发布者共享，并区分当前操作账号；工程表单和进度仍按项目隔离。每次使用按真实公钥指纹和配对验证更新路径，密码仅留在当前签名会话。私钥不能进入投稿文件，不能保存到源码仓库、临时目录、PR 或 artifact。
+普通 PR CI 先用只读仓库 token 执行 `node scripts/foundation-resources.mjs fetch .`，再依次运行 Java 治理回归和 `npm test`。token 只传给依赖预取步骤；测试与编译复验已获取的字节。Windows 引导作业使用本地签名渠道和网络夹具，不预取技术依赖，也不接收该 token。
+
+运行 `node scripts/submission-manifest.mjs --write` 更新向导代码、治理源码及依赖锁的摘要，经维护 PR 合入后使用现有 **Sign submission tool channel** 工作流。它核验指定源码已合入主线，独立构建并测试该源码，在 release Environment 批准后对工具归档生成原生证明并签发渠道。构建作业只有读取权限；持有签发密钥的作业使用受保护工作流源码，不运行投稿代码。工具归档和渠道保留为七天 artifact；公开入口仍通过既有签名渠道获取固定源码并构建，不从临时 artifact 自动升级。历史 SDK 渠道的格式校验只供兼容读取，新的运行清单不包含 SDK ZIP 引用。
+
+发布者签名 CLI 使用固定技术依赖中的原签名模块，提供密钥初始化、密码加密、公钥导出和操作请求签名，向导也可读取已有明文私钥。密钥路径和身份按发布者共享，并区分当前操作账号；工程表单和进度仍按项目隔离。每次使用按真实公钥指纹和配对验证更新路径，密码仅留在当前签名会话。私钥不能进入投稿文件，不能保存到源码仓库、临时目录、PR 或 artifact。
 
 操作审计固定放在 `audits/<requestId>.json`，只能由受保护操作流程追加。状态读取必须核对请求、决定及前后状态的原始引用；重复请求返回原记录，不改写历史。恢复转移的证据使用 `ownership-transfer-evidence/<pluginId>/<sha256>.bin`，摘要基于原始字节，不能在已有请求中替换。
 
@@ -102,19 +106,27 @@ SSH 私钥最多 16 KiB，只传给受保护的分支写入步骤。执行器使
 
 ## 完成审核与发布
 
+### 普通版本投稿
+
+维护者复核源码、原包和扫描证据后，对当前完整 head 提交一次原生 **Approve**。**Apply authorized community request** 会在静态检查、候选归档、原生 Review 或审核裁决完成后重新核对请求；先批准、后完成 CI 也会继续处理。技术检查、扫描裁决和候选归档都通过后，执行器生成结果并合并，无需再运行 **Complete community review** 或批准 release Environment。
+
+普通评论中的“Approve”不授权。维护者须仍有审核权限，Approve 须绑定原请求 head；作者自审使用明确的 SELF_REVIEW_APPROVED 裁决。有效的 Request changes 会阻断处理，撤销最新 Review 不会恢复同一审核人更早的批准。误报和补扫仍使用各自裁决，不能由 Approve 替代。
+
 ### 作者签名的管理操作
 
-**Apply signed owner request** 在静态检查或原生 Review 事件工作流完成后检查相应请求，也支持按 PR 编号和完整 head 手动重试。当前个人管理者活动密钥签署的 YANK、UNYANK、REVOKE 会重新核对当前 binding、发布包和状态。个人 `ROUTINE_ROTATION` 另行读取主线发布者记录，验证新旧密钥对同一请求正文的签名、旧 keyId、发布者记录摘要及原生 PR 作者；历史 keyId 或公钥不能重复使用。不同个人账号之间的普通转移要求接收方签署申请，原所有者以活动密钥签署同一正文，并在该申请的原生 Approve Review 中提供证明。SDK 核验双方身份和签名，最终写入前复核最新 Review、活动密钥及紧急状态。组织代表权、账号或密钥恢复、缺少证明及涉及社区独立限制的 UNYANK 转入下方人工流程。
+**Apply authorized community request** 也处理作者签名的管理请求，支持按 PR 编号和完整 head 手动重试。当前个人管理者活动密钥签署的 YANK、UNYANK、REVOKE 会重新核对当前 binding、发布包和状态。个人 `ROUTINE_ROTATION` 另行读取主线发布者记录，验证新旧密钥对同一请求正文的签名、旧 keyId、发布者记录摘要及原生 PR 作者；历史 keyId 或公钥不能重复使用。不同个人账号之间的普通转移要求接收方签署申请，原所有者以活动密钥签署同一正文，并在该申请的原生 Approve Review 中提供证明。社区工具核验双方身份和签名，最终写入前复核最新 Review、活动密钥及紧急状态。组织代表权、账号或密钥恢复、缺少证明及涉及社区独立限制的 UNYANK 转入下方人工流程。
 
-执行器在原 PR 追加生成结果，并直接调用 Gate 重新签发准入检查。Gate 记录 `SIGNED_OWNER` 授权，保留真实人工审核状态及拒绝；原生检查回读最多等待五秒。四项绑定 App 的检查通过后，执行器重新核对原请求、生成父链和当前事实，以精确 head 请求 Merge commit。受保护规则仍可阻止合并；失败时保留分支和生成归档。合并后显式触发现有 Release 收尾流程，同仓投稿也不依赖机器人提交触发普通事件。
+执行器在原 PR 追加生成结果，并直接调用 Gate 重新签发准入检查。Gate 分别记录 `HUMAN_REVIEW`、`SIGNED_OWNER` 或 `POLICY_RENEWAL` 授权，保留真实人工审核状态及拒绝；原生检查回读最多等待五秒。四项绑定 App 的检查通过后，执行器重新核对原请求、生成父链和当前事实，以精确 head 请求 Merge commit。受保护规则仍可阻止合并；失败时保留分支和生成归档。所有者 PAT 合并产生的 master push 触发 Release 收尾，正常合并不再追加一次发布 dispatch；手动发布入口用于失败恢复。
 
 合并前的操作审计记为 `PREPARED`，不伪造合并 SHA；收尾时固定原始审计字节，并核对真实生成提交和 merge 的有序父节点。状态操作复用已发布包，不触发重建，也不改变作者签名或原包。合并后的本仓库分支由 GitHub 按仓库设置自动清理；取消未合并请求时，向导仍须另行确认删除。
 
-### 需要人工审核的请求
+### 特殊授权与人工重试
+
+**Complete community review** 保留给恢复、组织代表权、社区独立限制恢复，以及人工重试。它与普通自动执行复用准入和生成校验；运行表单及批准 Environment 不能代替有效的原生审核、双方确认或风险裁决。
 
 1. 等待请求 PR 的技术检查和候选归档完成，复核原包、源码及审核证据。原生 Review 或显式自审必须针对当前完整 head SHA。
 2. 在 `master` 手动运行 **Complete community review**，填写 `prNumber`、`expectedHeadSha` 和审核理由。恢复操作须勾选 `recoveryApproved`；组织代表权经人工核对后填写 `organizationId:personId`，多项以逗号分隔。
-3. 批准 `release` Environment。批准在队列外等待；随后 `community-status` 作业取得共享队列，读取最新主线，重新核验请求，调用固定 SDK 生成清单、签名和审计，并向原 PR 追加提交。此时正式 Release 仍未公开。
+3. 批准 `release` Environment。批准在队列外等待；随后 `community-status` 作业取得共享队列，读取最新主线，重新核验请求，调用社区工具生成清单、签名和审计，并向原 PR 追加提交。此时正式 Release 仍未公开。
 4. 同一作业重新签发并回读四项 App 检查，全部通过后以精确 head 请求 Merge commit。Gate 核对生成工作流证明、有序父链、完整树及每份文件的原始字节，并重读人工拒绝、撤销、当前权限和紧急状态。生成、检查与合并共用一个串行区间，严格的主线同步规则保持开启。
 5. **Publish merged community state** 响应 `master` 合并，验证真实 merge 的父提交、准入检查及候选签名，再公开原社区候选并匿名下载核对。它还更新已发布版本的状态和当前维护者。REVOKED 包先按 SHA-256 保存到共享技术 Draft，再核对下载字节，最后移除正式 Release 的安装包附件；版本说明、签名和历史作者保留。归档或回读失败不删除公开包；GitHub 不允许修改的不可变 Release 保持失败，不能报告清理成功。
 
@@ -128,7 +140,7 @@ SSH 私钥最多 16 KiB，只传给受保护的分支写入步骤。执行器使
 
 追加提交前中断，可针对未变化的原 head 重试；已经追加时，填写当前生成 head。若只有主线数据推进或准备结果过期，流程先验证旧回执与完整树，再从原请求和最新主线重新生成。生成提交保留原审核 head 和应用主线为父节点；恢复时还保留上一生成提交，始终快进，不强推。原请求、归属、密钥、规则、父链或生成字节变化仍会阻断。续签请求绑定整代摘要，过期后须重新创建续签请求。已合并请求的 Release 收尾失败，可在 `master` 手动运行 **Publish merged community state**；同名异字节资产拒绝覆盖，重跑不执行旧状态写入。
 
-维护 SDK 时，须选择包含 `CommunityPr.hasGeneratedParents` 的公开不可变发行，并通过 `sdk-release.mjs --version` 更新 `tools/submission-files.json` 中的 SDK 引用。旧工具会在编译执行适配器时停止，不能在不支持合并父链验证的工具上生成或合并新结果。本地回归可通过测试专用 `COMMUNITY_TEST_SDK_CLASSES` 指定候选 classes；生产入口不接受此覆盖。
+治理规则、平台适配和生成器使用同一工具版本。修改它们后重新运行对应业务回归及工具清单校验；生产入口和本地回归共用独立构建，不接受本地 SDK JAR 或 classes 覆盖。
 
 YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引用的管理者下架；社区独立限制继续保留。REVOKE 没有恢复操作。换钥把旧密钥标记为 RETIRED，保留历史包验证；泄露密钥须先完成紧急声明，不能通过换钥解除封禁。确需撤销历史包时另行提出版本撤销请求。
 
@@ -146,11 +158,11 @@ YANK、UNYANK、REVOKE 只对已发布版本执行。UNYANK 只解除请求引�
 
 ### 撤销清单续签
 
-**Renew community revocations** 每周一 04:23 UTC 检查主线，也支持手动运行。没有已发布整代或有效期还超过七天时不写入；临近到期时，由 GitHub Actions 机器人在 `chore/community/revocations-renewal` 创建维护 PR，固定当前整代和撤销清单摘要。已有开放续签 PR 时返回原链接，不覆盖其中的修改；同一请求被关闭后不会自动重开，维护者可以重新打开原 PR。
+**Renew community revocations** 每日 04:23 UTC 检查主线，也支持手动运行。没有已发布整代或有效期还超过七天时不写入；临近到期时，由 GitHub Actions 机器人在 `chore/community/revocations-renewal` 创建维护 PR，固定当前整代和撤销清单摘要。已有开放续签 PR 时返回原链接，不覆盖其中的修改；同一请求被关闭后不会自动重开，维护者可以重新打开原 PR。
 
-维护者核对请求后，在 GitHub 提交 **Approve** Review，再运行 **Complete community review** 并批准 `release` Environment。签发器把新的三十天有效期、递增序号和签名追加到续签 PR，保留全部限制记录、历史包及归属；检查通过后使用 Merge commit 合并。机器人不能代替维护者审核，也不使用作者自审表单。创建 PR 本身尚未延长有效期。
+纯续签由固定策略自动授权，无需逐次 Approve 或 Environment 人工批准。签发器先验证原整代签名，再确认目录内容、撤销项、发布包及归属不变，保留原认证证据、首次和最近人工审核时间，只延长三十天有效期并更新序号、生成时间和签名。生成结果通过全部 Gate 后使用 Merge commit 合并并发布；创建 PR 本身尚未延长有效期。维护者的 Request changes 仍会阻断，修改请求摘要、混入业务变更或主线状态已变化也会停止处理。
 
-仓库需要开启 Actions 的 **Allow GitHub Actions to create and approve pull requests**，默认 token 权限仍保持只读，需要写入或读取 Draft 的受保护 job 显式申请相应权限。准入只接受已授权自然人的审核，机器人批准不会放行。为避免 job token 抑制事件，续签入口显式启动该 PR 的静态检查与 Gate；它不会启动签名、自动合并或关闭普通申请。暂停此 workflow 会停止自动创建续签请求，已有清单仍按原有效期使用。
+仓库需要开启 Actions 的 **Allow GitHub Actions to create and approve pull requests**，默认 token 权限仍保持只读，需要写入或读取 Draft 的受保护 job 显式申请相应权限。机器人 Review 不授予人工审核权；纯续签记录独立的 `POLICY_RENEWAL`。为避免 job token 抑制事件，续签入口显式启动该 PR 的静态检查与 Gate，检查完成后唤醒受保护自动执行器。暂停此 workflow 会停止自动创建续签请求，已有清单仍按原有效期使用。
 
 这类独立 PR 只负责无申请时的清单续签；插件发布、换钥、状态处置和转移继续在各自原申请 PR 内完成。
 

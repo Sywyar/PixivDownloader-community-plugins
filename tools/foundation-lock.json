@@ -1,0 +1,901 @@
+{
+  "schemaVersion": 1,
+  "repository": "Sywyar/PixivDownloader",
+  "sourceCommit": "411785766a5feb635de5625480cdbaf137fc504c",
+  "files": [
+    {
+      "path": "contracts/community/v1/bundle-manifest.json",
+      "target": "resources/community/v1/bundle-manifest.json",
+      "size": 7673,
+      "sha256": "be8612d15ee2172cfea6de0b358b3e7a4424928570c017a52ec8987d4407de86"
+    },
+    {
+      "path": "contracts/community/v1/catalogs.json",
+      "target": "resources/community/v1/catalogs.json",
+      "size": 999,
+      "sha256": "84233504ff86b524917d175219d94a1ded1d8ba43799fad41fae77bedf06c799"
+    },
+    {
+      "path": "contracts/community/v1/community.schema.json",
+      "target": "resources/community/v1/community.schema.json",
+      "size": 75546,
+      "sha256": "e41a621747d7aa8b8a39e4f2f3c6c78bc43dc544ad1cabd6822379c727cccc4e"
+    },
+    {
+      "path": "contracts/community/v1/licenses/0BSD.txt",
+      "target": "resources/community/v1/licenses/0BSD.txt",
+      "size": 643,
+      "sha256": "e3f18c71e10d673590eb9856c1d79dd3b4b0d65404efb5e8584dbede7edd608b"
+    },
+    {
+      "path": "contracts/community/v1/licenses/AGPL-3.0-only.txt",
+      "target": "resources/community/v1/licenses/AGPL-3.0-only.txt",
+      "size": 34020,
+      "sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee"
+    },
+    {
+      "path": "contracts/community/v1/licenses/AGPL-3.0-or-later.txt",
+      "target": "resources/community/v1/licenses/AGPL-3.0-or-later.txt",
+      "size": 34020,
+      "sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee"
+    },
+    {
+      "path": "contracts/community/v1/licenses/Apache-2.0.txt",
+      "target": "resources/community/v1/licenses/Apache-2.0.txt",
+      "size": 10280,
+      "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+    },
+    {
+      "path": "contracts/community/v1/licenses/BSD-2-Clause.txt",
+      "target": "resources/community/v1/licenses/BSD-2-Clause.txt",
+      "size": 1266,
+      "sha256": "017b5ee48f680e82cba79141c7895a1f02b856df2512225f5c427fe36765ef0b"
+    },
+    {
+      "path": "contracts/community/v1/licenses/BSD-3-Clause.txt",
+      "target": "resources/community/v1/licenses/BSD-3-Clause.txt",
+      "size": 1459,
+      "sha256": "3cf06aba3588c41c514f6946bb2d757b413ff6491647d474800f55edca75dcb4"
+    },
+    {
+      "path": "contracts/community/v1/licenses/CC0-1.0.txt",
+      "target": "resources/community/v1/licenses/CC0-1.0.txt",
+      "size": 7048,
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+    },
+    {
+      "path": "contracts/community/v1/licenses/GPL-3.0-only.txt",
+      "target": "resources/community/v1/licenses/GPL-3.0-only.txt",
+      "size": 34674,
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+    },
+    {
+      "path": "contracts/community/v1/licenses/GPL-3.0-or-later.txt",
+      "target": "resources/community/v1/licenses/GPL-3.0-or-later.txt",
+      "size": 34674,
+      "sha256": "fb981668c18a279e285fc4d83fba1e836cc84dd4daa73c9697d3cfd2d8aca6e0"
+    },
+    {
+      "path": "contracts/community/v1/licenses/ISC.txt",
+      "target": "resources/community/v1/licenses/ISC.txt",
+      "size": 823,
+      "sha256": "f2ec607f67bb0dd3053b49835b02110d5cd0f8eb6da3aac4dc0b142a6b299be9"
+    },
+    {
+      "path": "contracts/community/v1/licenses/LGPL-3.0-only.txt",
+      "target": "resources/community/v1/licenses/LGPL-3.0-only.txt",
+      "size": 42098,
+      "sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1"
+    },
+    {
+      "path": "contracts/community/v1/licenses/LGPL-3.0-or-later.txt",
+      "target": "resources/community/v1/licenses/LGPL-3.0-or-later.txt",
+      "size": 42098,
+      "sha256": "996af0513df21f7496288951c41428a03c174e9e4a9d63665c57d670f845ccb1"
+    },
+    {
+      "path": "contracts/community/v1/licenses/MIT.txt",
+      "target": "resources/community/v1/licenses/MIT.txt",
+      "size": 1078,
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    {
+      "path": "contracts/community/v1/licenses/MPL-2.0.txt",
+      "target": "resources/community/v1/licenses/MPL-2.0.txt",
+      "size": 16726,
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "contracts/community/v1/licenses/Unlicense.txt",
+      "target": "resources/community/v1/licenses/Unlicense.txt",
+      "size": 1211,
+      "sha256": "0bdebfeda07d45dada625ae1317c6f833186e798b171d0db640bcf32e92a8240"
+    },
+    {
+      "path": "contracts/community/v1/messages.json",
+      "target": "resources/community/v1/messages.json",
+      "size": 2821,
+      "sha256": "bb3f4e79d049d6c2fd03ad5db2b79f906253756944d368c21cd8ce711633beba"
+    },
+    {
+      "path": "contracts/community/v1/spdx.json",
+      "target": "resources/community/v1/spdx.json",
+      "size": 21594,
+      "sha256": "fce30fe9101f0a3d56d34f5790f2d6c05decf6a09e9b257e1c8bcef20762e04b"
+    },
+    {
+      "path": "contracts/community/v1/vectors/images/animated.png",
+      "target": "resources/community/v1/vectors/images/animated.png",
+      "size": 211,
+      "sha256": "e2d0700d72cf65a4919fb1978be7febc07a8b0d5f08ef49c0e07870bbc8fa5e1"
+    },
+    {
+      "path": "contracts/community/v1/vectors/images/animated.webp",
+      "target": "resources/community/v1/vectors/images/animated.webp",
+      "size": 144,
+      "sha256": "dd37f20748326ac0ee2dbb3ef4e3cc152f2117519ccb59663f1a7d859201ed82"
+    },
+    {
+      "path": "contracts/community/v1/vectors/images/static.jpg",
+      "target": "resources/community/v1/vectors/images/static.jpg",
+      "size": 632,
+      "sha256": "8b32cdb1ac2c881cc3326017277ea90f2092ec952073929ba212789bb5c1cbe0"
+    },
+    {
+      "path": "contracts/community/v1/vectors/images/static.png",
+      "target": "resources/community/v1/vectors/images/static.png",
+      "size": 78,
+      "sha256": "d6cd204a858fda5c086ee064382f33db954ecbabd8c3f01d62d95720188e5a6b"
+    },
+    {
+      "path": "contracts/community/v1/vectors/images/static.webp",
+      "target": "resources/community/v1/vectors/images/static.webp",
+      "size": 38,
+      "sha256": "cbe58301bcdc7b49229aae8681e11f5fa73412fe6d7bea92e9d9644069ee0991"
+    },
+    {
+      "path": "contracts/community/v1/vectors/json.json",
+      "target": "resources/community/v1/vectors/json.json",
+      "size": 3744,
+      "sha256": "be8585d7f1195f693c143adc104dda04087d40b490317d2375e3e8cf90232747"
+    },
+    {
+      "path": "contracts/community/v1/vectors/revocation-snapshots.json",
+      "target": "resources/community/v1/vectors/revocation-snapshots.json",
+      "size": 1707,
+      "sha256": "fd0519b54ebb06cb2b0441751dc0c89a413f09c3e9439e6e8b697d8dc3ef04b5"
+    },
+    {
+      "path": "contracts/community/v1/vectors/signatures.properties",
+      "target": "resources/community/v1/vectors/signatures.properties",
+      "size": 4172,
+      "sha256": "f6dfda14a5894a532efc1467ac364e0e792a8723116dce6c50edc6d54eca24b8"
+    },
+    {
+      "path": "contracts/community/v1/vectors/state-transitions.json",
+      "target": "resources/community/v1/vectors/state-transitions.json",
+      "size": 3617,
+      "sha256": "94e1367ad6698d62239e4e80f7fbd4aee66de43bb914e8804852091ee9cbf728"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/approval.json",
+      "target": "resources/community/v1/vectors/structure/approval.json",
+      "size": 126,
+      "sha256": "97fdf30be50b3b6f66a849c07848a4671dd2642b20600c8c0da17c2d791674b2"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/audit.json",
+      "target": "resources/community/v1/vectors/structure/audit.json",
+      "size": 1204,
+      "sha256": "ab3de8ce27720a522c7a174f3682598d2e62f64509c6818732b58c5ea85accce"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/binding.json",
+      "target": "resources/community/v1/vectors/structure/binding.json",
+      "size": 214,
+      "sha256": "2c5638af6425b7de2bc53c64f91d330d68c09bc69aa3f21d243050a7ee7cf4f3"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/decision.json",
+      "target": "resources/community/v1/vectors/structure/decision.json",
+      "size": 963,
+      "sha256": "f0b30d195e3b08acda3ba8cb2bd23b9eb0d177547fa287e9d2a5a3ac46e9787d"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/directoryRoot.json",
+      "target": "resources/community/v1/vectors/structure/directoryRoot.json",
+      "size": 354,
+      "sha256": "50cb7095ebacd4d6e8d949828aa501b41db86faafaf599902e553cbbb6a457b5"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/directoryShard.json",
+      "target": "resources/community/v1/vectors/structure/directoryShard.json",
+      "size": 956,
+      "sha256": "1531fefff38e94d72b0280b3a039c59861d91123eddff094989723d1495130f7"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/emergencyKeyBlock.json",
+      "target": "resources/community/v1/vectors/structure/emergencyKeyBlock.json",
+      "size": 700,
+      "sha256": "8fe42cb7c090df8d58d71a6572c71bb867c5e9dc6937588b5b38a1058c4a7f55"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/emergencyRequest.json",
+      "target": "resources/community/v1/vectors/structure/emergencyRequest.json",
+      "size": 490,
+      "sha256": "a6ac6415d56e48ac5495a3778dc618a7a4a99282ba7e88879dee88e4bcee64a0"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/emergencyState.json",
+      "target": "resources/community/v1/vectors/structure/emergencyState.json",
+      "size": 90,
+      "sha256": "0d7bfa8a437a9bf24bb64bab3fca92f9f24e69397f0054995403cd1593f2d18d"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/published.json",
+      "target": "resources/community/v1/vectors/structure/published.json",
+      "size": 1394,
+      "sha256": "fb9f2c9598f8a755c572f3016c16245c4db1c1f4f04c830627ac737552ff2dba"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/publisher.json",
+      "target": "resources/community/v1/vectors/structure/publisher.json",
+      "size": 394,
+      "sha256": "498f5d2e167daa16a1079d3e77d809a2a8ae008785814679ade405ab027da56f"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/review.json",
+      "target": "resources/community/v1/vectors/structure/review.json",
+      "size": 3238,
+      "sha256": "3586777e4b4072176b0ed0b79587c21db2237abc38ef17a7aef12a7662dbcbe6"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/rotation.json",
+      "target": "resources/community/v1/vectors/structure/rotation.json",
+      "size": 825,
+      "sha256": "cab965d6a5a8a22428c64c31b0fbb5fd180660f0c71748eea87f53f9d2595a80"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/statusRequest.json",
+      "target": "resources/community/v1/vectors/structure/statusRequest.json",
+      "size": 649,
+      "sha256": "8bc789c50e8155a0305d67359e6eaa36456e6aaf568f5f5387e328d46f37208c"
+    },
+    {
+      "path": "contracts/community/v1/vectors/structure/transfer.json",
+      "target": "resources/community/v1/vectors/structure/transfer.json",
+      "size": 1022,
+      "sha256": "307258a8f688a1c08c8dde06eab40c5f1ac59eb8d5c653acf1d036a25a9cfe02"
+    },
+    {
+      "path": "contracts/community/v1/vectors/submission.json",
+      "target": "resources/community/v1/vectors/submission.json",
+      "size": 1421,
+      "sha256": "32f1606169c0ff504ad1c0fe1dfe34532e8c4af1ac117a04459510c03982ba2b"
+    },
+    {
+      "path": "pixivdownload-common/src/main/java/top/sywyar/pixivdownload/common/Utf8ConsoleStreams.java",
+      "target": "src/top/sywyar/pixivdownload/common/Utf8ConsoleStreams.java",
+      "size": 1758,
+      "sha256": "8c0bfaef8f3687b5f2601bf73dcff8013ed3f96315a6a4a2e0f9ebb743ef0b14"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/content/ContentLocales.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/content/ContentLocales.java",
+      "size": 1325,
+      "sha256": "6d4ced297788131f3d986c5f53570670f5561ad7923c8e41e8ab44079ef8d23b"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/content/MarketContent.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/content/MarketContent.java",
+      "size": 7802,
+      "sha256": "ea39af3237ede36a1434c10fd255adb2d5ccf96bc53fb04c2847188606755c63"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/content/MarketDocuments.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/content/MarketDocuments.java",
+      "size": 7309,
+      "sha256": "2c2255f386604f87541c49e9a131b3d976f1cebfef1f6a2676e870dfecc35a43"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/content/MarketImage.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/content/MarketImage.java",
+      "size": 345,
+      "sha256": "960dd46f5c02ab400fee3e4504ea0e626dc55fb0ad2ce31d4c9951829fed95d9"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/content/MarketImageBytes.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/content/MarketImageBytes.java",
+      "size": 10346,
+      "sha256": "24212cdc9011f58130d350552e6c0503204b1ce322b110835f546cfd08ea22ec"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/content/MarketLink.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/content/MarketLink.java",
+      "size": 2196,
+      "sha256": "d502bf33e649238d37c04b2c37112a927756f291c92084716b9a657fa0095113"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/directory/DirectoryEntry.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/directory/DirectoryEntry.java",
+      "size": 2448,
+      "sha256": "c75b821ddbae09dd2df20fea78a6409218dd8c092e387310cf7b3791668d1e36"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/directory/DirectoryGeneration.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/directory/DirectoryGeneration.java",
+      "size": 8823,
+      "sha256": "da815910453f9554a89d5e77919207d791cda4d5fc2a0fe9268b7bd94b1a4102"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/format/CommunityJson.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/format/CommunityJson.java",
+      "size": 10176,
+      "sha256": "2618f43953fd7fa831f3b40cbfa004c42d6e42734bffcf137a5057d722b229b0"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/format/CommunityValues.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/format/CommunityValues.java",
+      "size": 4716,
+      "sha256": "16341ef5084d6e942ba816646cfc8d80b768b08b48b6b62cd2da7d9cda7e103f"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/format/ContractException.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/format/ContractException.java",
+      "size": 1011,
+      "sha256": "a21d539e30cd556cc674e1fe8c47081022c62f77268337d3532b4fea0612ddde"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/identity/Publisher.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/identity/Publisher.java",
+      "size": 3754,
+      "sha256": "be07e55f0e6eb72ea0d691fe8fb9c5019191372d6ad5e15e3708eaaf553ec34e"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/project/CommunityPaths.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/project/CommunityPaths.java",
+      "size": 4200,
+      "sha256": "24e1c1bee71ca9accb0191642fda9a0acce273578d25aade5f0542b47e000baa"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/review/CommunityReview.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/review/CommunityReview.java",
+      "size": 3329,
+      "sha256": "08305215fee83fae3529db8de44f23af774657ca890ca6193499e635ff899bb8"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/ControlledCatalogs.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/ControlledCatalogs.java",
+      "size": 1726,
+      "sha256": "5a94ab6a18ee7a1ee6ef95fd4912124ae4ce19436fdcfa2adc253fcc1094a4e3"
+    },
+    {
+      "path": "pixivdownload-community-contract/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/DescriptorSnapshot.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/DescriptorSnapshot.java",
+      "size": 2587,
+      "sha256": "c2806fed374677db2b68fa42afec867a252571d7ee64f6c6cc96c3478fe3e2b4"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginDependencyRef.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginDependencyRef.java",
+      "size": 2399,
+      "sha256": "7552096c3c25dd316b30566a494ea9acfbc24ab94bd27cb265cd962093b03bdc"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginDescriptor.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginDescriptor.java",
+      "size": 16205,
+      "sha256": "da61dc5563c7bf451b2226d62da43075ebf9170789518b96636269ccb67a8974"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginExecutionMode.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginExecutionMode.java",
+      "size": 1057,
+      "sha256": "36d8685dc913463dec23d3bba63751b8b1f081202f0446302a1f835447763f2b"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginLifecyclePolicy.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginLifecyclePolicy.java",
+      "size": 1574,
+      "sha256": "73911e07d05b41bc8acdc81332f60854810f9684f30d4edb21180ceb8b52e1fc"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginRiskDeclaration.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/descriptor/PluginRiskDeclaration.java",
+      "size": 887,
+      "sha256": "b48cabe808f4b3055a2a7819c9e8c65fe11d15adb8b41714902d85aee433996d"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/descriptor/VersionRequirement.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/descriptor/VersionRequirement.java",
+      "size": 9283,
+      "sha256": "57c9a3dac5f2298605be1eb1477d300244b55b8de89889bc2df238412b529df9"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/http/HttpsLocation.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/http/HttpsLocation.java",
+      "size": 1149,
+      "sha256": "8a0b4dee19470b01bdb5a4c4c78aa1d8ff3ae9a153071f26b6e9deeb5bd6df8a"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/CommunityPackageEvidence.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/CommunityPackageEvidence.java",
+      "size": 1528,
+      "sha256": "59e2292e57a7dff3f499a111365756ab821bd57bedc97f504421aaf835279667"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginInstallOutcome.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginInstallOutcome.java",
+      "size": 3041,
+      "sha256": "7ddc5fa6f450d4e97579ec7693f54b6ad2ff1db08746af3027a0ca5481bb9a28"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageFormat.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageFormat.java",
+      "size": 1409,
+      "sha256": "bdc29038d5c511cd7e73cf4f3f08bf4f313563b9b34892bccefab77fffedc010"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageInspection.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageInspection.java",
+      "size": 1880,
+      "sha256": "406370573a299f5928e89380c5c96c93bdb025574e5c941b091e8de323dc5a25"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageLimits.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageLimits.java",
+      "size": 8106,
+      "sha256": "4360272b97ea634a94ea9f30e6a2a783ef460cf95f8413a147c5640df708f8b0"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageOrigin.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageOrigin.java",
+      "size": 15629,
+      "sha256": "cf9fbaa648c43294da868adb5f7668388203e743bd96bf33dacb273032b3a1a2"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageSource.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/model/PluginPackageSource.java",
+      "size": 1442,
+      "sha256": "15494f7dfadcc5dc243e84c4b51e2a052e4325bcf3b804c531e5bd70f8f5160d"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageException.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageException.java",
+      "size": 3323,
+      "sha256": "168e5fcf31bb99bf54cdeafde068fc2e5d47e1f3f41fe103fa5033456480f4df"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageIntegrity.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageIntegrity.java",
+      "size": 4123,
+      "sha256": "82dd3af6fbd1272fab0a8eb12564ad95a49c5b17c6e59630a9d8b47c059d0dc2"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageReader.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageReader.java",
+      "size": 21620,
+      "sha256": "bfa00a4f517cd592b8b098916097a0a5b6839cddb38ee419610d08d8eaf2959b"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageVerifier.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/verify/PluginPackageVerifier.java",
+      "size": 14467,
+      "sha256": "461300130ed3257e215842401c2a5c09746ed797d5cd6edaf6ec473e3bf6db8a"
+    },
+    {
+      "path": "pixivdownload-plugin-runtime/src/main/java/top/sywyar/pixivdownload/plugin/runtime/install/verify/ZipSafety.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/runtime/install/verify/ZipSafety.java",
+      "size": 15838,
+      "sha256": "f20c484fc3036dc30296eda1495ebb5c04f3cbe4dd7441ef6a7a9221aacba59e"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/ArtifactVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/ArtifactVerificationRequest.java",
+      "size": 886,
+      "sha256": "4f52ac8a4011a4ea86e0fc4d5467cbe9c0e6e6ef6a38026fbc540aa9d794d27a"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/CommunityPluginTrustRoots.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/CommunityPluginTrustRoots.java",
+      "size": 1163,
+      "sha256": "1dc69ee84b30f8573dc9316955f982e367921e889deabe4f8bb4b84b997cbb56"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/IdentityMigrationVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/IdentityMigrationVerificationRequest.java",
+      "size": 1238,
+      "sha256": "f306288aff11716b76edce1da53c7472057dbf40764405bb8ee7e67825fbef2a"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/ManifestVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/ManifestVerificationRequest.java",
+      "size": 879,
+      "sha256": "99a6b100340da6bdf2badc28f8d8b97bb052a0ffc8ec418c313e29df81b70521"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/OfficialArtifactTrustRoots.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/OfficialArtifactTrustRoots.java",
+      "size": 3133,
+      "sha256": "944ea759ef1bb1f10f082ca9f30650703794462a3d0d9224699043b391f2bbcf"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/PluginRevocationsVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/PluginRevocationsVerificationRequest.java",
+      "size": 654,
+      "sha256": "318c35067e850af5e94ae56aca44fb03c8e1c48700f39c012fa66535ae242077"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/PluginSupplyChainVerifier.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/PluginSupplyChainVerifier.java",
+      "size": 21797,
+      "sha256": "591a7bf7ad3f31fd00d52d0ad083d72bc5bd6dfc1a35857f46a86b5ef283f7b6"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/PluginTrustStore.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/PluginTrustStore.java",
+      "size": 282,
+      "sha256": "3ec163c139d6aaa5c876ec88781190dec84bd87d63eefad8589b30360ed0f050"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/PluginTrustStores.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/PluginTrustStores.java",
+      "size": 2101,
+      "sha256": "46d8ca5425df81783e8695edf5d8f263026833dc72b64d286d002c08bb20e418"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/RepositoryUpdateVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/RepositoryUpdateVerificationRequest.java",
+      "size": 664,
+      "sha256": "0ea102b8119a799a5724494f50629d735b8889abae879142afb03e4cd2ba61c1"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/SignatureMetadata.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/SignatureMetadata.java",
+      "size": 630,
+      "sha256": "a6e43be43247454c26bf288902ebee2020d678bac47bffc806ef5887f724dbe3"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/TrustedPluginKey.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/TrustedPluginKey.java",
+      "size": 1553,
+      "sha256": "653743aca32910174416d76b11231002bab7b748d0dc5e51d8e64981ec0d1e70"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/VerificationPolicy.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/VerificationPolicy.java",
+      "size": 1643,
+      "sha256": "223a7b1599c9002848a9fd608425a29e968e82840ac58baab4dce1a43398da00"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/VerificationResult.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/VerificationResult.java",
+      "size": 1883,
+      "sha256": "4edce380073a54fc3f77cfbd984ae38afeecc39af434efe537d15b93d8d0d0d5"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/VerificationStatus.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/VerificationStatus.java",
+      "size": 385,
+      "sha256": "1c171cc1d1141ec6bb8aca0220a97049efcd31bc2d5cdbd529f09a07fb811b39"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/cli/PluginSignatureTool.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/cli/PluginSignatureTool.java",
+      "size": 23682,
+      "sha256": "0db02199ccb1879739287dbe4e09d0b64d1b0fcb2e879ab2238ddfa2b163fa64"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/community/CommunityDirectoryVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/community/CommunityDirectoryVerificationRequest.java",
+      "size": 651,
+      "sha256": "6b6bc21e396b2fc5b003154bc34538e3f7b6868e61b67c4f33b700b7a11d59da"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/community/CommunityOperation.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/community/CommunityOperation.java",
+      "size": 570,
+      "sha256": "d1ba1a804a1c2d64937a4dc526ae17e51745c50f92b5a7765d7694a429d38a89"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/community/CommunityOperationVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/community/CommunityOperationVerificationRequest.java",
+      "size": 683,
+      "sha256": "770e4093469824033e52bf0ed4b9a0f3f7c427a89dadc6601777217f86cf1b4e"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/community/CommunityPackageVerificationRequest.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/community/CommunityPackageVerificationRequest.java",
+      "size": 576,
+      "sha256": "371f33e6f9e28cbd80a6bd0c36861a40f4c85a82f134b86881d142af5180afdd"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/ed25519/Ed25519Signer.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/ed25519/Ed25519Signer.java",
+      "size": 728,
+      "sha256": "12f4baa2fbc1790641f5e3b747f1f1a4aad421ffffb485752eadfd158ba316f5"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/ed25519/Ed25519Verifier.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/ed25519/Ed25519Verifier.java",
+      "size": 835,
+      "sha256": "b700cb0cfc03f2959751b894d54792893833a0efd2b4fd24d458b547665e50e3"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/envelope/EnvelopeV1Codec.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/envelope/EnvelopeV1Codec.java",
+      "size": 7527,
+      "sha256": "a016d83b6dda2d91569356244d6ade5af55f6469ea345ce0f266298c2d888377"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/envelope/Hashing.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/envelope/Hashing.java",
+      "size": 1392,
+      "sha256": "958be2c0e2246de2b2c949fb1c71680459cbb3ad21bdfe3a1212293f5e41d445"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/trust/EncryptedSigningKeys.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/trust/EncryptedSigningKeys.java",
+      "size": 5074,
+      "sha256": "549b4fb1f3cb4ab7c8e27f66ae35a64c6f512f56a199674cc2695275ecf22be0"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/trust/KeyParsing.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/trust/KeyParsing.java",
+      "size": 2602,
+      "sha256": "e7c8fa3424b04c6ff5f1e89e05b36a2b07e29dfb5c14cc56d6d0cbf296678260"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/trust/SigningKeyFiles.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/trust/SigningKeyFiles.java",
+      "size": 6420,
+      "sha256": "e1d82cf91e1229a352eb57272264b5980e0f795a1331adad912310ce7cffcc2c"
+    },
+    {
+      "path": "pixivdownload-plugin-signature/src/main/java/top/sywyar/pixivdownload/plugin/signature/internal/trust/StaticPluginTrustStore.java",
+      "target": "src/top/sywyar/pixivdownload/plugin/signature/internal/trust/StaticPluginTrustStore.java",
+      "size": 2416,
+      "sha256": "7b095091ed8173f56ef21988241c075632f4d03041d5e5b4da7af9448096e281"
+    },
+    {
+      "path": "pixivdownload-sdk-info/src/main/java/top/sywyar/pixivdownload/sdk/SdkVersion.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/SdkVersion.java",
+      "size": 6093,
+      "sha256": "0edda29a4208c9e34169d921785355ccfda09742cd84e873ad3283e1fd5dff03"
+    },
+    {
+      "path": "pixivdownload-sdk-info/src/main/resources/META-INF/pixivdownload-sdk.properties",
+      "target": "resources/META-INF/pixivdownload-sdk.properties",
+      "size": 14,
+      "sha256": "a4d6c9aab8a962a8d3e5cd4ba1ec9ff39770a3d97ca1a9833bd7cd3323b2f4c3"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/candidate/CandidateCommand.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/candidate/CandidateCommand.java",
+      "size": 3119,
+      "sha256": "665475f7c8f57638b6b78f5c019c432dd451d72f86e6668d3ff5364df6a68f94"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/candidate/SourceCandidate.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/candidate/SourceCandidate.java",
+      "size": 4842,
+      "sha256": "41cc398708bedcae3bd9d06ba7cc806825d8599b91e7022973707f30ddeeb751"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/format/CommunityBundle.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/format/CommunityBundle.java",
+      "size": 4967,
+      "sha256": "4ef49c76dc82b388d0033c32febf4938bd331c138e561d2c03272ab07ca13c1f"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/project/BuildModels.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/project/BuildModels.java",
+      "size": 5487,
+      "sha256": "08a7a5c2f0dbd108fe1be9bc9f3300a1b140e9e75ba0846a7108e1be19df3fbf"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/project/PluginProjectLocator.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/project/PluginProjectLocator.java",
+      "size": 6355,
+      "sha256": "29947fc81084bf67abda38dfb5c9178b9d5626d9a2c5c70b3bc82a6e61694bcd"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/project/PluginProjectMarker.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/project/PluginProjectMarker.java",
+      "size": 2166,
+      "sha256": "a0a9277cb7f79d261033d8015816a834848cf268fb685f1e54229bb15279819d"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/review/RebuildProof.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/review/RebuildProof.java",
+      "size": 1478,
+      "sha256": "ece93c43018f0121d1b7977145eedb831eb198c87f94193e9ce121a72466db30"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/review/RiskReport.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/review/RiskReport.java",
+      "size": 5301,
+      "sha256": "fe48ab74d95caba833e779086da07a235153a11302d18d7cc96856c1a799fcfd"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/scan/BytecodeRiskScanner.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/scan/BytecodeRiskScanner.java",
+      "size": 4841,
+      "sha256": "d2b7692bf0cc937e54f8279798ec561e8ac08c31ce3bad38356287446e37bef8"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/scan/PluginRiskScanner.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/scan/PluginRiskScanner.java",
+      "size": 8841,
+      "sha256": "65aa5918c6b6cd8c0e40b5117f677b20b29ff09ccad61665cb7e538716201fd1"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/scan/PluginScanEvidence.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/scan/PluginScanEvidence.java",
+      "size": 4700,
+      "sha256": "9fb9220a648a828abb2695d7199e32705cd7ad7e3a1813bd33be14859616ff6b"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/ChangelogSections.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/ChangelogSections.java",
+      "size": 4689,
+      "sha256": "5d4b15aed4665b27ad45e37aca8e10cc1e6b99f4d8d8e90d5e60b0d06e338516"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/LicenseTemplates.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/LicenseTemplates.java",
+      "size": 2017,
+      "sha256": "dfc1ec6d6cc7fdd0adca9d28caafe2ff3a3cdf63086dee42202cc4eb23249b8c"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/MarketDocumentFiles.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/MarketDocumentFiles.java",
+      "size": 3129,
+      "sha256": "4105ba677f3664ed0272334e02eb647213ab91eb20b06f523b89f317d9d8eb46"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/MarketImages.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/MarketImages.java",
+      "size": 3540,
+      "sha256": "24d9dded3704143af331d497aef40d6273c06e0de147b48ee9b44b92769bb4e7"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/MarketMetadata.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/MarketMetadata.java",
+      "size": 4415,
+      "sha256": "261e4c1f2e584e020cc9dd7abddc87f9207347b88d6f385305bbaed0bdd4d01d"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/MarketPublicationFiles.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/MarketPublicationFiles.java",
+      "size": 10875,
+      "sha256": "56ff4f7a619318f3f8dbb5ab35e8890ac20f3ca63f0c482ecf0de0596191d2ac"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/SpdxExpression.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/SpdxExpression.java",
+      "size": 4052,
+      "sha256": "0f1cb6e54c33c6fe213c02d21fd593196ec1693f2e59290dba5a51fc672d62c9"
+    },
+    {
+      "path": "pixivdownload-sdk-tools/src/main/java/top/sywyar/pixivdownload/sdk/community/submission/VersionSubmission.java",
+      "target": "src/top/sywyar/pixivdownload/sdk/community/submission/VersionSubmission.java",
+      "size": 5314,
+      "sha256": "cabe27d60e349c549654ecdaf091be25b69e04da2596a05499e429da71ed272a"
+    },
+    {
+      "path": "plugin-templates/sdk-package/tools/build-model.mjs",
+      "target": "tools/build-model.mjs",
+      "size": 5568,
+      "sha256": "ebf31f4a72c21ed611e5085291292765a3c702ae8ec50b67de0f1cc5b25e637f"
+    },
+    {
+      "path": "plugin-templates/sdk-package/tools/community-model.gradle",
+      "target": "tools/community-model.gradle",
+      "size": 1154,
+      "sha256": "f04a332194c4332b2bee649e3c00897b4f08c417f371813212be62e98a34dc7a"
+    }
+  ],
+  "libraries": [
+    {
+      "path": "com/ethlo/time/itu/1.14.0/itu-1.14.0.jar",
+      "size": 57633,
+      "sha256": "5cf40ab0cc77828ab2b875b1f3ecd71c8295d7721933476abc2e08fddcea164a"
+    },
+    {
+      "path": "com/fasterxml/jackson/core/jackson-annotations/2.19.2/jackson-annotations-2.19.2.jar",
+      "size": 79309,
+      "sha256": "e516743a316dcf83c572ffc9cb6e8c5e8c134880c8c5155b02f7b34e9c5dc3cf"
+    },
+    {
+      "path": "com/fasterxml/jackson/core/jackson-core/2.19.2/jackson-core-2.19.2.jar",
+      "size": 591418,
+      "sha256": "aa77eaf29293a868c47372194f7c5287d77d9370b04ea25d3fffc1e4904b5880"
+    },
+    {
+      "path": "com/fasterxml/jackson/core/jackson-databind/2.19.2/jackson-databind-2.19.2.jar",
+      "size": 1679351,
+      "sha256": "0a1bd4e9b0d670e632d40ee8c625ad376233502f03c2f5889baea95d025b47a7"
+    },
+    {
+      "path": "com/fasterxml/jackson/dataformat/jackson-dataformat-yaml/2.19.2/jackson-dataformat-yaml-2.19.2.jar",
+      "size": 60230,
+      "sha256": "80a213e7d998244922ab7bcf0938ea03eb7868e88e2d05a8407c6228c885a37e"
+    },
+    {
+      "path": "com/networknt/json-schema-validator/2.0.1/json-schema-validator-2.0.1.jar",
+      "size": 577408,
+      "sha256": "216fa6f496d4390ec6ba208593ad91d3a6fae21b7f5d8d327c4d628946ff9ea6"
+    },
+    {
+      "path": "com/twelvemonkeys/common/common-image/3.15.0/common-image-3.15.0.jar",
+      "size": 80200,
+      "sha256": "ec4e3e110b5509895761d1dd497c580e06a109546d0aae5e5b4f3da013496b29"
+    },
+    {
+      "path": "com/twelvemonkeys/common/common-io/3.15.0/common-io-3.15.0.jar",
+      "size": 93146,
+      "sha256": "8994d3cb95c6ebc73f3722b98185ed767ad7a15b7a299fbe12759a8a8862c1bd"
+    },
+    {
+      "path": "com/twelvemonkeys/common/common-lang/3.15.0/common-lang-3.15.0.jar",
+      "size": 123408,
+      "sha256": "13b0e954537504bdca2be0ac2f2d3376dd0e87941f2bf07c6a1d9f83734983a9"
+    },
+    {
+      "path": "com/twelvemonkeys/imageio/imageio-core/3.15.0/imageio-core-3.15.0.jar",
+      "size": 125674,
+      "sha256": "1126663b28fc0689af4ddc7cc5893509033b42c8f8bf361d03be729b76f2a04b"
+    },
+    {
+      "path": "com/twelvemonkeys/imageio/imageio-metadata/3.15.0/imageio-metadata-3.15.0.jar",
+      "size": 84059,
+      "sha256": "5c869390bdf62002b1dad4b04e2dfed9fb1116b2429e7d6db75e1b92221f31c9"
+    },
+    {
+      "path": "com/twelvemonkeys/imageio/imageio-webp/3.15.0/imageio-webp-3.15.0.jar",
+      "size": 81590,
+      "sha256": "029882337da9d7b8055ea22238f750182a581a623547c83c2493c17a26e06fbd"
+    },
+    {
+      "path": "io/github/erdtman/java-json-canonicalization/1.1/java-json-canonicalization-1.1.jar",
+      "size": 28379,
+      "sha256": "ed12a01f28d147898312963a1f704e90290b67a61f34fa3a761f41c134f4e691"
+    },
+    {
+      "path": "io/github/sywyar/pixivdownloader/pixivdownload-plugin-api/1.3.0/pixivdownload-plugin-api-1.3.0.jar",
+      "size": 391182,
+      "sha256": "69b5d6e293ad456dbc879c9bc72d32c4ef80b82ea2149b57a5ef5cf41d87e146"
+    },
+    {
+      "path": "org/commonmark/commonmark-ext-gfm-tables/0.30.0/commonmark-ext-gfm-tables-0.30.0.jar",
+      "size": 24485,
+      "sha256": "5e28b48e66f7697bee4dfeb4c8f8f08a84a2827d91b53bbd9bd5445e82d14bda"
+    },
+    {
+      "path": "org/commonmark/commonmark/0.30.0/commonmark-0.30.0.jar",
+      "size": 220139,
+      "sha256": "090f0a758ac2f4f51aa86dff9dff0fdf7403666d0efd29f59886dc8e8b1eac53"
+    },
+    {
+      "path": "org/jsoup/jsoup/1.23.2/jsoup-1.23.2.jar",
+      "size": 537806,
+      "sha256": "e9d8c856856680427f096d156f02a414289985c930998fcb519ce5be39b42003"
+    },
+    {
+      "path": "org/slf4j/slf4j-api/2.0.17/slf4j-api-2.0.17.jar",
+      "size": 69908,
+      "sha256": "7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832"
+    },
+    {
+      "path": "org/springframework/spring-core/6.2.12/spring-core-6.2.12.jar",
+      "size": 1969697,
+      "sha256": "bddc5a5be2d94191ebcfbadc672fa4d81e6ab51e38a9eaf41d5d035cb17548d4"
+    },
+    {
+      "path": "org/yaml/snakeyaml/2.4/snakeyaml-2.4.jar",
+      "size": 339825,
+      "sha256": "ef779af5d29a9dde8cc70ce0341f5c6f7735e23edff9685ceaa9d35359b7bb7f"
+    }
+  ]
+}

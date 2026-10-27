@@ -1,0 +1,28 @@
+{
+  "version": "1.1.0",
+  "sourceCommit": "14aae5b2f47f789318bb70f547a00ce2b554341e",
+  "archive": {
+    "file": "PixivDownloader-Plugin-SDK-1.1.0.zip",
+    "size": 36949628,
+    "sha256": "0d7baec1a869b5ac416a66cd8adc293e66ee062b1d4b4d54a8f37f8d5f8adad1"
+  },
+  "tool": {
+    "path": "tools/sdk-tools.jar",
+    "size": 16348592,
+    "sha256": "41c78e4e0dbf8a5a59297a61e34b7c95ca5192829203a47ea16efc95b269d7ea"
+  },
+  "newer": {
+    "version": "1.3.0",
+    "sourceCommit": "de4a0bdff53a0be106610f8748338de588800203",
+    "archive": {
+      "file": "PixivDownloader-Plugin-SDK-1.3.0.zip",
+      "size": 37154154,
+      "sha256": "564494cee54a808eb5231c0be9eb001bf6a885b941be340df331d69bf789d226"
+    },
+    "tool": {
+      "path": "tools/sdk-tools.jar",
+      "size": 16400529,
+      "sha256": "05007768744fbc43dcb672c6ce2640664ad3d5d4742d449e5608c0dd2573ac3f"
+    }
+  }
+}

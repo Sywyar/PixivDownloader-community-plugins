@@ -36,7 +36,17 @@ export function runtimeManifest(directory, commit, base = 'refs/remotes/origin/m
     if (bytes.length > 65536) throw new Error('CHANNEL_MANIFEST_INVALID');
     const manifest = JSON.parse(bytes);
     if (![1, 2].includes(manifest.schemaVersion) || !Array.isArray(manifest.files) || !manifest.files.length || manifest.files.length > 256) throw new Error('CHANNEL_MANIFEST_INVALID');
-    if (manifest.schemaVersion === 2) validateSdk(manifest.sdk);
+    if (manifest.schemaVersion === 2) {
+        if (manifest.sdk && !manifest.tool) validateSdk(manifest.sdk);
+        else if (manifest.tool && !manifest.sdk) {
+            const version = JSON.parse(blob('tools/governance/version.json'));
+            if (version.schemaVersion !== 1 || !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u.test(version.version)
+                || version.version !== manifest.tool.version
+                || digest(blob('tools/foundation-lock.json')) !== manifest.tool.foundationSha256
+                || !['tools/governance/version.json', 'tools/foundation-lock.json', 'scripts/community-tools.mjs']
+                    .every(name => manifest.files.some(file => file.path === name))) throw new Error('CHANNEL_TOOL_INVALID');
+        } else throw new Error('CHANNEL_MANIFEST_INVALID');
+    }
     const seen = new Set();
     let total = 0;
     for (const file of manifest.files) {

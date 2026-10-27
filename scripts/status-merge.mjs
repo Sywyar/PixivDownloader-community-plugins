@@ -4,7 +4,7 @@ import { pull } from './platform.mjs';
 import { checkResult, requestSubject } from './apply-result.mjs';
 import { restoreReview, currentAdmission, publicationEnvironment } from './apply-context.mjs';
 import { stateReader } from './submission-github.mjs';
-import { signedOwnerOperations } from './status-authorization.mjs';
+import { automaticAuthorization } from './status-authorization.mjs';
 import { publish } from './community-gate.mjs';
 
 export const STATUS_CHECK_WAIT_MS = 5_000;
@@ -28,7 +28,7 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
     const issuer = call('user', { token });
     if (issuer.type !== 'User' || id(issuer.id) !== policy.repositoryOwnerId) throw new Error('STATUS_MERGE_IDENTITY_INVALID');
     const completion = await check(number, sdk, context.current, { call, readGit });
-    if (context.automatic && (completion.receipt.authorization !== 'SIGNED_OWNER' || !signedOwnerOperations.includes(completion.receipt.operation))
+    if (context.automatic && !automaticAuthorization(completion.receipt.operation, completion.receipt.authorization)
         || completion.pr.head.sha !== head) throw new Error('STATUS_MANUAL_REVIEW_REQUIRED');
     if (!context.automatic && ![completion.receipt.headSha, completion.receipt.previousHead, head].includes(inputs.expectedHeadSha)) throw new Error('PUBLICATION_HEAD_CHANGED');
     const reevaluate = () => admission(number, sdk, context,
@@ -52,7 +52,7 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
             bound();
             let failure;
             try { call(`${prefix}/pulls/${number}/merge`, { method: 'PUT', token, body: { sha: head, merge_method: 'merge',
-                commit_title: `chore(community): 合并${context.automatic ? '已签名' : '已审核'}的 ${completion.receipt.operation} 请求：${requestSubject(completion.receipt)}` } }); }
+                commit_title: `chore(community): 合并已授权的 ${completion.receipt.operation} 请求：${requestSubject(completion.receipt)}` } }); }
             catch (error) { failure = error; }
             const actual = pull(number, call);
             if (actual.head.sha !== head) throw new Error('PUBLICATION_HEAD_CHANGED');
@@ -64,7 +64,6 @@ export async function mergeStatus(context, sdk, number, head, { call = api, read
             if (commit.parents?.length !== 2 || commit.parents[0].sha !== context.current || commit.parents[1].sha !== head) {
                 throw new Error('REVIEW_MERGE_CHANGED');
             }
-            call(`${prefix}/actions/workflows/community-publication.yml/dispatches`, { method: 'POST', body: { ref: policy.defaultBranch } });
             return { merged: true, head, merge: actual.merge_commit_sha, pr: actual, projection: details(actual) };
         }
         if (now() >= deadline) return { pending: 'STATUS_CHECKS_PENDING', pr, projection: details(pr) };

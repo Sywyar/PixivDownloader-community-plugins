@@ -123,7 +123,7 @@ test('完成审核只快进原 PR，真实 Git 父链和字节拒绝夹带与并
     assert.equal(waits, 2);
     assert.equal(mutations.filter(route => route === prefix + '/git/refs/heads/' + pr.head.ref).length, 1);
     assert.equal(result.pr.number, 7); assert.notEqual(result.head, requested);
-    assert.match(git(['show', '-s', '--format=%s', result.head]), /YANK 请求审核：example \/ demo-v2\.3\.4$/u);
+    assert.match(git(['show', '-s', '--format=%s', result.head]), /YANK 请求：example \/ demo-v2\.3\.4$/u);
     assert.equal(git(['rev-parse', 'master']), latest);
     assert.deepEqual(git(['rev-list', '--parents', '-n', '1', result.head]).split(' ').slice(1), [requested, latest]);
     assert.equal(git(['show', result.head + ':plugin-bindings/another.json']), '{"owner":"another"}');
@@ -262,6 +262,6 @@ test('自动生成的 Git 提交标题标明版本、发布者、转移双方或
         const automatic = ['YANK', 'UNYANK', 'REVOKE'].includes(operation);
         await appendReviewCommit({ requestId: '1'.repeat(64), baseSha: base, headSha: head, prNumber: 7, operation, files: [],
             appliedAt: '2026-01-02T00:00:00Z', reviewContext: { checked }, ...(automatic ? { authorization: 'SIGNED_OWNER' } : {}) }, {}, call);
-        assert.equal(message.split('\n')[0], `chore(community): ${automatic ? '处理已签名的' : '完成'} ${operation} 请求${automatic ? '' : '审核'}：${subject}`);
+        assert.equal(message.split('\n')[0], `chore(community): 处理 ${operation} 请求：${subject}`);
     }
 });

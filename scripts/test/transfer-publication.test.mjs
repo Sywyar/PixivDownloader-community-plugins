@@ -90,6 +90,8 @@ for (const automatic of [false, true]) test(`真实 SDK ${automatic ? '双边签
     if (automatic) {
         const input = { after: { pr: prValue(pr) }, evidence: [] };
         assert.equal(authorizeStatus(input, sdk, context, prepared.version, pr, call).statusAudit, undefined);
+        prepared.admission = { input, result: { authorization: 'HUMAN_REVIEW', human: { status: 'APPROVED' } } };
+        await assert.rejects(complete(), /STATUS_MANUAL_REVIEW_REQUIRED/);
         const wizard = { sdk, sign, state, call, snapshot: { repositoryId: policy.repositoryId, base: context.current, actor },
             ui: { task: async (_name, work) => work(), select: async () => 'transferApprove', text: key => key, say() {}, confirm: async () => true } };
         const outcome = await reviewTransfer(wizard, { path: file, value: request, sha256: checked.requestSha256,
@@ -99,7 +101,7 @@ for (const automatic of [false, true]) test(`真实 SDK ${automatic ? '双边签
         const authorized = authorizeStatus(input, sdk, context, prepared.version, pr, call);
         const audit = JSON.parse(fs.readFileSync(path.join(sdk.workspace, authorized.statusAudit.path)));
         assert.equal(audit.authorization, 'SIGNED_OWNER');
-        prepared.admission = { input: authorized, result: { authorization: audit.authorization } };
+        prepared.admission = { input: authorized, result: { authorization: audit.authorization, human: { status: 'PENDING' } } };
         reviews[0].state = 'DISMISSED';
         assert.equal(authorizeStatus(input, sdk, context, prepared.version, pr, call).statusAudit, undefined);
         await assert.rejects(complete(), /TRANSFER_OWNER_CONFIRMATION_REQUIRED/);
