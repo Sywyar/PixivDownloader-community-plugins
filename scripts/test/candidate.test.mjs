@@ -169,6 +169,12 @@ test('真实交接 ZIP 保留精确字节；Draft 归档重复和中断恢复不
         fs.copyFileSync(path.join(root, file.path), destination);
     }
     assert.deepEqual(scanInputs(scannerDirectory), scanner);
+    const addedScanner = path.join(scannerDirectory,
+        'tools/governance/src/main/java/top/sywyar/pixivdownload/sdk/community/scan/AdditionalRule.java');
+    fs.writeFileSync(addedScanner, 'package top.sywyar.pixivdownload.sdk.community.scan; class AdditionalRule {}');
+    assert.equal(scanInputs(scannerDirectory).length, scanner.length + 1);
+    assert.notDeepEqual(scanInputs(scannerDirectory), scanner);
+    fs.rmSync(addedScanner);
     for (const file of scanner) {
         const destination = path.join(scannerDirectory, file.path);
         const original = fs.readFileSync(destination);
