@@ -1,119 +1,83 @@
-# PixivDownloader community plugins
+# PixivDownloader Community Plugins
 
 [简体中文](README.md)
 
-Submit a PixivDownloader plugin for review here. Push your public source to GitHub, wait for the candidate CI to pass, then run the wizard from your source project. You do not need to clone this repository or write submission files by hand.
+This repository receives and publishes open-source community plugins for PixivDownloader. Push your plugin source to a public GitHub repository, wait for candidate CI to pass, and run the submission wizard directly from your SDK project directory. You do not need to clone this repository or write submission files by hand.
 
-For an ordinary version submission, a maintainer's Approve on the current head starts protected processing. The workflow waits for technical checks and candidate archival, generates publication data, verifies Gate checks and merges the PR, then updates the community Release. Requests requiring explicit authority follow the [contribution guide](CONTRIBUTING.md). A source candidate Release or a community Draft under review does not grant community admission.
+- First submission or new version release: see [Submissions and version management](#submissions-and-version-management).
+- Yank, unyank, revoke, rotate keys, declare key compromise, or transfer ownership: see [Manage registered plugins](#manage-registered-plugins).
+- Repository maintenance and review workflows: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+For an ordinary version submission, once a maintainer submits a native `Approve` review on the current PR head, the protected workflow waits for static checks, isolated rebuild, and candidate archival, generates signed catalog data, verifies all four Gate checks, merges the PR, and publishes the community Release. Neither a source candidate Draft Release nor a community Draft under review constitutes community admission.
 
 ## Open-source admission
 
 This official community repository accepts only open-source plugins. Every submitted version must:
 
-- Provide the complete source and build inputs corresponding to its commit and package in a public, non-archived GitHub repository. The community must be able to rebuild and compare package bytes. A publicly downloadable JAR, ZIP or Release alone is insufficient.
-- Include a license that meets the [OSI Open Source Definition](https://opensource.org/osd), such as MIT, and the required copyright notices. Publicly visible code without a qualifying license does not meet this policy.
-- Provide licensing that covers the submitted code and artifact and is compatible with its dependencies. Passing SPDX expression, license-file and digest checks only validates declarations and evidence. Maintainers still review custom licenses, combined licenses and compatibility.
+1. **Provide complete, reproducible source code**: Publish the exact source commit and build inputs in a public, non-archived GitHub repository so the community isolated build environment can reproduce and verify the package bytes. A downloadable JAR, ZIP, or Release alone is not accepted.
+2. **Include an open-source license**: Provide a license meeting the [OSI Open Source Definition](https://opensource.org/osd) (such as MIT) and required copyright notices covering the submitted code and artifact, compatible with all dependency obligations. SPDX syntax and digest checks only validate formatting; custom or combined licenses and compatibility remain subject to human review.
 
 ## Submissions and version management
 
-### 1. Push the source and wait for CI
+### 1. Push source and wait for candidate CI
 
-- Develop with the [Plugin SDK](https://github.com/Sywyar/PixivDownloader-Plugin-SDK), commit your license, and retain the SDK project marker and candidate workflow.
-- Push to the public repository's default branch and wait for every **Plugin candidate** job to pass. CI tests the plugin, checks offline reproduction, and reuses one Draft Release per plugin, replacing its previous candidate assets.
-- Keep your working tree clean and run the wizard from that same commit. You do not need to download CI artifacts or create a Release yourself. Older SDK projects need updated tools and the candidate workflow first.
+1. Develop your plugin with the [Plugin SDK](https://github.com/Sywyar/PixivDownloader-Plugin-SDK), commit your license file, and keep the SDK project marker and `Plugin candidate` workflow (upgrade older SDK projects first if needed).
+2. Push to your public repository's default branch and wait for all **Plugin candidate** jobs to pass (CI runs tests, verifies offline reproduction, and updates a single reusable Draft Release per plugin).
+3. Keep your local working tree clean, pin build tools, dependencies, and packaging timestamps, and launch the wizard from that exact commit.
 
-The community rebuilds from the submitted source and compares package bytes. Pin build tools, dependencies and packaging timestamps to avoid differences between local and community builds.
+### 2. Prepare your local environment
 
-### 2. Set up your tools
-
-Install Git, GitHub CLI, Node.js 24+ and JDK 17 or newer. The terminal's `java`, `javac` and `jar` must each come from JDK 17+. The wizard checks them individually and identifies the tool, step and cause when a version is too old or execution fails. Use Windows PowerShell 5.1 or PowerShell 7. When setting up GitHub CLI for the first time, run:
+Install Git (with `user.name` and `user.email` configured), GitHub CLI, Node.js 24+, and JDK 17+ (ensure `java`, `javac`, and `jar` on `PATH` come from JDK 17+). Sign in to GitHub CLI in Windows PowerShell 5.1 or PowerShell 7:
 
 ```powershell
 gh auth login
 gh auth setup-git
 ```
 
-Configure Git's `user.name` and `user.email` for commits as well.
-
-The wizard uses tools maintained independently in the community repository. On first use, it fetches pinned technical dependencies, verifies their sizes and SHA-256 digests, and compiles the tools. Later runs verify and reuse the dependency cache without downloading the complete SDK. Source reads use GitHub CLI; dependency downloads use the proxy settings below.
-
-If a push reports `GIT_WORKFLOW_SCOPE_REQUIRED`, the credentials used by Git lack permission to write workflows. This can also happen when the submission branch includes workflow updates from the community's default branch. For GitHub CLI OAuth login credentials, run `gh auth refresh --hostname github.com --scopes workflow` in the same authentication environment, then continue in the wizard or save and exit. For a classic PAT, grant the `workflow` scope; for a fine-grained PAT or GitHub App, grant `Workflows: write`. Update the credentials actually used by Git.
-
-On Windows, package and source downloads use the system proxy unless `HTTPS_PROXY` is set in the terminal. Use `NO_PROXY` to select destinations that should connect directly. HTTP and HTTPS proxies are supported. Download errors include a code and failure stage to distinguish connection problems from file digest mismatches.
+- **Workflow scope**: If pushing reports `GIT_WORKFLOW_SCOPE_REQUIRED`, your Git credentials lack workflow write permission. For GitHub CLI OAuth, run `gh auth refresh --hostname github.com --scopes workflow`; for a classic PAT, add `workflow`; for a fine-grained PAT, grant `Workflows: write`.
+- **Proxy and tool cache**: Downloads honor `NO_PROXY`, `HTTPS_PROXY` / `ALL_PROXY`, or the Windows system HTTP/HTTPS proxy. On first run, the wizard downloads and verifies pinned technical dependencies from the signed channel without downloading the full SDK archive, and reuses the verified cache on subsequent runs.
 
 ### 3. Run the submission wizard
 
-Open your SDK project directory, replacing the example path below:
+From your SDK project directory (replace the path with your actual project folder):
 
 ```powershell
 Set-Location -LiteralPath 'D:\Plugins\example'
 irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1' | iex
 ```
 
-Follow the prompts:
+1. **Select version submission**: The wizard detects your project and fetches the CI candidate for the current commit (falling back to the Draft Release if Actions artifacts expired, or offering to rerun CI on confirmation).
+2. **Verify metadata and license**: Confirm the plugin version, behavior declarations, SPDX license (use an existing file or generate one from a bundled template), publisher identity, and localized marketplace descriptions, category, and tags.
+3. **Sign the artifact**: Choose an existing Ed25519 private key or generate a new key pair (keep private keys outside Git repositories and temporary folders and back them up; passphrases are never stored by the wizard).
+4. **Preview and submit**: Confirm the summary and full diff preview. The wizard promotes the verified candidate to a commit-bound Pre-release in your source repository, prepares your fork and branch, and opens the review PR.
 
-1. Choose version submission. A single project and build tool are detected automatically; choose when there are multiple options. The wizard retrieves this commit's CI candidate and verifies its bytes.
-2. Check the plugin version, behavior declarations and license. Choose your GitHub publisher identity and enter the plugin description and other display information.
-3. Select an existing signing key or generate one. To generate a key, select an existing parent folder; the tool creates its own subfolder. You can protect the private key with a password.
-4. Confirm the submission summary, then review the full preview and metadata changes. After confirmation, the wizard saves the verified candidate in a pre-release tied to the source commit, creates a fork if needed, and commits and submits the review PR. Later CI builds reuse the Draft without overwriting submitted packages.
+**Navigation and saved progress**: Use arrow keys to move, `Enter` to confirm, `Space` to toggle tags, `Ctrl+B` to go back, `Ctrl+S` to save and exit, and `Esc` / `Ctrl+C` to cancel. Every remote write requires explicit confirmation (defaulting to cancel). Unfinished progress is isolated by account, repository, project, and plugin ID under `%LOCALAPPDATA%\PixivDownloader\community-submission\projects\` (with publisher key records under `publishers\`). If community mainline advances during your session, the wizard automatically reloads and revalidates state (up to 3 recovery rounds per operation).
 
-Store private keys outside Git repositories and temporary directories, and keep a backup. Encrypted keys require a password when signing is needed; the wizard does not save passwords. After changing a version, behavior declaration or source license, commit and push the changes, then wait for the new CI run before continuing.
+### 4. Attach marketplace docs, images, and links (optional)
 
-Use arrow keys to move, Enter to select, Space to toggle tags, Ctrl+B to go back, Ctrl+S to save and exit, and Esc or Ctrl+C to cancel. Optional fields can be cleared. Every remote write is shown for confirmation beforehand; confirmation defaults to cancellation.
+- **Links and release notes**: Configure homepage, docs, issue tracker, or custom links. By default, the wizard extracts release notes from the matching `## [vX.Y.Z]` section of `CHANGELOG.md` in the frozen source commit, and can also attach the full `CHANGELOG.md`. If the section is missing or duplicated, select another file, enter notes manually, or skip them.
+- **README and images**: Supply optional UTF-8 Markdown or HTML from frozen source, a local file, or multiline input (`Enter` for newline, `Tab` then `Enter` to submit). Relative images must reside within the selected root; external HTTPS images require download confirmation.
+- **Verification**: Confirmed documents and images are staged in a `market-content-<plugin>-<version>` Release in your source repository, verified by SHA-256 during review, and published alongside the plugin package in the community Release. Publication also verifies that the files can be downloaded publicly. The marketplace displays sanitized, static documents in isolation.
 
-Saved answers and verified packages stay in your user folder, separated by source repository, project directory, plugin ID and GitHub account. On Windows, the default location is `%LOCALAPPDATA%\PixivDownloader\community-submission\projects\`. The next run asks whether to continue, using your last selected language. Choose Yes to resume the unfinished submission, or No to start the normal flow with saved details as defaults. If signed content only needs submission, the wizard verifies its signatures without asking for the password again. When the community branch advances during a session, the wizard retains the request and automatically reloads and validates the current state, up to three recovery rounds per operation. Writes still require preview confirmation. If the branch keeps changing, saved progress is retained and the wizard asks you to run the command again later and resume. Account, source, ownership and key conflicts still stop submission.
+### 5. Wait for review and publish updates
 
-Key location records use the adjacent `publishers\` directory. Projects for the same publisher share these records, separated by the acting GitHub account. The public key fingerprint selects the keyId and paths. Each use verifies the actual key pair before updating the record. A keyId is an independently generated identifier; registered keys retain their community identifier. Missing files produce an error without searching other directories. Passwords and private key contents are never cached.
+Track check results and review feedback in your PR. Waiting for review requires no rebuild; changing source code, licenses, or build inputs requires pushing a new commit, waiting for CI, and rerunning the wizard. Unrelated mainline data updates are merged automatically by the queue workflow without manual branch syncing. To publish a newer version later, bump the version, push, wait for CI, and run the same wizard command.
 
-For community management, the same command also works from an ordinary directory. Without a project marker, the wizard explains that only management options are available; publishing or updating still requires an SDK project. Management progress is stored by signed-in account in the sibling `management\` directory, while key records remain shared by publisher.
+## Manage registered plugins
 
-Long operations show temporary substeps that disappear when complete. Transient network failures allow up to three automatic attempts within the time budget. Further failures show the specific step, current round and total attempts; you can retry that step or save and exit. Completed steps are retained. Before retrying a write with a lost response, the wizard reads back the same PR, branch or candidate asset. Certificate, digest, identity and local file errors do not trigger automatic retries.
+To perform management actions without publishing a new build, run the same `irm ... | iex` command from any directory (progress is stored under `%LOCALAPPDATA%\PixivDownloader\community-submission\management\`):
 
-Draft Releases remain available after Actions artifacts expire. The Draft holds only the latest candidate; if its archive is missing, the wizard can rerun CI for the current default-branch commit after confirmation. Fixed candidates from confirmed submissions remain available.
+| Operation | Behavior and authorization |
+| --- | --- |
+| Withdraw unmerged request | Close your open PR and optionally delete its request branch after confirmation (retaining your fork, default branch, Releases, and local progress) |
+| Yank (`YANK`) / Unyank (`UNYANK`) | `YANK` blocks new installations; `UNYANK` lifts a self-initiated yank while keeping independent community restrictions. Requests signed with a personal owner's active key are verified and merged automatically |
+| Revoke version (`REVOKE`) | Permanently blocks installation and startup (irreversible; requires typing `pluginId@version`) and removes the public package asset after archival. Automatically applied when signed with a personal owner's active key |
+| Key rotation (`ROUTINE_ROTATION`) | Personal accounts providing signatures from both the old and new private keys are processed automatically (retiring the old key); lost/compromised keys or organization accounts require human review |
+| Declare key compromise | Select registered public keys (no private key needed) to submit to the protected `emergency-state` branch. Automatically applied for the personal owner or a verified organization admin, immediately blocking those public keys from new or pending operations. This cannot be undone; if your active key is blocked, rotate it before submitting again |
+| Ownership transfer | The recipient enters `currentPublisherId/pluginId` (e.g., `sywyar/douyin`) and opens a transfer PR; the current owner approves (signing with their active key for automatic merge between personal accounts, or submitting a web Approve for human review) or rejects in the wizard. If an expected transfer PR is not listed, choose "Change filters" at the bottom of the list to clear the label or `@mention` filter |
 
-The license step accepts existing files or creates a new file from a bundled template. Existing files are preserved. A recognized complete template preselects its SPDX identifier; combined licenses still require confirmation. After creating or changing a license, commit, push and wait for new CI.
+An effective native `Request changes` review still blocks automatic processing of management requests. Signature proofs cannot override human objections or independent community restrictions.
 
-### Documents, images and links
+## Help and licensing
 
-Choose repository, documentation and issue-reporting links, or add custom purposes. Links can be edited, removed or left entirely empty. Display links do not change source repository identity.
-
-The wizard looks for the plugin project's `CHANGELOG.md` in the candidate's fixed source commit. It extracts the exact version's level-two heading and level-three categories, such as `## [v8.2.6] - 2031.3.2`, `### Features` and `### Bug Fixes`. Missing or duplicate headings require another file, manual notes or explicit omission. The full changelog is a separate optional attachment.
-
-README is optional UTF-8 Markdown or HTML, selected from frozen source, a local file or multiline input. Enter adds a line; Tab then Enter submits. Documents use the selected default language and require preview confirmation. Relative images stay inside the selected root. External images require download confirmation, and unavailable images may be explicitly omitted.
-
-Repository documents retain a source URL bound to the frozen commit, which resolves relative links. Safe HTML anchors and Markdown headings support navigation within the document. External links open in a new window. Local files, direct input and older records without a source URL do not infer relative link destinations.
-
-After confirmation, original documents and images are staged in a `market-content-<plugin>-<version>` release in the source repository. The source candidate keeps its two-asset manifest. Community review verifies bytes, format, size and SHA-256, then publishes the content with the plugin package in the same community version release. Publication is incomplete until public downloads verify. Retries reuse matching attachments and reject changed bytes under the same name. The marketplace reads the selected version and displays HTML as a static document.
-
-Documents stay outside the plugin JAR and are not covered by its signature. Review references and the signed catalog bind document digests, which the client verifies again. Historical submissions, homepages and release notes remain readable; an explicit empty link list does not restore a previous homepage. Community tools validate market documents and include their references in the review records.
-
-### 4. Wait for review
-
-Follow check results and review comments in the PR. The community validates the submission, rebuilds the package, scans its declarations and performs human review. Waiting for review does not require another build. Changes to source, packages or build inputs require rebuilding and renewed review.
-
-Requests are prepared and merged through a shared queue. Unrelated mainline data updates do not require contributors to sync their branches: the workflow keeps the reviewed head, includes the latest mainline in the generated commit, and verifies all four admission checks. Changes to the request, ownership, keys or review rules stop processing for renewed validation.
-
-For an update, change the version, push and wait for CI, then use the same entry point. The wizard restores license and marketplace details, preserves existing languages and images, and checks for duplicate IDs and versions early. Key rotation, yanking, unyanking, revocation and ownership transfer have separate management options.
-
-The key list shows registration state, compromise declarations, current plugin owners and restrictions on historically signed versions separately. A transfer ends the previous publisher's management rights for that plugin without retiring their active key. Restoring an old request keeps its original record and shows current ownership or keys. Open requests identify drafts and stale assumptions caused by changes such as rotation or transfer. Stale transfer requests remain available to inspect their reasons and original PR, but cannot be approved in the wizard.
-
-A registered version's ACTIVE, YANKED or REVOKED state is shown separately from Release availability. The availability check compares GitHub Release and package asset metadata only; failed reads or hidden objects leave availability unconfirmed. An UNYANK preview shows the resulting effective state and any independent community restrictions that remain.
-
-- To withdraw a request, confirm closing your unmerged PR, then separately choose whether to delete its request branch. Every deletion requires fresh confirmation. Branches with new commits, protection rules or another open PR are kept. Authors clean up branches in their own fork; the community owner cleans up submission branches in this repository. The fork, default branch, Releases, keys and saved answers are retained. For a merged request that has not been applied, ask a maintainer to pause execution.
-- YANK blocks new installations. UNYANK removes your own yank after the issue is resolved; independent community restrictions remain effective.
-- REVOKE blocks installation and startup and cannot be undone. Type the selected `pluginId@version` to confirm. Clients enforce the revocation protocols they support.
-- For key rotation, select a publisher you may manage and a reason before preparing a new key. Declare suspected compromise through the emergency operation first. Routine rotation for a personal account can proceed automatically with proofs from both keys. Lost or compromised keys and organization accounts still require human review. The registered public key fingerprint supplies the old private key path, which is verified again before use.
-- To declare a key compromised, sign in to the owning GitHub account and select the publisher and one or more keys. Each option shows the fingerprint and associated plugins; no private key is needed. The personal owner or a verified organization administrator can use automatic processing. Once merged, the declaration blocks those public keys in new and pending community operations. Published versions remain unchanged. Declarations cannot be undone. If the active key is compromised, complete key rotation before submitting again.
-- Transfer: the recipient enters the current owner's `publisherId/pluginId` (for example `sywyar/douyin`), then opens a PR using their own publisher identity and key. The bot mentions the current personal owner in that PR's request-information comments. The owner can approve or reject it in the wizard and sign approval with their active private key, or submit an Approve review on GitHub for human review. The wizard submits an English review and a PR comment linking to it. That comment wakes processing from the default branch, so approval of a first-time contributor's fork workflow does not block notification. An ordinary comment is not consent. After a rejection, the workflow verifies the decision and closes the request without changing ownership. After both parties confirm, results are added to the same PR and merged once. The wizard lists open requests, using both the transfer label and mentions of the current account by default. Filters can be changed at the end of the list. A changed request commit requires fresh confirmation. Never exchange private keys.
-
-For YANK, UNYANK and REVOKE signed with the current personal maintainer's active key, routine personal key rotation proved by both keys, and regular transfers between distinct personal accounts signed by both parties, a protected workflow verifies the request, appends results to the original PR, then merges after checks pass and updates community state. These operations require neither a rebuild nor human approval. Native review objections still block admission. Version publication, missing key proofs, account or key recovery, organization authority and restoration involving independent community restrictions require human review.
-
-The wizard reuses an existing fork and selects a base from the protected target branch for each request. It does not need to sync the fork's default branch. Recovery first looks for the original PR. It reuses the submission branch only after verifying that its original base remains in the current branch's history, without creating a duplicate or force-pushing because mainline advanced. Compromise declarations use the separate emergency branch; other operations use the community default branch. Temporary Git copies are removed on exit. After exiting, the wizard does not monitor merges or clean up remote branches.
-
-Formal Release names retain the original publisher; their descriptions show the current maintainer and status. Revoked versions retain their Release description, while the public package asset is removed after its archive is verified. Historical signatures and original authorship remain unchanged. If no item is eligible, the wizard explains why and returns to the operation menu.
-
-When looking for transfers to confirm, the wizard defaults to open PRs with both the ownership-transfer label and a mention of your current GitHub account. Labels and mentions may take time to appear. If an expected request is missing, choose “Change filters” at the end of the list and clear either condition before searching again. Organization representatives who were not mentioned can clear that condition too. Broader filters still show only valid requests you may handle.
-
-## Help and maintenance
-
-Ask submission questions in [Issues](https://github.com/Sywyar/PixivDownloader-community-plugins/issues). See the [contribution guide](CONTRIBUTING.md) for review forms and repository maintenance. Repository tools use [AGPL-3.0-or-later](LICENSE); plugins retain their declared licenses.
+Open an [Issue](https://github.com/Sywyar/PixivDownloader-community-plugins/issues) for submission questions. Repository governance and wizard tools are licensed under [AGPL-3.0-or-later](LICENSE); individual plugins remain under their declared open-source licenses.
