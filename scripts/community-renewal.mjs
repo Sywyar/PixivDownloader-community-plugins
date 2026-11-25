@@ -84,7 +84,9 @@ function createRenewal(current, read, call, now) {
     const blob = call(`${prefix}/git/blobs`, { method: 'POST', body: { content: bytes.toString('base64'), encoding: 'base64' } });
     const tree = call(`${prefix}/git/trees`, { method: 'POST', body: { base_tree: sha(base.tree.sha),
         tree: [{ path: renewalFile, mode: '100644', type: 'blob', sha: sha(blob.sha) }] } });
-    const commit = call(`${prefix}/git/commits`, { method: 'POST', body: { tree: sha(tree.sha), parents: [previous ?? current],
+    // Include the current base in the PR history while fast-forwarding the renewal branch.
+    const parents = previous && previous !== current ? [current, previous] : [current];
+    const commit = call(`${prefix}/git/commits`, { method: 'POST', body: { tree: sha(tree.sha), parents,
         message: 'chore(community): 请求续签社区撤销清单\n\n- 固定当前整代与撤销清单摘要\n- 保留原审核证据并经受保护流程续签' } });
     unchanged();
     try {
