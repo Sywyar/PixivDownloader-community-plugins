@@ -8,7 +8,7 @@ import { requestRenewal, checkRenewal, renewalRequest, renewalBranch, renewalFil
 import { policy, prefix } from '../github.mjs';
 import { hash } from '../sdk.mjs';
 
-test('续签机器人只在临期创建一个维护 PR，保留原状态并恢复丢失响应', t => {
+test('续签机器人恢复丢失响应，并用当前主线重建已关闭的续签请求', t => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'community-renewal-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const env = { ...process.env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.org',
@@ -34,7 +34,7 @@ test('续签机器人只在临期创建一个维护 PR，保留原状态并恢�
     const repo = { id: policy.repositoryId, full_name: policy.repository };
     const user = { id: 41898282, type: 'Bot' };
     const pulls = [], writes = [], dispatches = [];
-    let ref = null, lostRef = true, lostPull = true;
+    let master = current, ref = null, lostRef = true, lostPull = true;
     const raw = sha => execFileSync('git', ['-C', directory, 'cat-file', 'blob', sha], { windowsHide: true });
     const call = (endpoint, options = {}) => {
         const route = endpoint.split('?')[0], body = options.body;
@@ -60,9 +60,10 @@ test('续签机器人只在临期创建一个维护 PR，保留原状态并恢�
             }
             if (route === prefix + '/pulls') {
                 assert.equal(body.maintainer_can_modify, true);
-                const pr = { number: 9, user, head: { repo, sha: ref, ref: renewalBranch },
-                    base: { repo, sha: current, ref: 'master' }, state: 'open', merged: false, changed_files: 1,
-                    html_url: 'https://github.com/' + policy.repository + '/pull/9' };
+                const number = 9 + pulls.length;
+                const pr = { number, user, head: { repo, sha: ref, ref: renewalBranch },
+                    base: { repo, sha: master, ref: 'master' }, state: 'open', merged: false, changed_files: 1,
+                    html_url: 'https://github.com/' + policy.repository + '/pull/' + number };
                 pulls.push(pr);
                 if (lostPull) { lostPull = false; throw new Error('RESPONSE_LOST'); }
                 return structuredClone(pr);
@@ -70,7 +71,7 @@ test('续签机器人只在临期创建一个维护 PR，保留原状态并恢�
             assert.fail('Unexpected mutation ' + route);
         }
         if (route === prefix + '/pulls') { assert.ok(endpoint.includes('head=Sywyar:' + renewalBranch)); return [structuredClone(pulls)]; }
-        if (route === prefix + '/branches/master') return { commit: { sha: current } };
+        if (route === prefix + '/branches/master') return { commit: { sha: master } };
         if (route.includes('/git/matching-refs/')) return ref ? [{ ref: 'refs/heads/' + renewalBranch, object: { sha: ref } }] : [];
         if (route.includes('/git/ref/heads/')) return { object: { sha: ref } };
         if (route.includes('/git/commits/')) return { tree: { sha: git(['rev-parse', route.split('/').at(-1) + '^{tree}']) } };
@@ -108,4 +109,18 @@ test('续签机器人只在临期创建一个维护 PR，保留原状态并恢�
     assert.equal(requestRenewal(current, read, call, now).status, 'CLOSED');
     assert.deepEqual(dispatches, []);
     assert.equal(writes.length, writesBefore);
+
+    git(['read-tree', current]);
+    git(['update-index', '--add', '--cacheinfo', '100644',
+        git(['hash-object', '-w', '--stdin'], 'New protected code\n'), 'scripts/maintenance.mjs']);
+    master = git(['commit-tree', git(['write-tree']), '-p', current], 'Advance protected mainline\n');
+    git(['update-ref', 'refs/heads/master', master]);
+    assert.equal(requestRenewal(master, read, call, now).status, 'CREATED');
+    const replacement = pulls[1];
+    assert.equal(git(['diff', '--name-only', master + '...' + replacement.head.sha]), renewalFile);
+    assert.equal(pr.state, 'closed');
+    assert.equal(checkRenewal(replacement, [{ filename: renewalFile, status: 'added',
+        sha: git(['rev-parse', replacement.head.sha + ':' + renewalFile]) }], master, call).operation, 'RENEWAL');
+    assert.deepEqual(dispatches.at(-1), [prefix + '/actions/workflows/community-status.yml/dispatches',
+        { ref: 'master', inputs: { prNumber: String(replacement.number), expectedHeadSha: replacement.head.sha } }]);
 });
