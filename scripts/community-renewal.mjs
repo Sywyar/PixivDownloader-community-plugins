@@ -49,7 +49,7 @@ export function checkRenewal(pr, files, current, call = api) {
 }
 
 // 只查询专用续签分支，不枚举或更改其它开放申请。
-export function createRenewal(current, read, call = api, now = Date.now()) {
+function createRenewal(current, read, call, now) {
     const request = renewalRequest(read, now);
     if (!request) return { status: 'NOT_DUE' };
     request.baseSha = sha(current);
@@ -60,7 +60,7 @@ export function createRenewal(current, read, call = api, now = Date.now()) {
     if (open.length > 1) throw new Error('RENEWAL_PR_AMBIGUOUS');
     if (open.length) {
         if (!renewalAuthor(open[0])) throw new Error('RENEWAL_PR_IDENTITY_INVALID');
-        return { status: 'EXISTING', number: open[0].number, url: open[0].html_url };
+        return { status: 'EXISTING', number: open[0].number, head: sha(open[0].head.sha), url: open[0].html_url };
     }
     const unchanged = () => {
         if (sha(call(`${prefix}/branches/${policy.defaultBranch}`).commit.sha) !== current) throw new Error('RENEWAL_BASE_CHANGED');
@@ -106,7 +106,24 @@ export function createRenewal(current, read, call = api, now = Date.now()) {
         pr = recovered[0];
     }
     if (!renewalAuthor(pr) || pr.head.sha !== commit.sha || pr.base.sha !== current || pr.state !== 'open') throw new Error('RENEWAL_PR_CHANGED');
-    return { status: 'CREATED', number: pr.number, url: pr.html_url };
+    return { status: 'CREATED', number: pr.number, head: pr.head.sha, url: pr.html_url };
+}
+
+export function requestRenewal(current, read, call = api, now = Date.now()) {
+    const result = createRenewal(current, read, call, now);
+    if (result.number && result.status !== 'CLOSED') {
+        const prNumber = String(result.number);
+        // The job token requires explicit dispatches for both checks and authorized execution.
+        for (const [workflow, inputs] of Object.entries({
+            'submission-check.yml': { prNumber },
+            'community-gate.yml': { prNumber },
+            'community-status.yml': { prNumber, expectedHeadSha: result.head },
+        })) {
+            call(`${prefix}/actions/workflows/${workflow}/dispatches`, { method: 'POST',
+                body: { ref: policy.defaultBranch, inputs } });
+        }
+    }
+    return result;
 }
 
 main(import.meta.url, async () => {
@@ -115,14 +132,7 @@ main(import.meta.url, async () => {
     const context = execution(renewalPath);
     if (!['schedule', 'workflow_dispatch'].includes(context.run.event)) throw new Error('RENEWAL_EVENT_INVALID');
     const tree = repositoryTree(policy.repository, context.current);
-    const result = createRenewal(context.current, file => tree.has(file) ? readBlob(policy.repository, tree.get(file)) : null);
-    if (result.number && result.status !== 'CLOSED') {
-        // job token 不会触发 pull_request_target，显式唤醒精确 PR 的只读检查。
-        for (const workflow of ['submission-check.yml', 'community-gate.yml']) {
-            api(`${prefix}/actions/workflows/${workflow}/dispatches`, { method: 'POST',
-                body: { ref: policy.defaultBranch, inputs: { prNumber: String(result.number) } } });
-        }
-    }
+    const result = requestRenewal(context.current, file => tree.has(file) ? readBlob(policy.repository, tree.get(file)) : null);
     fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, result.url
         ? `${result.status}: [renewal PR #${result.number}](${result.url})\n`
         : 'No revocation renewal is due.\n', 'utf8');

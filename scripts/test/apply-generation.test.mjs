@@ -31,6 +31,10 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     record.reviewRef = put(vector('review'));
     const submission = JSON.parse(fs.readFileSync(path.join(sdkResources, 'resources/community/v1/vectors/submission.json')));
     submission.market.links = [];
+    delete submission.content;
+    const legacy = { ...record, version: '2.3.3', publishedAt: '2026-01-01T00:00:00Z', submissionRef: put(submission),
+        package: { ...record.package, sha256: hash(Buffer.from('older package')) } };
+    records.set('published/demo/2.3.3.json', encoded(legacy));
     const text = Buffer.from('# Version documentation'), sha256 = hash(text), name = `content-${sha256}.md`;
     submission.content = { readme: { en: { format: 'markdown', asset: { name, url: `https://example.org/${name}`,
         mediaType: 'text/markdown', size: text.length, sha256 }, resources: {} } } };
@@ -48,11 +52,14 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     };
     const first = generation(2);
     const catalog = JSON.parse(first.writes.get('generated/catalog.json'));
+    const [legacyPackage, currentPackage] = catalog.entries[0].packages;
     assert.equal(first.result.sequence, 1);
-    assert.equal(catalog.entries[0].packages[0].packageUrl, packageUrl(record));
+    assert.equal(legacyPackage.packageUrl, packageUrl(legacy));
+    assert.equal(Object.hasOwn(legacyPackage, 'content'), false);
+    assert.equal(currentPackage.packageUrl, packageUrl(record));
     assert.deepEqual(catalog.entries[0].market.links, []);
-    assert.equal(catalog.entries[0].packages[0].content.readme.en.asset.sha256, sha256);
-    assert.equal(catalog.entries[0].packages[0].content.readme.en.asset.url,
+    assert.equal(currentPackage.content.readme.en.asset.sha256, sha256);
+    assert.equal(currentPackage.content.readme.en.asset.url,
         packageUrl(record).slice(0, packageUrl(record).lastIndexOf('/') + 1) + name);
     first.writes.forEach((bytes, file) => records.set(file, bytes));
     const immutable = new Map([...records].filter(([file]) => file.startsWith('generated/generations/1/')));
@@ -64,7 +71,7 @@ test('真实 SDK 签发并整代验签，转移保留原包归属，撤销历史
     const movedCatalog = JSON.parse(moved.writes.get('generated/catalog.json'));
     assert.deepEqual(movedCatalog.entries[0].owner, target);
     assert.deepEqual(movedCatalog.entries[0].packages[0].historicalOwner, record.owner);
-    assert.equal(movedCatalog.entries[0].packages[0].packageUrl, packageUrl(record));
+    assert.equal(movedCatalog.entries[0].packages[1].packageUrl, packageUrl(record));
     moved.writes.forEach((bytes, file) => records.set(file, bytes));
     const active = { ...original.signingKeys[0], keyId: crypto.randomUUID(), publicKeySpkiBase64: communityKey.publicKeySpkiBase64, state: 'ACTIVE' };
     original.signingKeys[0].state = 'REVOKED'; original.signingKeys.push(active);

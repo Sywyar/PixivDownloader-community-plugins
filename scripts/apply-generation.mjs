@@ -103,10 +103,11 @@ export function generateState({ sdk, adapter, state, writes, communityKey, priva
         if (submission.market.icon?.asset) entry.market.icon = publishedImage(submission.market.icon, contentBase, raw(submission.market.icon.path));
         if (submission.market.screenshots) entry.market.screenshots = submission.market.screenshots.map(image => image.asset ? publishedImage(image, contentBase, raw(image.path)) : image);
         entry.owner = manager.owner;
+        const content = publishedContent(submission.content, contentBase);
         entry.packages.push({ version: record.version, packageUrl: packageUrl(record), expectedSizeBytes: record.package.expectedSize,
             sha256: record.package.sha256, signature: record.communitySignature, requiredSdk: review.descriptor.requiredSdk,
             dependencies: review.descriptor.dependencies.map(dependency => dependency.pluginId + (dependency.requirement.present ? '@' + dependency.requirement.raw : '')),
-            releasedTime: record.publishedAt, deprecated: restricted, content: publishedContent(submission.content, contentBase),
+            releasedTime: record.publishedAt, deprecated: restricted, ...(content === undefined ? {} : { content }),
             assuranceLevel: record.assuranceLevel, sourceCommit: record.sourceCommit, reviewRef: record.reviewRef, historicalOwner: record.owner });
         groups.set(record.pluginId, entry);
     }
