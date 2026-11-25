@@ -1,0 +1,1 @@
+{"schemaVersion":1,"repositoryId":"pixivdownloader-community","sequence":16,"generatedAt":"2026-11-25T18:25:21Z","partitioning":"sha256-repository-id-prefix-2","shards":[{"prefix":"90","url":"shards/d7e6683b8c7a74b018ed3422f0d2942de4225dfea809e4e07764e1db6bae5114.json","size":949,"sha256":"d7e6683b8c7a74b018ed3422f0d2942de4225dfea809e4e07764e1db6bae5114"}]}
