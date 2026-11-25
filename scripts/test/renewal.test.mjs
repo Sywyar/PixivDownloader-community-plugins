@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createRenewal, checkRenewal, renewalRequest, renewalBranch, renewalFile, renewalWindow } from '../community-renewal.mjs';
+import { requestRenewal, checkRenewal, renewalRequest, renewalBranch, renewalFile, renewalWindow } from '../community-renewal.mjs';
 import { policy, prefix } from '../github.mjs';
 import { hash } from '../sdk.mjs';
 
@@ -33,12 +33,17 @@ test('续签机器人只在临期创建一个维护 PR，保留原状态并恢�
     assert.throws(() => renewalRequest(file => file === 'revocations.json' ? Buffer.from('{}') : read(file), now), /RENEWAL_BASE_INVALID/);
     const repo = { id: policy.repositoryId, full_name: policy.repository };
     const user = { id: 41898282, type: 'Bot' };
-    const pulls = [], writes = [];
+    const pulls = [], writes = [], dispatches = [];
     let ref = null, lostRef = true, lostPull = true;
     const raw = sha => execFileSync('git', ['-C', directory, 'cat-file', 'blob', sha], { windowsHide: true });
     const call = (endpoint, options = {}) => {
         const route = endpoint.split('?')[0], body = options.body;
         if (options.method && options.method !== 'GET') {
+            if (route.startsWith(prefix + '/actions/workflows/') && route.endsWith('/dispatches')) {
+                assert.equal(options.method, 'POST');
+                dispatches.push([route, body]);
+                return null;
+            }
             writes.push(route);
             if (route === prefix + '/git/blobs') return { sha: git(['hash-object', '-w', '--stdin'], Buffer.from(body.content, 'base64')) };
             if (route === prefix + '/git/trees') {
@@ -80,16 +85,27 @@ test('续签机器人只在临期创建一个维护 PR，保留原状态并恢�
         }
         assert.fail('Unexpected request ' + endpoint);
     };
-    assert.equal(createRenewal(current, read, call, now).status, 'CREATED');
+    assert.equal(requestRenewal(current, read, call, now - 1).status, 'NOT_DUE');
+    assert.deepEqual(dispatches, []);
+    assert.equal(requestRenewal(current, read, call, now).status, 'CREATED');
     assert.equal(git(['diff', '--name-only', current, ref]), renewalFile);
     assert.equal(git(['rev-parse', 'master']), current);
     const pr = pulls[0], files = [{ filename: renewalFile, status: 'added', sha: git(['rev-parse', ref + ':' + renewalFile]) }];
+    const expectedDispatches = [
+        [prefix + '/actions/workflows/submission-check.yml/dispatches', { ref: 'master', inputs: { prNumber: String(pr.number) } }],
+        [prefix + '/actions/workflows/community-gate.yml/dispatches', { ref: 'master', inputs: { prNumber: String(pr.number) } }],
+        [prefix + '/actions/workflows/community-status.yml/dispatches',
+            { ref: 'master', inputs: { prNumber: String(pr.number), expectedHeadSha: pr.head.sha } }],
+    ];
+    assert.deepEqual(dispatches.splice(0), expectedDispatches);
     assert.equal(checkRenewal(pr, files, current, call).operation, 'RENEWAL');
     assert.throws(() => checkRenewal({ ...pr, user: { id: 1, type: 'Bot' } }, files, current, call), /RENEWAL_REQUEST_INVALID/);
     assert.throws(() => checkRenewal(pr, [...files, { filename: 'revocations.json' }], current, call), /RENEWAL_REQUEST_INVALID/);
     const writesBefore = writes.length;
-    assert.equal(createRenewal(current, read, call, now).status, 'EXISTING');
+    assert.equal(requestRenewal(current, read, call, now).status, 'EXISTING');
+    assert.deepEqual(dispatches.splice(0), expectedDispatches);
     pr.state = 'closed';
-    assert.equal(createRenewal(current, read, call, now).status, 'CLOSED');
+    assert.equal(requestRenewal(current, read, call, now).status, 'CLOSED');
+    assert.deepEqual(dispatches, []);
     assert.equal(writes.length, writesBefore);
 });
