@@ -1,14 +1,14 @@
 {
   "schemaVersion": 2,
   "tool": {
-    "version": "1.0.0",
-    "foundationSha256": "b9110bd39a1840544e8c882461aa0a2a2e304176ec64685d9c871fed280fd724"
+    "version": "1.1.0",
+    "foundationSha256": "2022d5c4428d7a323044ddc899c3f378bf7463b70f872750404c58ef4242a754"
   },
   "files": [
     {
       "path": "scripts/apply-generation.mjs",
-      "size": 13839,
-      "sha256": "ab8e2eb87d912f08037283e7d030f217b74436181cb5c73328e896cd585e4b26"
+      "size": 13901,
+      "sha256": "924065bd86773426c3c0c194edf2aaf6c6c153e6d9e9791f707317495805c323"
     },
     {
       "path": "scripts/apply-operations.mjs",
@@ -36,6 +36,11 @@
       "sha256": "52ba01a6ca40f80760706a824f7670d33af3a8d56f59f3604177f2a2b227d23e"
     },
     {
+      "path": "scripts/build-profiles.mjs",
+      "size": 646,
+      "sha256": "1622161aec05c6751d0e20917aba28b10c07316f0ffbd855568a85d934d75093"
+    },
+    {
       "path": "scripts/candidate-transfer.mjs",
       "size": 4373,
       "sha256": "94b8fa73e311c69c0a6a721bdc9bd46865bb3307fcbb80e1aea43c222860f520"
@@ -47,8 +52,8 @@
     },
     {
       "path": "scripts/community-renewal.mjs",
-      "size": 8783,
-      "sha256": "fa32e2536c512f356d6259d16c8aec53d34283b42c7b378f80db2a3f11d043d4"
+      "size": 9303,
+      "sha256": "5babd377184570936872d22997999a49362c188841798600b9969a9f28293c20"
     },
     {
       "path": "scripts/community-tools.mjs",
@@ -82,8 +87,8 @@
     },
     {
       "path": "scripts/foundation-resources.mjs",
-      "size": 13089,
-      "sha256": "8fd625128c8c8cac39ec62a258732dc58bd1dc8c329a8c1e5447413594ce0fcd"
+      "size": 13313,
+      "sha256": "779bdca520a7afadcd16a5aa713c0bd40cfa140e7f2cab35608cbda61d15c186"
     },
     {
       "path": "scripts/github.mjs",
@@ -297,8 +302,8 @@
     },
     {
       "path": "scripts/submit.mjs",
-      "size": 18437,
-      "sha256": "08f724349b3d3626a017369fe0e42c0dff3904c33e51d40a5fbd862df99aa406"
+      "size": 18417,
+      "sha256": "04d2802db3b64ee7eb48b2198f505d17a6b64946a382736c30527d4814ab65b9"
     },
     {
       "path": "scripts/tool-process.mjs",
@@ -342,8 +347,8 @@
     },
     {
       "path": "tools/foundation-lock.json",
-      "size": 42691,
-      "sha256": "b9110bd39a1840544e8c882461aa0a2a2e304176ec64685d9c871fed280fd724"
+      "size": 42823,
+      "sha256": "2022d5c4428d7a323044ddc899c3f378bf7463b70f872750404c58ef4242a754"
     },
     {
       "path": "tools/governance/src/main/java/top/sywyar/pixivdownload/sdk/community/emergency/EmergencyKeyDeclaration.java",
@@ -508,7 +513,7 @@
     {
       "path": "tools/governance/version.json",
       "size": 47,
-      "sha256": "73f84c7f4acfad43f70d00bf0cc90432cf237f9f7c9a2c45a64e62e39b399428"
+      "sha256": "9924c67d89b4b355feadb919badc85ce5b1003822599f32120ac499e159f6d15"
     }
   ]
 }

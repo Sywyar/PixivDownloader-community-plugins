@@ -6,8 +6,9 @@
     {
       "path": "contracts/community/v1/bundle-manifest.json",
       "target": "resources/community/v1/bundle-manifest.json",
+      "sourceCommit": "482951bc19661b66ca7457d92dbfc9c70db7cad3",
       "size": 7673,
-      "sha256": "be8612d15ee2172cfea6de0b358b3e7a4424928570c017a52ec8987d4407de86"
+      "sha256": "fb3436b1d8b016daeebafa3ab70ef2abbcf5ce72b7fe8e67be6b9996bdedbe6c"
     },
     {
       "path": "contracts/community/v1/catalogs.json",
@@ -18,8 +19,9 @@
     {
       "path": "contracts/community/v1/community.schema.json",
       "target": "resources/community/v1/community.schema.json",
-      "size": 75546,
-      "sha256": "e41a621747d7aa8b8a39e4f2f3c6c78bc43dc544ad1cabd6822379c727cccc4e"
+      "sourceCommit": "482951bc19661b66ca7457d92dbfc9c70db7cad3",
+      "size": 75638,
+      "sha256": "b3bb31b64d6cbfc5d7c8efd6f91e17fc1c3774bf7b680d93c914622682f13a5c"
     },
     {
       "path": "contracts/community/v1/licenses/0BSD.txt",

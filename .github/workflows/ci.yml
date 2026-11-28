@@ -25,6 +25,8 @@ jobs:
         run: node scripts/foundation-resources.mjs fetch .
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Verify submission runtime manifest
+        run: node scripts/submission-manifest.mjs
       - name: Verify governance rules
         run: node scripts/test-governance.mjs
       - run: npm test

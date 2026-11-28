@@ -15,6 +15,7 @@ const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const maximum = 64 * 1024 * 1024;
 const relative = value => typeof value === 'string' && value.length <= 512
     && /^[A-Za-z0-9._/-]+$/u.test(value) && value.split('/').every(p => p && p !== '.' && p !== '..');
+const fixedCommit = value => typeof value === 'string' && /^[a-f0-9]{40}$/u.test(value) && !/^0+$/u.test(value);
 
 export function foundationLock(directory = resourceRoot) {
     const file = path.join(directory, 'tools/foundation-lock.json');
@@ -23,7 +24,7 @@ export function foundationLock(directory = resourceRoot) {
     const bytes = fs.readFileSync(file);
     const lock = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     if (lock.schemaVersion !== 1 || lock.repository !== 'Sywyar/PixivDownloader'
-        || !/^[a-f0-9]{40}$/u.test(lock.sourceCommit) || /^0+$/u.test(lock.sourceCommit)
+        || !fixedCommit(lock.sourceCommit)
         || !Array.isArray(lock.files) || !Array.isArray(lock.libraries)
         || !lock.files.length || !lock.libraries.length || lock.files.length + lock.libraries.length > 512) {
         throw new Error('FOUNDATION_LOCK_INVALID');
@@ -33,6 +34,7 @@ export function foundationLock(directory = resourceRoot) {
     for (const [kind, files] of [['source', lock.files], ['library', lock.libraries]]) for (const entry of files) {
         const target = kind === 'source' ? entry.target : 'lib/' + path.posix.basename(entry.path);
         if (!relative(entry.path) || !relative(target) || names.has(target.toLowerCase())
+            || Object.hasOwn(entry, 'sourceCommit') && (kind !== 'source' || !fixedCommit(entry.sourceCommit))
             || !Number.isSafeInteger(entry.size) || entry.size < 1 || (total += entry.size) > maximum
             || !/^[a-f0-9]{64}$/u.test(entry.sha256) || /^0+$/u.test(entry.sha256)
             || kind === 'source' && !/^(src|resources|tools)\//u.test(target)
@@ -81,7 +83,7 @@ export function inputs(lock) {
 }
 
 export function readSourceBatch(lock, entries, deadline, execute = execFileSync) {
-    const fields = entries.map((entry, i) => `f${i}: object(expression: ${JSON.stringify(lock.sourceCommit + ':' + entry.path)}) { ... on Blob { byteSize isBinary text } }`).join('\n');
+    const fields = entries.map((entry, i) => `f${i}: object(expression: ${JSON.stringify((entry.sourceCommit ?? lock.sourceCommit) + ':' + entry.path)}) { ... on Blob { byteSize isBinary text } }`).join('\n');
     const query = `query { repository(owner: "Sywyar", name: "PixivDownloader") { ${fields} } }`;
     // 固定 Blob query 没有 mutation；HTTP POST 复用只读请求的重试和交互恢复。
     const output = githubRequest(timeout => observe('verifyingTools', '', () => execute('gh', ['api', 'graphql', '--input', '-'], {
@@ -118,7 +120,7 @@ export function acquireSources(directory = resourceRoot, call = api) {
         if (bytes === null) {
             const rawRemaining = deadline - Date.now();
             if (rawRemaining <= 0) throw new Error('FOUNDATION_TIMEOUT');
-            const output = githubRequest(timeout => observe('verifyingTools', '', () => call(`repos/${lock.repository}/contents/${entry.path}?ref=${lock.sourceCommit}`,
+            const output = githubRequest(timeout => observe('verifyingTools', '', () => call(`repos/${lock.repository}/contents/${entry.path}?ref=${entry.sourceCommit ?? lock.sourceCommit}`,
                 { repositoryName: lock.repository, raw: true }, (command, args, options) => execFileSync(command, args,
                     { ...options, timeout, maxBuffer: Math.min(32 * 1024 * 1024, Math.ceil(entry.size / 3) * 4 + 16384) }))),
                 { timeout: API_TIMEOUT, deadline });

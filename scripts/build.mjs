@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { buildPolicy, withBuildSandbox } from './build-sandbox.mjs';
+import { policyForProfile, withBuildSandbox } from './build-sandbox.mjs';
+import { buildProfileDetails } from './build-profiles.mjs';
 import { fileSnapshot, fileDifference, dependencyContent } from './build-files.mjs';
 import { pathToFileURL } from 'node:url';
 import { API_BYTES } from './github.mjs';
@@ -10,6 +11,8 @@ import { API_BYTES } from './github.mjs';
 export async function rebuild(sdk, { submission, sourceRoot, packageFile }, tools, directory) {
     const { readModel } = await import(pathToFileURL(path.join(sdk.workspace, 'tools/build-model.mjs')).href);
     const profile = submission.buildProfile;
+    const { modelId } = buildProfileDetails(profile.id);
+    const buildPolicy = policyForProfile(profile.id);
     const pristine = await fileSnapshot(sourceRoot, buildPolicy.diskBytes);
     const original = sdk.invoke({ command: 'inspect', file: packageFile });
     if (original.sha256 !== submission.package.sha256 || original.size !== submission.package.expectedSize) throw new Error('BUILD_ORIGINAL_CHANGED');
@@ -35,7 +38,7 @@ export async function rebuild(sdk, { submission, sourceRoot, packageFile }, tool
             files: dependencyFiles.filter(file => file.path.endsWith('.pom')) });
         const modelFile = path.join(sandbox.writable, 'model-output.txt');
         if (!fs.lstatSync(modelFile).isFile() || fs.statSync(modelFile).size > API_BYTES) throw new Error('BUILD_MODEL_INVALID');
-        const model = readModel(sdk, profile.id, fs.readFileSync(modelFile, 'utf8'), path.join(sandbox.writable, 'effective-pom.xml'));
+        const model = readModel(sdk, modelId, fs.readFileSync(modelFile, 'utf8'), path.join(sandbox.writable, 'effective-pom.xml'));
         const containerProject = path.posix.resolve('/work/source', profile.projectDir);
         if (!Array.isArray(model.artifacts) || !model.artifacts.every(file => typeof file === 'string' && path.posix.isAbsolute(file))) {
             throw new Error('BUILD_MODEL_INVALID');
@@ -63,5 +66,5 @@ export async function rebuild(sdk, { submission, sourceRoot, packageFile }, tool
         fs.copyFileSync(artifact, output, fs.constants.COPYFILE_EXCL);
         return { workspace: sandbox.workspace, artifact: output, package: actual, model, jdkVersion: rebuilt.jdkVersion,
             dependencyFiles, dependencyMetadata, compiledClasses, sourceFiles: pristine, measurements: { prefetch, rebuild: rebuilt } };
-    }, { directory });
+    }, { directory, policy: buildPolicy });
 }

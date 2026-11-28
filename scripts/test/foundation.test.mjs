@@ -16,17 +16,20 @@ const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 
 test('批量源码查询绑定精确路径；只有原始摘要匹配的文本可直接使用', () => {
     const bytes = Buffer.from('class Example {}\r\n');
-    const entries = [{ path: 'module/Example.java', size: bytes.length, sha256: hash(bytes) }];
+    const entries = [{ path: 'module/Example.java', size: bytes.length, sha256: hash(bytes) },
+        { path: 'module/schema.json', sourceCommit: 'b'.repeat(40), size: bytes.length, sha256: hash(bytes) }];
     const lock = { sourceCommit: 'a'.repeat(40) };
-    const response = text => ({ data: { repository: { f0: { byteSize: bytes.length, isBinary: false, text } } } });
+    const response = text => ({ data: { repository: { f0: { byteSize: bytes.length, isBinary: false, text },
+        f1: { byteSize: bytes.length, isBinary: false, text: bytes.toString() } } } });
     const execute = value => (command, args, options) => {
         assert.equal(command, 'gh'); assert.deepEqual(args, ['api', 'graphql', '--input', '-']);
         assert(JSON.parse(options.input).query.includes(lock.sourceCommit + ':module/Example.java'));
+        assert(JSON.parse(options.input).query.includes(entries[1].sourceCommit + ':module/schema.json'));
         assert(options.timeout > 0 && options.timeout <= 1234);
         return JSON.stringify(value);
     };
-    assert.deepEqual(readSourceBatch(lock, entries, Date.now() + 1234, execute(response(bytes.toString()))), [bytes]);
-    assert.deepEqual(readSourceBatch(lock, entries, Date.now() + 1234, execute(response('class Example {}\n'))), [null]);
+    assert.deepEqual(readSourceBatch(lock, entries, Date.now() + 1234, execute(response(bytes.toString()))), [bytes, bytes]);
+    assert.deepEqual(readSourceBatch(lock, entries, Date.now() + 1234, execute(response('class Example {}\n'))), [null, bytes]);
     assert.throws(() => readSourceBatch(lock, entries, Date.now() + 1234, execute({ errors: ['denied'] })), /GITHUB_RESPONSE_INVALID/);
     assert.throws(() => readSourceBatch(lock, entries, Date.now() + 1234, execute({ data: { repository: {} } })), /FOUNDATION_RESOURCE_CHANGED/);
 });
@@ -43,7 +46,8 @@ function fixture(t) {
     let calls = 0, downloads = 0;
     const call = (endpoint, options) => {
         calls++;
-        assert.equal(endpoint, 'repos/Sywyar/PixivDownloader/contents/module/Fixture.java?ref=' + lock.sourceCommit);
+        assert.equal(endpoint, 'repos/Sywyar/PixivDownloader/contents/module/Fixture.java?ref='
+            + (lock.files[0].sourceCommit ?? lock.sourceCommit));
         assert.equal(options.repositoryName, lock.repository);
         assert.equal(options.raw, true);
         return JSON.stringify({ type: 'file', path: lock.files[0].path, size: source.length, encoding: 'base64', content: source.toString('base64') });
@@ -56,6 +60,21 @@ function fixture(t) {
     };
     return { directory, source, jar, lock, write, call, fetch, counts: () => [calls, downloads] };
 }
+
+test('单文件来源通过 Contents 精确读取，不接受可变引用或库来源覆盖', t => {
+    const f = fixture(t);
+    f.lock.files[0].sourceCommit = 'b'.repeat(40);
+    f.write(f.lock);
+    acquireSources(f.directory, f.call);
+    assert.deepEqual(f.counts(), [1, 0]);
+    f.lock.files[0].sourceCommit = 'master';
+    f.write(f.lock);
+    assert.throws(() => foundationLock(f.directory), /FOUNDATION_LOCK_INVALID/u);
+    f.lock.files[0].sourceCommit = 'b'.repeat(40);
+    f.lock.libraries[0].sourceCommit = 'b'.repeat(40);
+    f.write(f.lock);
+    assert.throws(() => foundationLock(f.directory), /FOUNDATION_LOCK_INVALID/u);
+});
 
 test('源码 GraphQL 只读请求在瞬时失败后恢复，自动耗尽保留诊断并允许继续或保存', t => {
     const f = fixture(t);

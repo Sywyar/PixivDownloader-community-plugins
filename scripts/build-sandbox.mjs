@@ -5,8 +5,15 @@ import { execFileSync, spawn } from 'node:child_process';
 import { API_BYTES, API_TIMEOUT } from './github.mjs';
 import { root } from './sdk.mjs';
 import { prepareProxy } from './build-proxy.mjs';
+import { buildProfileDetails } from './build-profiles.mjs';
 
 export const buildPolicy = Object.freeze(JSON.parse(fs.readFileSync(new URL('./build-policy.json', import.meta.url), 'utf8')));
+export function policyForProfile(id) {
+    const { java } = buildProfileDetails(id);
+    const { java25Image, ...policy } = buildPolicy;
+    if (java === '25') policy.image = java25Image;
+    return policy;
+}
 const execute = (command, args) => execFileSync(command, args, { encoding: 'utf8', timeout: API_TIMEOUT,
     maxBuffer: API_BYTES, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim();
 const docker = (...args) => execute('docker', args);

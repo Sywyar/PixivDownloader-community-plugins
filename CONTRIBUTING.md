@@ -25,7 +25,8 @@
 ### 独立治理工具与技术依赖
 
 - `tools/governance/src/main/java/` 维护社区准入、人工裁决、换钥、所有权转移、状态处置、紧急声明、发布记录生成及社区扫描实现，版本由 `tools/governance/version.json` 独立管理。
-- `tools/foundation-lock.json` 固定主仓库共享合同、签名、包解析和构建模型的源码 commit / SHA-256，以及 Maven Central 依赖的长度与 SHA-256（无需下载完整 SDK ZIP 或克隆主仓库）。
+- `tools/foundation-lock.json` 固定主仓库共享合同、签名、包解析和构建模型的源码 commit / SHA-256，以及 Maven Central 依赖的长度与 SHA-256（无需下载完整 SDK ZIP 或克隆主仓库）。共享 Schema 和对应的包清单固定到同一个已发布源码 commit，其余技术输入继续使用清单的默认 commit。
+- 隔离重建根据候选的构建配置使用固定摘要的 Java 17 或 Java 25 镜像。审核记录保留原始配置 ID、实际 JDK 版本和镜像摘要。
 - 本地构建与测试命令（需 Node.js 24+、JDK 17+ 与已登录的 GitHub CLI）：
 
 ```bash

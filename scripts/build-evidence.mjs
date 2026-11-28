@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { root, evidence, hash } from './sdk.mjs';
-import { buildPolicy } from './build-sandbox.mjs';
+import { policyForProfile } from './build-sandbox.mjs';
+import { buildProfileDetails } from './build-profiles.mjs';
 import { fileDifference } from './build-files.mjs';
 import { toolJson } from './tool-process.mjs';
 import { governanceSources } from './community-tools.mjs';
@@ -42,9 +43,10 @@ export function scanBuild(sdk, build, submission, execution, previous = null) {
                 { name: 'pixivdownload:size', value: String(file.size) }] };
     })] });
     const toolchain = JSON.parse(fs.readFileSync(path.join(sdk.workspace, 'contracts/community/v1/bundle-manifest.json'), 'utf8')).toolchain;
-    const tool = submission.buildProfile.id.split('-')[0];
+    const { tool } = buildProfileDetails(submission.buildProfile.id);
+    const { image } = policyForProfile(submission.buildProfile.id);
     const rebuildProofRef = evidence(sdk.workspace, { schemaVersion: 1, sourceCommit: submission.source.commit,
-        jdkVersion: build.jdkVersion, buildToolVersion: toolchain[tool].version, buildImageSha256: buildPolicy.image.split('sha256:')[1],
+        jdkVersion: build.jdkVersion, buildToolVersion: toolchain[tool].version, buildImageSha256: image.split('sha256:')[1],
         dependencyLockRef, packageSize: build.package.size, packageSha256: build.package.sha256, sbomRef, result: 'MATCH' });
     return { ...scanned, sbomRef, dependencyReportRef, licenseReportRef, sourceDiffRef, rebuildProofRef, dependencyLockRef };
 }
