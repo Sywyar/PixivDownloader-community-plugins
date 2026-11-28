@@ -26,16 +26,16 @@ test('Java 25 隔离容器编译、限制资源并结束超时子进程', async 
                 + 'chmod 000 /work/restricted'] });
         assert.equal(fs.readFileSync(path.join(sandbox.writable, 'source/output.txt'), 'utf8'), 'output\n');
         assert.match(stats.jdkVersion, /^25\./u);
-        const source = path.join(sandbox.writable, 'source');
-        fs.writeFileSync(path.join(source, 'Probe.java'), 'public class Probe {}');
-        await sandbox.run({ phase: 'compile', tools: root,
-            command: ['/opt/java/openjdk/bin/javac', '-J-Xmx48m', '--release', '25', 'Probe.java'] });
-        assert.equal(fs.readFileSync(path.join(source, 'Probe.class')).readUInt16BE(6), 69);
         assert.ok(stats.memoryPeakBytes > 0 && stats.memoryPeakBytes <= policy.memoryBytes);
         assert.ok(stats.pidsPeak > 0 && stats.pidsPeak <= policy.pids);
         const diskUsage = fs.statfsSync(sandbox.writable);
         assert.equal(stats.diskBytes, (diskUsage.blocks - diskUsage.bfree) * diskUsage.bsize);
         assert.ok(stats.diskBytes > 1024 * 1024 && stats.diskBytes < policy.diskBytes);
+        const source = path.join(sandbox.writable, 'source');
+        fs.writeFileSync(path.join(source, 'Probe.java'), 'public class Probe {}');
+        await sandbox.run({ phase: 'compile', tools: root,
+            command: ['/opt/java/openjdk/bin/javac', '-J-Xmx48m', '--release', '25', 'Probe.java'] });
+        assert.equal(fs.readFileSync(path.join(source, 'Probe.class')).readUInt16BE(6), 69);
         const modelTools = path.join(directory, 'model-tools');
         for (const folder of ['node/bin', 'maven/bin']) fs.mkdirSync(path.join(modelTools, folder), { recursive: true });
         fs.copyFileSync(process.execPath, path.join(modelTools, 'node/bin/node'));
