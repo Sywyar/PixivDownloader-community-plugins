@@ -7,6 +7,28 @@ import path from 'node:path';
 import { generateKeyPairSync } from 'node:crypto';
 import { prepareSubmission } from './local-sdk.mjs';
 import { root, hash } from '../sdk.mjs';
+import { submissionProfiles } from '../build-profiles.mjs';
+import { policyForProfile } from '../build-sandbox.mjs';
+
+test('已发布 SDK 2.0 的构建标识可读取，历史标识使用原隔离镜像', () => {
+    const sdk = prepareSubmission();
+    const candidate = { schemaVersion: 1, repositoryId: '123', repository: 'example/plugin',
+        sourceCommit: 'a'.repeat(40), runId: '123', runAttempt: 1,
+        buildProfile: { id: 'maven-java25-v1', projectDir: '.', artifactPath: 'target/plugin.jar' },
+        pluginId: 'example-minimal', version: '1.0.0',
+        artifact: { file: 'pixivdownload-plugin-example-minimal-1.0.0.jar', size: 123, sha256: 'b'.repeat(64) } };
+    for (const id of submissionProfiles(['maven-java17-v1', 'gradle-java17-v1', 'sbt-java17-v1'])) {
+        candidate.buildProfile.id = id;
+        assert.deepEqual(sdk.invoke({ command: 'candidate', file: sdk.save(candidate) }), candidate);
+    }
+    candidate.buildProfile.id = 'maven-java99-v1';
+    assert.throws(() => sdk.invoke({ command: 'candidate', file: sdk.save(candidate) }));
+    assert.throws(() => policyForProfile(candidate.buildProfile.id), /BUILD_PROFILE_UNSUPPORTED/u);
+    const java25 = policyForProfile('maven-java25-v1');
+    const java17 = policyForProfile('maven-java17-v1');
+    assert.notEqual(java25.image, java17.image);
+    assert.deepEqual({ ...java25, image: java17.image }, java17);
+});
 
 test('固定 SDK 独立验证真实签名包、描述符、许可证及坏包，插件类不执行', () => {
     const sdk = prepareSubmission();

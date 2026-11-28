@@ -46,7 +46,7 @@ Set-Location -LiteralPath 'D:\Plugins\example'
 irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1' | iex
 ```
 
-1. **选择版本投稿**：向导自动识别工程并拉取当前提交的 CI 候选包核对字节（Actions 产物过期时读取 Draft Release；缺失时可确认重跑默认分支当前提交的 CI）。
+1. **选择版本投稿**：选择与 CI 候选包一致的构建配置，SDK 2.0 工程选 Java 25。向导会拉取当前提交的候选包核对字节（Actions 产物过期时读取 Draft Release；缺失时可确认重跑默认分支当前提交的 CI）。
 2. **核对元数据与许可证**：确认插件版本、能力声明、SPDX 许可证（可选用现有文件或从内置模板创建）、发布者身份以及多语言介绍、分类和标签。
 3. **签名候选包**：选择已有 Ed25519 私钥或生成新密钥对（私钥必须保存在 Git 仓库和临时目录之外并自行备份；支持设置私钥保护口令，向导不保存口令）。
 4. **预览并提交**：核对摘要与完整预览后确认执行。向导将候选包固定到绑定源码 commit 的 Pre-release，自动准备 fork、提交分支并创建投稿 PR。

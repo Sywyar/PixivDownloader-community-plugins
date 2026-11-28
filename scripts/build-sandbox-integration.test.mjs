@@ -3,12 +3,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { buildPolicy, withBuildSandbox } from './build-sandbox.mjs';
+import { policyForProfile, withBuildSandbox } from './build-sandbox.mjs';
 import { root } from './sdk.mjs';
 import { copyBuildScripts } from './build-tools.mjs';
 
-test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进程', async () => {
-    const policy = { ...buildPolicy, cpus: 1, memoryBytes: 128 * 1024 * 1024, diskBytes: 64 * 1024 * 1024,
+test('Java 25 隔离容器编译、限制资源并结束超时子进程', async () => {
+    const profile = 'maven-java25-v1';
+    const policy = { ...policyForProfile(profile), cpus: 1, memoryBytes: 128 * 1024 * 1024, diskBytes: 64 * 1024 * 1024,
         pids: 32, timeoutMs: 10000 };
     let workspace;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'community-sandbox-test-'));
@@ -24,6 +25,12 @@ test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进�
                 + 'mkdir /work/restricted && dd if=/dev/zero of=/work/restricted/data bs=1048576 count=1 && '
                 + 'chmod 000 /work/restricted'] });
         assert.equal(fs.readFileSync(path.join(sandbox.writable, 'source/output.txt'), 'utf8'), 'output\n');
+        assert.match(stats.jdkVersion, /^25\./u);
+        const source = path.join(sandbox.writable, 'source');
+        fs.writeFileSync(path.join(source, 'Probe.java'), 'public class Probe {}');
+        await sandbox.run({ phase: 'compile', tools: root,
+            command: ['/opt/java/openjdk/bin/javac', '-J-Xmx48m', '--release', '25', 'Probe.java'] });
+        assert.equal(fs.readFileSync(path.join(source, 'Probe.class')).readUInt16BE(6), 69);
         assert.ok(stats.memoryPeakBytes > 0 && stats.memoryPeakBytes <= policy.memoryBytes);
         assert.ok(stats.pidsPeak > 0 && stats.pidsPeak <= policy.pids);
         const diskUsage = fs.statfsSync(sandbox.writable);
@@ -43,7 +50,7 @@ test('Linux 实际容器复核资源、拒绝磁盘耗尽并结束超时子进�
                 + 'const s = fs.statfsSync("/work"); console.log((s.blocks - s.bfree) * s.bsize);'] });
         assert.equal(diskStats.diskBytes, Number(fs.readFileSync(path.join(workspace, 'disk-stats.log'), 'utf8').trim()));
         await assert.rejects(sandbox.run({ phase: 'model-failure', tools: modelTools,
-            command: ['/tools/node/bin/node', '/tools/scripts/build-profile.mjs', 'maven-java17-v1', '.', 'none'] }), /BUILD_EXIT_1/u);
+            command: ['/tools/node/bin/node', '/tools/scripts/build-profile.mjs', profile, '.', 'none'] }), /BUILD_EXIT_1/u);
         assert.match(fs.readFileSync(path.join(workspace, 'model-failure.log'), 'utf8'), /MODEL_QUERY_FAILED/u);
         await assert.rejects(sandbox.run({ phase: 'disk-full', tools: root,
             command: ['/bin/dd', 'if=/dev/zero', 'of=/work/full.bin', 'bs=1048576', 'count=128'] }), /BUILD_EXIT_/u);

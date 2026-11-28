@@ -28,11 +28,13 @@ public class WorkflowJson {
     assert.deepEqual(ci.permissions, { contents: 'read' });
     assert.deepEqual(tests.permissions ?? ci.permissions, { contents: 'read' });
     const fetchIndex = tests.steps.findIndex(step => step.run === 'node scripts/foundation-resources.mjs fetch .');
+    const manifestIndex = tests.steps.findIndex(step => step.run === 'node scripts/submission-manifest.mjs');
     const javaIndex = tests.steps.findIndex(step => step.run === 'node scripts/test-governance.mjs');
     const nodeIndex = tests.steps.findIndex(step => step.run === 'npm test');
-    assert(fetchIndex >= 0 && javaIndex > fetchIndex && nodeIndex > javaIndex);
+    assert(fetchIndex >= 0 && manifestIndex > fetchIndex && javaIndex > manifestIndex && nodeIndex > javaIndex);
     assert.deepEqual(tests.steps[fetchIndex].env, { GH_TOKEN: '${{ github.token }}' });
     assert.equal(tests.steps[fetchIndex].if, undefined);
+    assert.equal(tests.steps[manifestIndex].if, undefined);
     assert.equal(tests.steps[javaIndex].if, undefined);
     for (const scope of [ci, ...Object.values(ci.jobs), ...tests.steps.filter((_, i) => i !== fetchIndex), ...ci.jobs.bootstrap.steps]) {
         for (const key of ['GH_TOKEN', 'GITHUB_TOKEN']) assert.equal(scope.env?.[key], undefined);

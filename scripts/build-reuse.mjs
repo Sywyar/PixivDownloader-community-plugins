@@ -2,20 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { root, hash, sdkResource } from './sdk.mjs';
-import { buildPolicy } from './build-sandbox.mjs';
+import { policyForProfile } from './build-sandbox.mjs';
 import { buildToolchain } from './build-tools.mjs';
 import { archivedCandidates, readArchivedCandidate } from './archive-read.mjs';
 
 export function buildInputs(sdk, checked) {
     const toolchain = buildToolchain(sdk);
-    const implementation = ['scripts/build-profile.mjs', 'scripts/build.mjs', 'scripts/build-sandbox.mjs',
+    const implementation = ['scripts/build-profile.mjs', 'scripts/build-profiles.mjs', 'scripts/build.mjs', 'scripts/build-sandbox.mjs',
         'scripts/build-files.mjs', 'scripts/build-tools.mjs', 'scripts/build-proxy.mjs', 'scripts/project.mjs', 'scripts/sdk.mjs',
         'scripts/submission-sdk.mjs', 'scripts/github.mjs', 'scripts/submission-errors.mjs', 'scripts/download.mjs', 'scripts/download-proxy.mjs',
         'tools/build-model.mjs', 'tools/CommunitySubmission.java', 'tools/CommunitySource.java', 'tools/community-model.gradle']
         .map(file => ({ path: file, sha256: hash(fs.readFileSync(file === 'tools/build-model.mjs' || file === 'tools/community-model.gradle'
             ? sdkResource(file) : path.join(root, file))) }));
     return { sourceCommit: checked.submission.source.commit, sourceArchive: checked.submission.source.archive,
-        buildProfile: checked.submission.buildProfile, package: checked.package, toolchain, policy: buildPolicy, implementation };
+        buildProfile: checked.submission.buildProfile, package: checked.package, toolchain,
+        policy: policyForProfile(checked.submission.buildProfile.id), implementation };
 }
 
 export function reusedBuild(sdk, archived, checked, expected) {

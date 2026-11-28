@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { root } from './sdk.mjs';
 import { main, policy } from './github.mjs';
 import { preflight, sourceFacts, git } from './project.mjs';
+import { buildProfileDetails, submissionProfiles } from './build-profiles.mjs';
 import { prepareSubmission } from './submission-sdk.mjs';
 import { terminal, failureCode, failureDetails } from './submission-ui.mjs';
 import { protectedSnapshot, refreshSnapshot, stateReader, eligible, unchanged, github, checkedRepository, requestDetails, authenticationRequired } from './submission-github.mjs';
@@ -172,8 +173,9 @@ export async function runWizard(directory = process.cwd(), { ui: suppliedUi, uiF
             const projects = sdk.invoke({ command: 'projects', gitRoot: project.gitRoot })
                 .filter(item => project.candidates.some(candidate => candidate.projectDir === item.projectDir));
             const selected = projects.length === 1 ? projects[0] : await ui.select('project', projects, item => item.projectDir);
-            const profileLabel = value => ({ 'maven-java17-v1': 'Maven · Java 17', 'gradle-java17-v1': 'Gradle · Java 17', 'sbt-java17-v1': 'sbt · Java 17' })[value] ?? value;
-            const profile = selected.profiles.length === 1 ? selected.profiles[0] : await ui.select('profile', selected.profiles, profileLabel);
+            const profiles = submissionProfiles(selected.profiles);
+            const profileLabel = value => buildProfileDetails(value).label;
+            const profile = await ui.select('profile', profiles, profileLabel);
             ui.say('detected', { projectDir: selected.projectDir, profile: profileLabel(profile) });
             prepared = await prepareRelease(context, { ...selected, project: path.resolve(project.gitRoot, selected.projectDir) }, profile);
             if (!prepared) return { sourceChangeRequired: true };

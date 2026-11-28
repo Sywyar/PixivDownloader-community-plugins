@@ -3,10 +3,11 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { modelArguments } from '../tools/build-model.mjs';
 import { API_BYTES, main } from './github.mjs';
+import { buildProfileDetails } from './build-profiles.mjs';
 
 /** 此入口只在无凭据的构建容器内执行；参数不能提供任意命令。 */
 export function buildProfile(profile, projectDir, proxy) {
-    if (!['maven-java17-v1', 'gradle-java17-v1', 'sbt-java17-v1'].includes(profile)) throw new Error('BUILD_PROFILE_UNSUPPORTED');
+    const { tool, modelId } = buildProfileDetails(profile);
     const project = path.posix.resolve('/work/source', projectDir);
     if (project !== '/work/source' && !project.startsWith('/work/source/')) throw new Error('BUILD_PROJECT_INVALID');
     if (proxy !== 'none' && !/^\d+\.\d+\.\d+\.\d+$/u.test(proxy)) throw new Error('BUILD_PROXY_INVALID');
@@ -30,7 +31,7 @@ export function buildProfile(profile, projectDir, proxy) {
     let executable;
     let options;
     let tasks;
-    if (profile === 'maven-java17-v1') {
+    if (tool === 'maven') {
         const settings = '<settings><mirrors><mirror><id>community-central</id><mirrorOf>*</mirrorOf>'
             + '<url>https://repo.maven.apache.org/maven2</url></mirror></mirrors>'
             + (online ? `<proxies><proxy><id>community</id><active>true</active><protocol>https</protocol><host>${proxy}</host><port>3128</port></proxy></proxies>` : '')
@@ -39,7 +40,7 @@ export function buildProfile(profile, projectDir, proxy) {
         executable = '/tools/maven/bin/mvn';
         options = ['-B', '-ntp', '-s', '/work/settings.xml', '-Dmaven.repo.local=/work/home/.m2/repository', ...(online ? [] : ['-o'])];
         tasks = ['clean', 'verify'];
-    } else if (profile === 'gradle-java17-v1') {
+    } else if (tool === 'gradle') {
         executable = '/tools/gradle/bin/gradle';
         options = ['--no-daemon', '--console=plain', '--no-configuration-cache', '--no-build-cache', '--max-workers=2',
             '-Dorg.gradle.java.installations.auto-download=false', ...(online ? [] : ['--offline'])];
@@ -52,7 +53,7 @@ export function buildProfile(profile, projectDir, proxy) {
         tasks = [...(online ? [] : ['set offline := true']), 'clean', 'test', 'packageBin'];
     }
     run(executable, [...options, ...tasks]);
-    const output = run(executable, [...options, ...modelArguments(profile, '/work/effective-pom.xml', '/tools/tools/community-model.gradle')], true);
+    const output = run(executable, [...options, ...modelArguments(modelId, '/work/effective-pom.xml', '/tools/tools/community-model.gradle')], true);
     fs.writeFileSync('/work/model-output.txt', output, 'utf8');
 }
 

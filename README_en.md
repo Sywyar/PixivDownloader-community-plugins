@@ -46,7 +46,7 @@ Set-Location -LiteralPath 'D:\Plugins\example'
 irm 'https://raw.githubusercontent.com/Sywyar/PixivDownloader-community-plugins/master/tools/submit.ps1' | iex
 ```
 
-1. **Select version submission**: The wizard detects your project and fetches the CI candidate for the current commit (falling back to the Draft Release if Actions artifacts expired, or offering to rerun CI on confirmation).
+1. **Select version submission**. Choose the build profile that matches the CI candidate. For an SDK 2.0 project, choose Java 25. The wizard fetches the candidate for the current commit, falls back to the Draft Release if Actions artifacts have expired, or offers to rerun CI if the candidate is missing.
 2. **Verify metadata and license**: Confirm the plugin version, behavior declarations, SPDX license (use an existing file or generate one from a bundled template), publisher identity, and localized marketplace descriptions, category, and tags.
 3. **Sign the artifact**: Choose an existing Ed25519 private key or generate a new key pair (keep private keys outside Git repositories and temporary folders and back them up; passphrases are never stored by the wizard).
 4. **Preview and submit**: Confirm the summary and full diff preview. The wizard promotes the verified candidate to a commit-bound Pre-release in your source repository, prepares your fork and branch, and opens the review PR.
